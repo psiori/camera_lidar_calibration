@@ -12,6 +12,9 @@ BUILD_DIR="${APP_REPO}/build"
 
 export CONAN_HOME
 
+unset CMAKE_PREFIX_PATH
+unset PKG_CONFIG_PATH
+
 if ! command -v conan >/dev/null 2>&1; then
   echo "Conan not found. Run install-deps.sh first."
   exit 1

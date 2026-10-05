@@ -10,3 +10,4 @@ build_type=Release
 [conf]
 tools.build:cflags=["-march=native", "-mtune=native"]
 tools.build:cxxflags=["-march=native", "-mtune=native"]
+tools.cmake.cmaketoolchain:extra_variables={'CMAKE_IGNORE_PREFIX_PATH': '/opt/homebrew;/usr/local'}

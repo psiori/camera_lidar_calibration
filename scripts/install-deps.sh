@@ -11,6 +11,10 @@ CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export CONAN_HOME
 
+# Prevent Homebrew/system CMake packages from shadowing Conan dependencies.
+unset CMAKE_PREFIX_PATH
+unset PKG_CONFIG_PATH
+
 ensure_conan() {
   if command -v conan >/dev/null 2>&1; then
     return
@@ -62,6 +66,7 @@ read -r -a PROFILE <<< "$(profile_args)"
 BUILD_PROFILE=(-pr:b=default)
 MARCH_OPTS=(-o "&:build_with_march_native=True" -o "gtsam/*:build_with_march_native=True")
 OPENCV_OPTS=(-o "opencv/*:with_ffmpeg=False" -o "opencv/*:with_gtk=False")
+SPDLOG_OPTS=(-o "spdlog/*:header_only=False")
 CONAN_BUILD=(--build=missing)
 
 echo "Using CONAN_HOME=${CONAN_HOME}"
@@ -76,7 +81,7 @@ conan create "${CALIB_SRC}/gtsam_points" --name=gtsam_points --version=1.2.2 \
   -o "gtsam_points/*:build_with_cuda=False"
 
 conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" "${SPDLOG_OPTS[@]}" \
   -o "glim/*:build_with_viewer=False" \
   -o "glim/*:build_with_cuda=False" \
   -o "glim/*:build_with_march_native=True" \
