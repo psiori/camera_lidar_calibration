@@ -1,5 +1,5 @@
 from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 
 
 class GtsamConan(ConanFile):
@@ -13,6 +13,10 @@ class GtsamConan(ConanFile):
     }
     default_options = {"shared": True, "fPIC": True, "build_with_march_native": True}
 
+    def requirements(self):
+        self.requires("eigen/3.4.0")
+        self.requires("boost/1.83.0")
+
     def layout(self):
         cmake_layout(self)
 
@@ -23,6 +27,8 @@ class GtsamConan(ConanFile):
         tc.variables["GTSAM_WITH_TBB"] = False
         tc.variables["GTSAM_BUILD_WITH_MARCH_NATIVE"] = self.options.build_with_march_native
         tc.generate()
+        deps = CMakeDeps(self)
+        deps.generate()
 
     def build(self):
         cmake = CMake(self)
@@ -32,3 +38,7 @@ class GtsamConan(ConanFile):
     def package(self):
         cmake = CMake(self)
         cmake.install()
+
+    def package_info(self):
+        self.cpp_info.set_property("cmake_file_name", "GTSAM")
+        self.cpp_info.set_property("cmake_target_name", "gtsam::gtsam")
