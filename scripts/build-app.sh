@@ -22,11 +22,16 @@ if [[ ! -d "${APP_REPO}/.git" ]]; then
     "git@github.com:${GITHUB_ORG}/camera_lidar_calibration.git" "${APP_REPO}"
 fi
 
-PROFILE_ARGS=()
+PROFILE_ARGS=(-pr:b=default)
 if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "${APP_REPO}/conan/profiles/native-macos" ]]; then
-  PROFILE_ARGS=(-pr:h="${APP_REPO}/conan/profiles/native-macos")
+  PROFILE_ARGS+=(-pr:h="${APP_REPO}/conan/profiles/native-macos")
 elif [[ -f "${APP_REPO}/conan/profiles/native" ]]; then
-  PROFILE_ARGS=(-pr:h="${APP_REPO}/conan/profiles/native")
+  PROFILE_ARGS+=(-pr:h="${APP_REPO}/conan/profiles/native")
+fi
+
+if [[ ! -d "${CONAN_HOME}/p" ]] && ! conan list "gtsam/4.3a1" 2>/dev/null | grep -q gtsam; then
+  echo "Conan cache is empty. Run install-deps.sh first."
+  exit 1
 fi
 
 conan install "${APP_REPO}" \
@@ -34,6 +39,8 @@ conan install "${APP_REPO}" \
   -s build_type=Release \
   "${PROFILE_ARGS[@]}" \
   -of "${BUILD_DIR}" \
+  -o "opencv/*:with_ffmpeg=False" \
+  -o "opencv/*:with_gtk=False" \
   -o "camera_lidar_calibration/*:build_clc_app=True" \
   -o "camera_lidar_calibration/*:build_with_march_native=True" \
   -o "camera_lidar_calibration/*:clc_dev_build=False"

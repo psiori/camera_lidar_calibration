@@ -28,6 +28,10 @@ class CameraLidarCalibrationConan(ConanFile):
         if self.options.build_clc_app:
             self.requires("qt/6.7.3")
 
+    def configure(self):
+        self.options["opencv"].with_ffmpeg = False
+        self.options["opencv"].with_gtk = False
+
     def layout(self):
         cmake_layout(self)
 

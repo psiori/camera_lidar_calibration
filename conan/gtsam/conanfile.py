@@ -40,5 +40,9 @@ class GtsamConan(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.set_property("cmake_file_name", "GTSAM")
-        self.cpp_info.set_property("cmake_target_name", "gtsam::gtsam")
+        self.cpp_info.set_property("cmake_find_mode", "none")
+        self.cpp_info.includedirs = ["include"]
+        self.cpp_info.libdirs = ["lib"]
+        self.cpp_info.libs = ["gtsam", "gtsam_unstable"]
+        self.cpp_info.builddirs.append("lib/cmake/GTSAM")
+        self.cpp_info.builddirs.append("lib/cmake/GTSAM_UNSTABLE")

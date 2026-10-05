@@ -49,11 +49,6 @@ clone_or_update() {
   fi
 }
 
-common_opts() {
-  echo "-s" "build_type=Release" "$(profile_args)" \
-    -o "&:build_with_march_native=True"
-}
-
 ensure_conan
 conan profile detect --force >/dev/null 2>&1 || true
 
@@ -64,28 +59,31 @@ for repo in gtsam gtsam_points glim direct_visual_lidar_calibration; do
 done
 
 read -r -a PROFILE <<< "$(profile_args)"
+BUILD_PROFILE=(-pr:b=default)
 MARCH_OPTS=(-o "&:build_with_march_native=True" -o "gtsam/*:build_with_march_native=True")
+OPENCV_OPTS=(-o "opencv/*:with_ffmpeg=False" -o "opencv/*:with_gtk=False")
+CONAN_BUILD=(--build=missing)
 
 echo "Using CONAN_HOME=${CONAN_HOME}"
 echo "Building Conan packages from ${CALIB_SRC}"
 
 conan create "${CALIB_SRC}/gtsam" --name=gtsam --version=4.3a1 \
-  -s build_type=Release "${PROFILE[@]}" "${MARCH_OPTS[@]}"
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MARCH_OPTS[@]}" "${CONAN_BUILD[@]}"
 
 conan create "${CALIB_SRC}/gtsam_points" --name=gtsam_points --version=1.2.2 \
-  -s build_type=Release "${PROFILE[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" \
   -o "gtsam_points/*:build_with_march_native=True" \
   -o "gtsam_points/*:build_with_cuda=False"
 
 conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
-  -s build_type=Release "${PROFILE[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" \
   -o "glim/*:build_with_viewer=False" \
   -o "glim/*:build_with_cuda=False" \
   -o "glim/*:build_with_march_native=True" \
   -o "glim/*:build_glim_cloud_fusion=True"
 
 conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version=0.1.0 \
-  -s build_type=Release "${PROFILE[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" \
   -o "vlcal_align/*:build_with_viewer=False" \
   -o "vlcal_align/*:build_with_march_native=True" \
   -o "vlcal_align/*:build_vlcal_preprocess=True"
