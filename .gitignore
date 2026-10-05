@@ -1,0 +1,5 @@
+build/
+.conan-prefix/
+.cache/
+*.user
+*.autosave
