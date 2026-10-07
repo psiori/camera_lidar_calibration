@@ -7,7 +7,7 @@
 #   2. Create CALIB_SRC if it does not exist.
 #   3. For each repo in the stack (gtsam, gtsam_points, glim,
 #      direct_visual_lidar_calibration, camera_lidar_calibration):
-#        a. If already cloned: fetch origin, check out CALIB_BRANCH, optionally pull.
+#        a. If already cloned: fetch remotes, check out CALIB_BRANCH, pull only when behind upstream.
 #        b. If not cloned: git clone with --recurse-submodules on CALIB_BRANCH.
 #        c. Initialize any git submodules declared in .gitmodules.
 #   4. Print the resolved paths and branch for confirmation.
@@ -17,14 +17,14 @@
 #   CALIB_BRANCH       — Branch to check out (default: feature/camera-lidar-calibration-libs).
 #   GITHUB_ORG         — GitHub organization (default: psiori).
 #   GIT_URL_SCHEME     — "ssh" (default) or "https" for clone URLs.
-#   CALIB_UPDATE_REPOS — Set to "true" to pull latest on existing clones (default: false).
+#   CALIB_UPDATE_REPOS — Pull latest on existing clones when remote is ahead (default: true).
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CALIB_SRC="${CALIB_SRC:-$(cd "${CLC_ROOT}/.." && pwd)}"
-CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-false}"
+CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-true}"
 CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 GIT_URL_SCHEME="${GIT_URL_SCHEME:-ssh}"

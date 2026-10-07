@@ -22,7 +22,7 @@
 #   CALIB_BRANCH       — Git branch to check out (default: feature/camera-lidar-calibration-libs).
 #   GITHUB_ORG         — GitHub org for cloning (default: psiori).
 #   CALIB_MARCH_NATIVE — Pass -march=native to builds (default: True).
-#   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: false).
+#   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: true).
 #
 set -euo pipefail
 
@@ -33,9 +33,10 @@ CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
 CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
-CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-false}"
+CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-true}"
 
 export CONAN_HOME
+export CALIB_UPDATE_REPOS
 
 ensure_conan() {
   if command -v conan >/dev/null 2>&1; then
