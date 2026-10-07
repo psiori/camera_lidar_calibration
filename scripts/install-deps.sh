@@ -111,7 +111,8 @@ conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
   -o "glim/*:build_glim_cloud_fusion=True"
 
 conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version=0.1.0 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" \
+  --build=vlcal_align/* \
   -o "vlcal_align/*:build_with_viewer=False" \
   -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "vlcal_align/*:build_vlcal_preprocess=True"

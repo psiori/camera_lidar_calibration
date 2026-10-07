@@ -96,7 +96,10 @@ conan install "${APP_REPO}" \
   -of "${BUILD_DIR}" \
   -o "camera_lidar_calibration/*:build_clc_app=True" \
   -o "camera_lidar_calibration/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
-  -o "camera_lidar_calibration/*:clc_dev_build=False"
+  -o "camera_lidar_calibration/*:clc_dev_build=False" \
+  -o "vlcal_align/*:build_with_viewer=False" \
+  -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
+  -o "vlcal_align/*:build_vlcal_preprocess=True"
 
 GENERATORS_DIR="${BUILD_DIR}/build/Release/generators"
 BREW_PREFIX_PATH="$(brew_cmake_prefix_path)"

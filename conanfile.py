@@ -59,6 +59,8 @@ class CameraLidarCalibrationConan(ConanFile):
     def configure(self):
         self.options["pcl"].with_qt = False
         self.options["pcl"].with_vtk = False
+        self.options["vlcal_align"].build_vlcal_preprocess = True
+        self.options["vlcal_align"].build_with_viewer = False
 
     def requirements(self):
         self.requires("vlcal_align/0.1.0")
