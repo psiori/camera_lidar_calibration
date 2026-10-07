@@ -97,6 +97,7 @@ conan install "${APP_REPO}" \
   -o "camera_lidar_calibration/*:build_clc_app=True" \
   -o "camera_lidar_calibration/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "camera_lidar_calibration/*:clc_dev_build=False" \
+  -o "vlcal_align/*:shared=False" \
   -o "vlcal_align/*:build_with_viewer=False" \
   -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "vlcal_align/*:build_vlcal_preprocess=True"
