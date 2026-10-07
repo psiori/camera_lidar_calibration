@@ -3,9 +3,40 @@ import sys
 
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.files import copy
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "conan"))
 from calib_deps import apply_conan_gtsam_toolchain, apply_macos_toolchain
+
+_EXPORT_EXCLUDES = (
+    ".git",
+    ".git/*",
+    "build",
+    "build/*",
+    "build_*",
+    "build_*/*",
+    "install",
+    "install/*",
+    "cmake-build-*",
+    ".cache",
+    ".cache/*",
+    ".vscode",
+    ".idea",
+    "__pycache__",
+    "__pycache__/*",
+    "*.pyc",
+    ".DS_Store",
+    "conanbuild.sh",
+    "conanbuildenv-*",
+    "conanrun.sh",
+    "conanrunenv-*",
+    "deactivate_conanbuild.sh",
+    "deactivate_conanrun.sh",
+    "compile_commands.json",
+    "CMakeUserPresets.json",
+    "third_party",
+    "third_party/*",
+)
 
 
 class CameraLidarCalibrationConan(ConanFile):
@@ -22,7 +53,8 @@ class CameraLidarCalibrationConan(ConanFile):
         "build_with_march_native": True,
         "clc_dev_build": False,
     }
-    exports_sources = "*"
+    def export_sources(self):
+        copy(self, "*", self.recipe_folder, self.export_sources_folder, excludes=_EXPORT_EXCLUDES)
 
     def configure(self):
         self.options["pcl"].with_qt = False

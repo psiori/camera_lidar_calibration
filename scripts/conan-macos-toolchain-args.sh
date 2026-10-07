@@ -1,5 +1,16 @@
-#true!/usr/bin/env bash
-# Print Conan -c arguments for the calibration-stack macOS toolchain (or nothing).
+#!/usr/bin/env bash
+#
+# conan-macos-toolchain-args.sh — Emit Conan toolchain config for macOS builds.
+#
+# What this script does, step by step:
+#   1. Exit with no output on non-macOS systems (Linux builds do not need this).
+#   2. Run conan/emit_toolchain_conf.py to generate a toolchain configuration string
+#      that points Conan at Homebrew OpenCV, OpenMP (libomp), and Qt6 paths.
+#   3. Print the result as null-delimited Conan -c arguments for the caller to consume.
+#
+# This script is sourced by install-deps.sh and build-app.sh via process substitution.
+# It produces no output on Linux; on macOS it supplies -c <toolchain_conf> to conan.
+#
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

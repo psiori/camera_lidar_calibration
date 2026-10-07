@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+#
+# conan-prefix.sh — Full build-and-test using a project-local Conan cache.
+#
+# What this script does, step by step:
+#   1. Set CALIB_SRC to the parent of this repo (or use the CALIB_SRC env var).
+#   2. Point CONAN_HOME at <CALIB_SRC>/camera_lidar_calibration/.conan-prefix
+#      so packages are cached inside the project tree instead of ~/.calib-conan.
+#   3. Run install-deps.sh to build all library dependencies into that local cache.
+#   4. Run `conan install` for the camera_lidar_calibration app with clc_app enabled.
+#   5. Configure CMake with the generated Conan toolchain (Ninja, Release).
+#   6. Build the project.
+#   7. Run ctest to verify the build.
+#
+# Use this for isolated, reproducible builds where the Conan cache lives in-repo.
+# For the default shared cache workflow, use install-deps.sh + build-app.sh instead.
+#
 set -euo pipefail
 
 CALIB_SRC="${CALIB_SRC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"

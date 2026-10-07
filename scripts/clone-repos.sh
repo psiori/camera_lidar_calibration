@@ -1,8 +1,30 @@
 #!/usr/bin/env bash
-# Clone or update all calibration repositories under CALIB_SRC.
+#
+# clone-repos.sh — Clone or update all calibration source repositories.
+#
+# What this script does, step by step:
+#   1. Resolve CALIB_SRC (parent directory for all repos) and git settings.
+#   2. Create CALIB_SRC if it does not exist.
+#   3. For each repo in the stack (gtsam, gtsam_points, glim,
+#      direct_visual_lidar_calibration, camera_lidar_calibration):
+#        a. If already cloned: fetch origin, check out CALIB_BRANCH, optionally pull.
+#        b. If not cloned: git clone with --recurse-submodules on CALIB_BRANCH.
+#        c. Initialize any git submodules declared in .gitmodules.
+#   4. Print the resolved paths and branch for confirmation.
+#
+# Environment variables (all optional):
+#   CALIB_SRC          — Directory where repos are cloned (default: parent of this repo).
+#   CALIB_BRANCH       — Branch to check out (default: feature/camera-lidar-calibration-libs).
+#   GITHUB_ORG         — GitHub organization (default: psiori).
+#   GIT_URL_SCHEME     — "ssh" (default) or "https" for clone URLs.
+#   CALIB_UPDATE_REPOS — Set to "true" to pull latest on existing clones (default: false).
+#
 set -euo pipefail
 
-CALIB_SRC="${CALIB_SRC:-$HOME/source_builds}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CALIB_SRC="${CALIB_SRC:-$(cd "${CLC_ROOT}/.." && pwd)}"
+CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-false}"
 CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 GIT_URL_SCHEME="${GIT_URL_SCHEME:-ssh}"
@@ -41,7 +63,9 @@ clone_or_update() {
     git -C "${CALIB_SRC}/${repo}" fetch origin
     git -C "${CALIB_SRC}/${repo}" checkout "${CALIB_BRANCH}" 2>/dev/null \
       || git -C "${CALIB_SRC}/${repo}" checkout -B "${CALIB_BRANCH}" "origin/${CALIB_BRANCH}"
-    git -C "${CALIB_SRC}/${repo}" pull --ff-only origin "${CALIB_BRANCH}" || true
+    if [[ "${CALIB_UPDATE_REPOS}" == "true" ]]; then
+      git -C "${CALIB_SRC}/${repo}" pull --ff-only origin "${CALIB_BRANCH}" || true
+    fi
   else
     echo "Cloning ${repo}..."
     git clone --recurse-submodules --branch "${CALIB_BRANCH}" "${url}" "${CALIB_SRC}/${repo}"

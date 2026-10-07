@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
-# Install Homebrew packages used as prebuilt system dependencies on macOS.
+#
+# ensure-brew-deps.sh — Install required Homebrew packages on macOS.
+#
+# What this script does, step by step:
+#   1. Exit immediately on non-macOS systems (Linux uses system/Conan packages instead).
+#   2. Verify Homebrew is installed; print install instructions and exit if missing.
+#   3. Check which required formulae are not yet installed:
+#        opencv, qt@6, libomp, ninja
+#   4. Install any missing packages with `brew install`.
+#   5. Print the Homebrew prefix and Qt6 CMake path for downstream scripts.
+#
+# This script is called by install-deps.sh and build-app.sh before any Conan or CMake work.
+#
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

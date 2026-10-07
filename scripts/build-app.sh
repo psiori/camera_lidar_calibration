@@ -1,8 +1,34 @@
 #!/usr/bin/env bash
-# Build clc_app with Conan-provided libraries and Homebrew system dependencies.
+#
+# build-app.sh — Configure and build the camera_lidar_calibration application (clc_app).
+#
+# What this script does, step by step:
+#   1. Resolve paths and environment variables (CALIB_SRC, CONAN_HOME, build flags).
+#   2. Verify Conan is installed (run install-deps.sh first if not).
+#   3. Clone the camera_lidar_calibration app repo if it is not already present.
+#   4. Install macOS Homebrew packages via ensure-brew-deps.sh.
+#   5. Select the Conan host profile (native-macos on Darwin, native elsewhere).
+#   6. On macOS, load OpenCV/OpenMP/Qt toolchain hints from conan-macos-toolchain-args.sh.
+#   7. Verify the Conan cache has the required packages (gtsam, etc.).
+#   8. Run `conan install` to generate CMake toolchain files and fetch dependencies.
+#   9. Configure CMake with Ninja, pointing at the Conan toolchain and Homebrew Qt/OpenCV.
+#  10. Build clc_app with all available CPU cores.
+#  11. Print the path to the built binary.
+#
+# Prerequisites: run install-deps.sh first to populate the Conan cache.
+#
+# Environment variables (all optional):
+#   CALIB_SRC          — Parent directory holding all cloned repos.
+#   CONAN_HOME         — Conan cache directory (default: ~/.calib-conan).
+#   CALIB_BRANCH       — Git branch for the app repo.
+#   GITHUB_ORG         — GitHub org for cloning.
+#   CALIB_MARCH_NATIVE — Enable -march=native in the app build (default: True).
+#
 set -euo pipefail
 
-CALIB_SRC="${CALIB_SRC:-$HOME/source_builds}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CALIB_SRC="${CALIB_SRC:-$(cd "${CLC_ROOT}/.." && pwd)}"
 CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
@@ -11,7 +37,6 @@ CMAKE_MARCH_NATIVE=OFF
 if [[ "${CALIB_MARCH_NATIVE}" == "True" || "${CALIB_MARCH_NATIVE}" == "ON" || "${CALIB_MARCH_NATIVE}" == "1" ]]; then
   CMAKE_MARCH_NATIVE=ON
 fi
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_REPO="${CALIB_SRC}/camera_lidar_calibration"
 BUILD_DIR="${APP_REPO}/build"
 

@@ -1,14 +1,39 @@
 #!/usr/bin/env bash
-# Build and cache calibration library dependencies with Conan + Homebrew system libs.
+#
+# install-deps.sh — Build and cache all calibration library dependencies with Conan.
+#
+# What this script does, step by step:
+#   1. Resolve paths and environment variables (CALIB_SRC, CONAN_HOME, branch, etc.).
+#   2. Ensure Conan 2 is installed (via pip3 or pipx if missing).
+#   3. Install macOS Homebrew packages (opencv, qt@6, libomp, ninja) via ensure-brew-deps.sh because building them with Conan is a lengthy process
+#   4. Detect or create a Conan host profile (native-macos on Darwin, native elsewhere).
+#   5. Clone or update all source repos (gtsam, gtsam_points, glim, etc.) via clone-repos.sh.
+#   6. On macOS, load OpenCV/OpenMP/Qt toolchain hints from conan-macos-toolchain-args.sh. These are used to build the libraries with the correct flags.
+#   7. Build and install each library into the Conan cache with `conan create`:
+#        - gtsam 4.3a1
+#        - gtsam_points 1.2.2 (CPU only, no CUDA)
+#        - glim 1.2.2 (no viewer, no CUDA, with cloud fusion)
+#        - direct_visual_lidar_calibration / vlcal_align 0.1.0 
+#   8. Print where packages were cached and how to build the app next.
+#
+# Environment variables (all optional):
+#   CALIB_SRC          — Parent directory holding all cloned repos (default: parent of this repo).
+#   CONAN_HOME         — Conan cache directory (default: ~/.calib-conan).
+#   CALIB_BRANCH       — Git branch to check out (default: feature/camera-lidar-calibration-libs).
+#   GITHUB_ORG         — GitHub org for cloning (default: psiori).
+#   CALIB_MARCH_NATIVE — Pass -march=native to builds (default: True).
+#   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: false).
+#
 set -euo pipefail
 
-CALIB_SRC="${CALIB_SRC:-$HOME/source_builds}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CALIB_SRC="${CALIB_SRC:-$(cd "${CLC_ROOT}/.." && pwd)}"
 CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
 CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-false}"
 
 export CONAN_HOME
 
