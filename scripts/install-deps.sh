@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# Build and cache all calibration library dependencies with Conan.
+# Build and cache calibration library dependencies with Conan + Homebrew system libs.
 set -euo pipefail
 
 CALIB_SRC="${CALIB_SRC:-$HOME/source_builds}"
 CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
+CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export CONAN_HOME
-
-# Prevent Homebrew/system CMake packages from shadowing Conan dependencies.
-unset CMAKE_PREFIX_PATH
-unset PKG_CONFIG_PATH
 
 ensure_conan() {
   if command -v conan >/dev/null 2>&1; then
@@ -40,57 +37,57 @@ profile_args() {
   fi
 }
 
-clone_or_update() {
-  local repo="$1"
-  local url="git@github.com:${GITHUB_ORG}/${repo}.git"
-  if [[ -d "${CALIB_SRC}/${repo}/.git" ]]; then
-    git -C "${CALIB_SRC}/${repo}" fetch origin
-    git -C "${CALIB_SRC}/${repo}" checkout "${CALIB_BRANCH}" 2>/dev/null \
-      || git -C "${CALIB_SRC}/${repo}" checkout -B "${CALIB_BRANCH}" "origin/${CALIB_BRANCH}"
-    git -C "${CALIB_SRC}/${repo}" pull --ff-only origin "${CALIB_BRANCH}" || true
-  else
-    git clone --branch "${CALIB_BRANCH}" "${url}" "${CALIB_SRC}/${repo}"
+macos_toolchain_conf_args() {
+  MACOS_TOOLCHAIN_CONF=()
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return
   fi
+  while IFS= read -r -d '' arg; do
+    MACOS_TOOLCHAIN_CONF+=("${arg}")
+  done < <(bash "${SCRIPT_DIR}/conan-macos-toolchain-args.sh" || true)
+}
+
+clone_or_update() {
+  bash "${SCRIPT_DIR}/clone-repos.sh"
 }
 
 ensure_conan
+bash "${SCRIPT_DIR}/ensure-brew-deps.sh"
 conan profile detect --force >/dev/null 2>&1 || true
 
 mkdir -p "${CALIB_SRC}" "${CONAN_HOME}"
 
-for repo in gtsam gtsam_points glim direct_visual_lidar_calibration; do
-  clone_or_update "${repo}"
-done
+clone_or_update
 
 read -r -a PROFILE <<< "$(profile_args)"
+macos_toolchain_conf_args
 BUILD_PROFILE=(-pr:b=default)
-MARCH_OPTS=(-o "&:build_with_march_native=True" -o "gtsam/*:build_with_march_native=True")
-OPENCV_OPTS=(-o "opencv/*:with_ffmpeg=False" -o "opencv/*:with_gtk=False")
-SPDLOG_OPTS=(-o "spdlog/*:header_only=False")
 CONAN_BUILD=(--build=missing)
 
 echo "Using CONAN_HOME=${CONAN_HOME}"
 echo "Building Conan packages from ${CALIB_SRC}"
+echo "Stack toolchain (OpenCV, OpenMP, Qt hints) comes from camera_lidar_calibration/conan/."
 
 conan create "${CALIB_SRC}/gtsam" --name=gtsam --version=4.3a1 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MARCH_OPTS[@]}" "${CONAN_BUILD[@]}"
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
+  -o "gtsam/*:build_with_march_native=${CALIB_MARCH_NATIVE}"
 
 conan create "${CALIB_SRC}/gtsam_points" --name=gtsam_points --version=1.2.2 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" \
-  -o "gtsam_points/*:build_with_march_native=True" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
+  -o "gtsam_points/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "gtsam_points/*:build_with_cuda=False"
 
 conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" "${SPDLOG_OPTS[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
   -o "glim/*:build_with_viewer=False" \
   -o "glim/*:build_with_cuda=False" \
-  -o "glim/*:build_with_march_native=True" \
+  -o "glim/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "glim/*:build_glim_cloud_fusion=True"
 
 conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version=0.1.0 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${CONAN_BUILD[@]}" "${OPENCV_OPTS[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
   -o "vlcal_align/*:build_with_viewer=False" \
-  -o "vlcal_align/*:build_with_march_native=True" \
+  -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "vlcal_align/*:build_vlcal_preprocess=True"
 
 echo "Conan dependency packages are ready in ${CONAN_HOME}"

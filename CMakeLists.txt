@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 4.4.0)
 project(camera_lidar_calibration VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_CLC_APP "Build Qt QML application" ON)
-option(BUILD_WITH_MARCH_NATIVE "Enable -march=native" ON)
+option(BUILD_WITH_MARCH_NATIVE "Enable -march=native" OFF)
 option(CLC_DEV_BUILD "Link against sibling source build trees" ON)
 
 if(BUILD_WITH_MARCH_NATIVE)

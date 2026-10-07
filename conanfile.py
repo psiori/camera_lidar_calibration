@@ -1,5 +1,11 @@
+import os
+import sys
+
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "conan"))
+from calib_deps import apply_conan_gtsam_toolchain, apply_macos_toolchain
 
 
 class CameraLidarCalibrationConan(ConanFile):
@@ -18,19 +24,21 @@ class CameraLidarCalibrationConan(ConanFile):
     }
     exports_sources = "*"
 
+    def configure(self):
+        self.options["pcl"].with_qt = False
+        self.options["pcl"].with_vtk = False
+
     def requirements(self):
         self.requires("vlcal_align/0.1.0")
         self.requires("glim/1.2.2")
+        self.requires("gtsam/4.3a1")
         self.requires("pcl/1.14.1")
-        self.requires("opencv/4.10.0")
+        self.requires("ceres-solver/2.2.0")
         self.requires("eigen/3.4.0")
+        self.requires("fmt/10.2.1", override=True)
+        self.requires("spdlog/1.12.0")
+        self.requires("boost/1.83.0")
         self.requires("nlohmann_json/3.11.3")
-        if self.options.build_clc_app:
-            self.requires("qt/6.7.3")
-
-    def configure(self):
-        self.options["opencv"].with_ffmpeg = False
-        self.options["opencv"].with_gtk = False
 
     def layout(self):
         cmake_layout(self)
@@ -40,6 +48,8 @@ class CameraLidarCalibrationConan(ConanFile):
         tc.variables["BUILD_CLC_APP"] = self.options.build_clc_app
         tc.variables["BUILD_WITH_MARCH_NATIVE"] = self.options.build_with_march_native
         tc.variables["CLC_DEV_BUILD"] = self.options.clc_dev_build
+        apply_macos_toolchain(tc)
+        apply_conan_gtsam_toolchain(tc, self)
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()

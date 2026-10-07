@@ -2,12 +2,7 @@
 os=Macos
 arch=armv8
 compiler=apple-clang
-compiler.version=17
-compiler.cppstd=gnu17
+compiler.version=13
+compiler.cppstd=17
 compiler.libcxx=libc++
 build_type=Release
-
-[conf]
-tools.build:cflags=["-march=native", "-mtune=native"]
-tools.build:cxxflags=["-march=native", "-mtune=native"]
-tools.cmake.cmaketoolchain:extra_variables={'CMAKE_IGNORE_PREFIX_PATH': '/opt/homebrew;/usr/local'}
