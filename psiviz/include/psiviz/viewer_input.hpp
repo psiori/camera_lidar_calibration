@@ -16,6 +16,7 @@ enum class InputAction {
   CameraDolly,
   CameraSpin,
   CameraFlyTo,
+  CameraFrameContent,
   CameraReset,
   PointSizeDelta,
   PickPoint,

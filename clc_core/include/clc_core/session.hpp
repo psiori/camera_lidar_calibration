@@ -60,8 +60,11 @@ struct SessionData {
   std::vector<DatasetEntry> inspection_datasets;
 
   void ensurePrimaryCalibration();
+  void ensurePrimaryInspection();
   void syncPrimaryFromLegacy();
   void syncLegacyFromPrimary();
+  void syncInspectionPrimaryFromLegacy();
+  void syncLegacyFromInspectionPrimary();
 };
 
 bool save_session(const std::string& path, const SessionData& session);

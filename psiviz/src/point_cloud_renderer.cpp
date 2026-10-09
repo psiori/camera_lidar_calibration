@@ -6,7 +6,9 @@
 #include <vector>
 
 #include <QColor>
+#include <QDebug>
 #include <QFile>
+#include <QMatrix4x4>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
 
@@ -164,6 +166,11 @@ void PointCloudRenderer::ensurePipeline(QRhiRenderTarget* rt) {
   QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/pointcloud.frag.qsb"),
                           QStringLiteral(":/psiviz/shaders/shaders/pointcloud.frag.qsb")});
   if (!vs.isValid() || !fs.isValid()) {
+    static bool warned = false;
+    if (!warned) {
+      qWarning("psiviz: point cloud shaders failed to load (vert=%d frag=%d)", vs.isValid(), fs.isValid());
+      warned = true;
+    }
     return;
   }
 
@@ -201,13 +208,16 @@ void PointCloudRenderer::ensurePipeline(QRhiRenderTarget* rt) {
   }
   if (rt && res.pipeline) {
     QRhiRenderPassDescriptor* const pass = rt->renderPassDescriptor();
-    if (res.pipeline->renderPassDescriptor() != pass) {
+    if (res.pipeline->renderPassDescriptor() != pass || !pipeline_ready_) {
       res.pipeline->setRenderPassDescriptor(pass);
-      res.pipeline->create();
-      pipeline_ready_ = true;
-    } else if (!pipeline_ready_) {
-      res.pipeline->create();
-      pipeline_ready_ = true;
+      pipeline_ready_ = res.pipeline->create();
+      if (!pipeline_ready_) {
+        static bool warned = false;
+        if (!warned) {
+          qWarning("psiviz: point cloud pipeline creation failed");
+          warned = true;
+        }
+      }
     }
   }
 }
@@ -372,6 +382,8 @@ void PointCloudRenderer::uploadPointCloud(const PointCloudData& data, QRhiRender
   }
   void* ptr = vb->beginFullDynamicBufferUpdateForCurrentFrame();
   if (!ptr) {
+    qWarning("psiviz: point cloud vertex buffer update failed (count=%llu)",
+             static_cast<unsigned long long>(data.point_count));
     point_count_ = 0;
     return;
   }
@@ -396,7 +408,8 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   cb->draw(point_count_);
 
   const int px = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_x_) * pick_dpr_)), 0, fb_w - 1);
-  const int py = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_y_) * pick_dpr_)), 0, fb_h - 1);
+  const int py_qt = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_y_) * pick_dpr_)), 0, fb_h - 1);
+  const int py = fb_h - 1 - py_qt;
   QRhiReadbackDescription rb(res.pick_color.get());
   QRhiReadbackResult result;
   bool done = false;
@@ -433,7 +446,12 @@ void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& ca
   const int fb_h = fb.height() > 0 ? fb.height() : std::max(1, height_);
 
   UniformBlock ub{};
-  const Eigen::Matrix4f mvp = camera.projectionMatrix() * camera.viewMatrix();
+  Eigen::Matrix4f clip_corr = Eigen::Matrix4f::Identity();
+  if (rhi_) {
+    const QMatrix4x4 qt_corr = rhi_->clipSpaceCorrMatrix();
+    std::memcpy(clip_corr.data(), qt_corr.constData(), sizeof(float) * 16);
+  }
+  const Eigen::Matrix4f mvp = clip_corr * camera.projectionMatrix() * camera.viewMatrix();
   std::memcpy(ub.mvp, mvp.data(), sizeof(ub.mvp));
   ub.pointSize = camera.pointSize();
   ub.blendWeight = blend_weight_;

@@ -44,9 +44,20 @@ ApplicationWindow {
             font.pixelSize: 18
         }
 
-        Label {
-            text: controller.statusMessage
+        RowLayout {
             Layout.fillWidth: true
+            spacing: 8
+            BusyIndicator {
+                id: busySpinner
+                running: controller.busyWorking
+                visible: controller.busyWorking
+                Layout.preferredWidth: visible ? 28 : 0
+                Layout.preferredHeight: 28
+            }
+            Label {
+                Layout.fillWidth: true
+                text: controller.statusMessage
+            }
         }
 
         ButtonGroup {
@@ -66,7 +77,10 @@ ApplicationWindow {
                 checked: true
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
-                onClicked: tabStack.currentIndex = 0
+                onClicked: {
+                    tabStack.currentIndex = 0
+                    controller.inspectionMode = false
+                }
                 background: Rectangle {
                     radius: 6
                     color: calibTabBtn.checked ? "#3d5a80" : "#d8d8dc"
@@ -89,7 +103,10 @@ ApplicationWindow {
                 checked: false
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
-                onClicked: tabStack.currentIndex = 1
+                onClicked: {
+                    tabStack.currentIndex = 1
+                    controller.inspectionMode = true
+                }
                 background: Rectangle {
                     radius: 6
                     color: inspectTabBtn.checked ? "#3d5a80" : "#d8d8dc"
@@ -106,26 +123,27 @@ ApplicationWindow {
             }
         }
 
-        StackLayout {
-            id: tabStack
+        SplitView {
+            id: workSplit
+            orientation: Qt.Horizontal
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: 0
-            onCurrentIndexChanged: {
-                calibTabBtn.checked = (currentIndex === 0)
-                inspectTabBtn.checked = (currentIndex === 1)
-            }
 
-            SplitView {
-                id: calibSplit
-                orientation: Qt.Horizontal
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            StackLayout {
+                id: tabStack
+                SplitView.minimumWidth: 280
+                SplitView.preferredWidth: workSplit.width > 0 ? workSplit.width * 0.5 : 400
+                currentIndex: 0
+                onCurrentIndexChanged: {
+                    calibTabBtn.checked = (currentIndex === 0)
+                    inspectTabBtn.checked = (currentIndex === 1)
+                    controller.inspectionMode = (currentIndex === 1)
+                }
 
                 ScrollView {
                     id: calibControlsScroll
-                    SplitView.minimumWidth: 280
-                    SplitView.preferredWidth: calibSplit.width > 0 ? calibSplit.width * 0.5 : 400
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     clip: true
                     contentWidth: availableWidth
 
@@ -295,11 +313,12 @@ ApplicationWindow {
                                 RowLayout {
                                     Button {
                                         text: "Run fusion"
-                                        enabled: !controller.fusionBlocked
+                                        enabled: !controller.fusionBlocked && !controller.busyWorking
                                         onClicked: controller.runFusion()
                                     }
                                     Button {
                                         text: "Run alignment"
+                                        enabled: !controller.busyWorking
                                         onClicked: controller.runAlignment()
                                     }
                                 }
@@ -313,42 +332,80 @@ ApplicationWindow {
                                 }
                             }
                         }
+
+                        Expansion {
+                            Layout.fillWidth: true
+                            title: "Initial guess"
+                            expanded: false
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    text: "Shift+click a 3D point, then click the matching pixel on the camera image. "
+                                        + "Use the gizmo for coarse alignment; estimate refines from 3+ pairs."
+                                }
+                                Label {
+                                    text: "Correspondences: " + controller.correspondenceCount
+                                        + (controller.pendingCorrespondence3d ? " (pick image…)" : "")
+                                }
+                                RowLayout {
+                                    Button {
+                                        text: "Estimate from correspondences"
+                                        enabled: controller.correspondenceCount >= 3
+                                        onClicked: controller.estimateInitialGuessFromCorrespondences()
+                                    }
+                                    Button {
+                                        text: "Clear"
+                                        onClicked: controller.clearCorrespondences()
+                                    }
+                                }
+                                Item {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 120
+                                    visible: controller.imagePath.length > 0
+                                    Image {
+                                        id: corrImage
+                                        anchors.fill: parent
+                                        fillMode: Image.PreserveAspectFit
+                                        source: controller.imagePath.length > 0 ? ("file://" + controller.imagePath) : ""
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            enabled: controller.pendingCorrespondence3d
+                                            onClicked: function(mouse) {
+                                                if (corrImage.sourceSize.width <= 0) return
+                                                const sx = corrImage.paintedWidth / corrImage.sourceSize.width
+                                                const sy = corrImage.paintedHeight / corrImage.sourceSize.height
+                                                const ox = (corrImage.width - corrImage.paintedWidth) * 0.5
+                                                const oy = (corrImage.height - corrImage.paintedHeight) * 0.5
+                                                const u = (mouse.x - ox) / sx
+                                                const v = (mouse.y - oy) / sy
+                                                controller.pickImageCorrespondence(u, v)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
-                Item {
-                    SplitView.fillWidth: true
-                    SplitView.minimumWidth: 320
-                    SplitView.preferredWidth: calibSplit.width > 0 ? calibSplit.width * 0.5 : 400
+                ScrollView {
+                    id: inspectScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentWidth: availableWidth
 
-                    PointCloudScene {
-                        id: cloudView
-                        anchors.fill: parent
-                        gizmoEnabled: true
-                        focus: true
-                        Component.onCompleted: Qt.callLater(controller.setViewer, cloudView)
-                    }
-
-                    ViewerOverlay {
-                        cloudView: cloudView
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.margins: 10
-                    }
-                }
-            }
-
-            ScrollView {
-                id: inspectScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                contentWidth: availableWidth
-
-                ColumnLayout {
-                    width: inspectScroll.availableWidth
-                    spacing: 8
-                    Label { text: "Inspection uses the same dataset paths as Calibration." }
+                    ColumnLayout {
+                        width: inspectScroll.availableWidth
+                        spacing: 8
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: "Inspection datasets are stored separately in the session. "
+                                + "Fusion uses the global mask; overlay uses the saved extrinsic (not NID)."
+                        }
                     Expansion {
                         Layout.fillWidth: true
                         title: "Dataset"
@@ -377,11 +434,60 @@ ApplicationWindow {
                             }
                             Button {
                                 text: "Fuse inspection scans"
-                                enabled: !controller.fusionBlocked
+                                enabled: !controller.fusionBlocked && !controller.busyWorking
                                 onClicked: controller.runFusion()
+                            }
+                            Button {
+                                text: "Export colored PCD"
+                                enabled: controller.pointCount > 0
+                                onClicked: controller.exportInspectionColoredPcd()
                             }
                         }
                     }
+                    }
+                }
+            }
+
+            FocusScope {
+                id: viewerPane
+                SplitView.fillWidth: true
+                SplitView.minimumWidth: 320
+                SplitView.preferredWidth: workSplit.width > 0 ? workSplit.width * 0.5 : 400
+                focus: true
+
+                HoverHandler {
+                    id: viewerHover
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onHoveredChanged: {
+                        if (hovered) {
+                            viewerPane.forceActiveFocus()
+                        }
+                    }
+                }
+
+                Keys.onPressed: (event) => {
+                    if (!viewerHover.hovered || viewerOverlay.keysBlocked) {
+                        return
+                    }
+                    if (cloudView.handleNavigationKey(event.key, event.modifiers)) {
+                        event.accepted = true
+                    }
+                }
+
+                PointCloudScene {
+                    id: cloudView
+                    anchors.fill: parent
+                    gizmoEnabled: !controller.inspectionMode
+                    focus: false
+                    Component.onCompleted: Qt.callLater(controller.setViewer, cloudView)
+                }
+
+                ViewerOverlay {
+                    id: viewerOverlay
+                    cloudView: cloudView
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 10
                 }
             }
         }

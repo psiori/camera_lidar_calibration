@@ -71,6 +71,25 @@ Run:
 ~/source_builds/camera_lidar_calibration/build/clc_app/clc_app
 ```
 
+### App workflow (v1)
+
+1. **Session** — choose a session directory, **Load** / **Save** (`session.json` with calibration + inspection datasets, mask path, extrinsics, fusion/scan-time params).
+2. **Calibration tab** — set image, PCD folder, intrinsics; edit global mask; tune fusion + scan time; **Run fusion** (live preview in the 3D viewer).
+3. **Initial guess** — drag the pose gizmo and/or add Shift+pick 3D + image correspondences, then **Estimate from correspondences** (3+ pairs).
+4. **Run alignment** (NID) — optimizes `T_camera_lidar`; viewer colors update during progress.
+5. **Inspection tab** — separate test image/PCD paths; fuse and export colored PCD using the saved extrinsic (no NID by default).
+
+Manual acceptance checks: [docs/UAT-checklist.md](docs/UAT-checklist.md).
+
+### `psiviz` (in-repo Qt Quick / QRhi viewer)
+
+Built automatically when `BUILD_CLC_APP=ON`. Targets:
+
+- `psiviz` — static library + QML module (`PointCloudScene`, trackball camera, depth pick, pose gizmo).
+- `psiviz_scene_test` — minimal render smoke test.
+
+Unit tests for `clc_core` (mask, colormap, session I/O, single-scan fusion): `clc_core_tests` via CTest after configure.
+
 ## Repositories / branches
 
 | Project | psiori repo | Branch |

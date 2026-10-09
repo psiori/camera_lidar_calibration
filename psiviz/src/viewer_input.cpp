@@ -119,6 +119,8 @@ InputResult ViewerInputRouter::keyPress(const QKeyEvent& event) {
     result.action = InputAction::CameraReset;
   } else if (event.key() == Qt::Key_F) {
     result.action = InputAction::CameraFlyTo;
+  } else if (event.key() == Qt::Key_H || event.key() == Qt::Key_Home) {
+    result.action = InputAction::CameraFrameContent;
   } else if (event.key() == Qt::Key_Plus || event.key() == Qt::Key_Equal) {
     camera_.adjustPointSize(0.5f);
     result.action = InputAction::PointSizeDelta;

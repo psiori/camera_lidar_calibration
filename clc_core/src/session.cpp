@@ -72,6 +72,12 @@ void SessionData::ensurePrimaryCalibration() {
   }
 }
 
+void SessionData::ensurePrimaryInspection() {
+  if (inspection_datasets.empty()) {
+    inspection_datasets.emplace_back();
+  }
+}
+
 void SessionData::syncPrimaryFromLegacy() {
   ensurePrimaryCalibration();
   auto& d = calibration_datasets.front();
@@ -83,6 +89,22 @@ void SessionData::syncPrimaryFromLegacy() {
 void SessionData::syncLegacyFromPrimary() {
   ensurePrimaryCalibration();
   const auto& d = calibration_datasets.front();
+  image_path = d.image_path;
+  cloud_directory = d.cloud_directory;
+  pcd_paths = d.pcd_paths;
+}
+
+void SessionData::syncInspectionPrimaryFromLegacy() {
+  ensurePrimaryInspection();
+  auto& d = inspection_datasets.front();
+  d.image_path = image_path;
+  d.cloud_directory = cloud_directory;
+  d.pcd_paths = pcd_paths;
+}
+
+void SessionData::syncLegacyFromInspectionPrimary() {
+  ensurePrimaryInspection();
+  const auto& d = inspection_datasets.front();
   image_path = d.image_path;
   cloud_directory = d.cloud_directory;
   pcd_paths = d.pcd_paths;

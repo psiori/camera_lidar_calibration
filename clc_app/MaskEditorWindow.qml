@@ -42,20 +42,14 @@ Window {
             Item { Layout.fillWidth: true }
         }
 
-        RowLayout {
+        ColormapRangeSlider {
             Layout.fillWidth: true
-            Label { text: qsTr("Colormap min") }
-            TextField {
-                implicitWidth: 72
-                text: String(controller.rangeColormapMin)
-                onEditingFinished: controller.rangeColormapMin = parseFloat(text)
-            }
-            Label { text: qsTr("max") }
-            TextField {
-                implicitWidth: 72
-                text: String(controller.rangeColormapMax)
-                onEditingFinished: controller.rangeColormapMax = parseFloat(text)
-            }
+            dataMin: controller.rangeDataMin
+            dataMax: controller.rangeDataMax
+            rangeMin: controller.rangeColormapMin
+            rangeMax: controller.rangeColormapMax
+            onRangeLive: (minValue, maxValue) => controller.previewRangeColormapRange(minValue, maxValue)
+            onRangeCommitted: (minValue, maxValue) => controller.commitRangeColormapRange(minValue, maxValue)
         }
 
         RowLayout {
@@ -106,7 +100,8 @@ Window {
             maskData: controller.maskPreview
             maskWidth: controller.maskWidth
             maskHeight: controller.maskHeight
-            onPolygonCommitted: function(verts) { controller.commitMaskPolygon(verts) }
+            maskController: controller
+            closedPolygonOverlay: controller.pendingMaskPolygonVertices
         }
 
         Connections {

@@ -12,7 +12,7 @@ JET lookup table (`size()` entries, RGB float 0–1). Used by the point cloud fr
 
 ## `psiviz::TrackballCamera`
 
-View navigation with PCL-style bindings. Methods: `rotate`, `pan`, `dolly`, `spin`, `reset`, `flyTo`, `viewMatrix`, `projectionMatrix`, `fitToBounds`.
+View navigation with PCL-style bindings. Methods: `rotate`, `pan`, `dolly`, `spin`, `reset`, `flyTo`, `viewMatrix`, `projectionMatrix`, `fitToBounds`. Use `PointCloudItem::frameCameraToContent()` (or `H` / `Home`) to fit the camera to loaded points; data uploads do not reframe automatically.
 
 ## `psiviz::DepthPicker`
 

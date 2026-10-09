@@ -1,5 +1,7 @@
 #include "range_image_item.hpp"
 
+#include "app_controller.hpp"
+
 #include <limits>
 
 #include <QPainter>
@@ -114,7 +116,6 @@ void RangeImageItem::setImage(const QImage& image) {
   }
   image_ = image;
   cancelPolygon();
-  clearPendingPolygon();
   updateImplicitHeight();
   update();
   emit imageChanged();
@@ -161,6 +162,23 @@ void RangeImageItem::setFillBounds(bool fill) {
   updateImplicitHeight();
   update();
   emit fillBoundsChanged();
+}
+
+void RangeImageItem::setClosedPolygonOverlay(const QVariantList& vertices) {
+  if (closed_polygon_overlay_ == vertices) {
+    return;
+  }
+  closed_polygon_overlay_ = vertices;
+  update();
+  emit closedPolygonOverlayChanged();
+}
+
+void RangeImageItem::setMaskController(QObject* controller) {
+  if (mask_controller_ == controller) {
+    return;
+  }
+  mask_controller_ = controller;
+  emit maskControllerChanged();
 }
 
 QRectF RangeImageItem::imageDestRect() const {
@@ -335,6 +353,9 @@ void RangeImageItem::closePolygon() {
   setDrawing(false);
   has_hover_ = false;
   update();
+  if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
+    controller->commitMaskPolygonNative(pending_closed_native_vertices_);
+  }
   emit polygonCommitted(verts);
 }
 
@@ -358,6 +379,9 @@ void RangeImageItem::addVertexAtDisplay(const QPointF& display) {
     return;
   }
   if (!pending_closed_native_vertices_.empty()) {
+    return;
+  }
+  if (!closed_polygon_overlay_.empty()) {
     return;
   }
   const QPointF first_display = current_native_vertices_.empty()
@@ -447,7 +471,26 @@ void RangeImageItem::paint(QPainter* painter) {
     }
   };
 
-  if (!pending_closed_native_vertices_.empty()) {
+  auto variantListToNative = [](const QVariantList& list) {
+    std::vector<QPointF> out;
+    out.reserve(static_cast<std::size_t>(list.size()));
+    for (const QVariant& v : list) {
+      if (v.canConvert<QPointF>()) {
+        out.push_back(v.toPointF());
+        continue;
+      }
+      const QVariantMap map = v.toMap();
+      if (map.contains(QLatin1String("x")) && map.contains(QLatin1String("y"))) {
+        out.emplace_back(map.value(QLatin1String("x")).toDouble(), map.value(QLatin1String("y")).toDouble());
+      }
+    }
+    return out;
+  };
+
+  const std::vector<QPointF> overlay_from_controller = variantListToNative(closed_polygon_overlay_);
+  if (!overlay_from_controller.empty()) {
+    draw_polygon_overlay(overlay_from_controller, true);
+  } else if (!pending_closed_native_vertices_.empty()) {
     draw_polygon_overlay(pending_closed_native_vertices_, true);
   }
   if (!current_native_vertices_.empty()) {

@@ -3,6 +3,8 @@
 #include <functional>
 #include <vector>
 
+#include <clc_core/session.hpp>
+
 #include <camera/generic_camera_base.hpp>
 #include <opencv2/core.hpp>
 #include <vlcal/calib/visual_camera_calibration.hpp>
@@ -29,6 +31,14 @@ struct InitialGuessResult {
   std::string message;
   Eigen::Isometry3d T_camera_lidar = Eigen::Isometry3d::Identity();
 };
+
+struct ManualGuessInput {
+  camera::GenericCameraBase::ConstPtr camera;
+  std::vector<PointCorrespondence> correspondences;
+  Eigen::Isometry3d gizmo_T_camera_lidar = Eigen::Isometry3d::Identity();
+};
+
+InitialGuessResult compute_manual_initial_guess(const ManualGuessInput& input);
 
 InitialGuessResult compute_initial_guess(InitialGuessMethod method);
 

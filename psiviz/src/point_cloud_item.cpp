@@ -27,6 +27,10 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
 
   void synchronize(QQuickRhiItem* item) override {
     auto* cloud_item = static_cast<PointCloudItem*>(item);
+    if (camera_sync_from_render_) {
+      cloud_item->camera_ = render_camera_;
+      camera_sync_from_render_ = false;
+    }
     cloud_item->updateViewport();
 
     {
@@ -71,10 +75,6 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     cloud_item->emit_pose_ = false;
 
     synchronizePick(cloud_item);
-    if (fly_applied_) {
-      cloud_item->camera_ = camera_;
-      fly_applied_ = false;
-    }
   }
 
   void render(QRhiCommandBuffer* cb) override {
@@ -89,6 +89,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     if (do_pick_) {
       renderer_->requestPick(pick_x_, pick_y_, static_cast<float>(dpr_));
     }
+    camera_.tick(1.f / 60.f);
     renderer_->render(cb, camera_, gizmo_, renderTarget());
 
     if (do_pick_) {
@@ -107,7 +108,10 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       if (pt) {
         camera_.flyTo(*pt);
       }
-      fly_applied_ = true;
+    }
+    render_camera_ = camera_;
+    if (camera_.isFlying()) {
+      camera_sync_from_render_ = true;
     }
   }
 
@@ -141,8 +145,9 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
   float last_depth_{1.f};
   std::optional<Eigen::Vector3f> picked_point_;
   bool fly_to_{false};
-  bool fly_applied_{false};
   bool emit_pose_{false};
+  TrackballCamera render_camera_;
+  bool camera_sync_from_render_{false};
 };
 
 PointCloudItem::PointCloudItem(QQuickItem* parent) : QQuickRhiItem(parent) {
@@ -199,6 +204,16 @@ void PointCloudItem::setInteractionEnabled(bool e) {
   emit interactionEnabledChanged();
 }
 
+bool PointCloudItem::hasPointCloudContent() const {
+  std::lock_guard lock(cloud_mutex_);
+  return pending_cloud_.point_count > 0;
+}
+
+std::uint64_t PointCloudItem::pointCloudPointCount() const {
+  std::lock_guard lock(cloud_mutex_);
+  return pending_cloud_.point_count;
+}
+
 void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QVector<float>& scalars,
                                        const QVector<float>& rgb) {
   if (positions.isEmpty()) {
@@ -233,7 +248,9 @@ void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QV
     bounds_max.z() = std::max(bounds_max.z(), z);
   }
   if (bounds_min.x() <= bounds_max.x()) {
-    camera_.fitToBounds(bounds_min, bounds_max);
+    content_bounds_min_ = bounds_min;
+    content_bounds_max_ = bounds_max;
+    content_bounds_valid_ = true;
   }
   {
     std::lock_guard lock(cloud_mutex_);
@@ -241,6 +258,33 @@ void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QV
     cloud_dirty_ = true;
     ++cloud_revision_;
   }
+  update();
+}
+
+void PointCloudItem::updatePointCloudScalarsAndColors(const QVector<float>& scalars, const QVector<float>& rgb) {
+  std::lock_guard lock(cloud_mutex_);
+  if (pending_cloud_.point_count == 0) {
+    return;
+  }
+  const auto count = pending_cloud_.point_count;
+  pending_cloud_.scalars.assign(scalars.begin(), scalars.end());
+  if (pending_cloud_.scalars.size() < count) {
+    pending_cloud_.scalars.resize(count, 0.f);
+  }
+  pending_cloud_.rgb.assign(rgb.begin(), rgb.end());
+  if (pending_cloud_.rgb.size() < count * 3) {
+    pending_cloud_.rgb.resize(count * 3, 0.5f);
+  }
+  cloud_dirty_ = true;
+  ++cloud_revision_;
+  update();
+}
+
+void PointCloudItem::frameCameraToContent() {
+  if (!content_bounds_valid_) {
+    return;
+  }
+  camera_.fitToBounds(content_bounds_min_, content_bounds_max_);
   update();
 }
 
@@ -281,28 +325,49 @@ void PointCloudItem::updateViewport() {
   camera_.setViewport(static_cast<int>(width()), static_cast<int>(height()), static_cast<float>(dpr));
 }
 
+bool PointCloudItem::handleNavigationKey(int key, int modifiers) {
+  QKeyEvent key_event(QEvent::KeyPress, static_cast<int>(key), static_cast<Qt::KeyboardModifiers>(modifiers));
+  return processNavigationKey(&key_event);
+}
+
+bool PointCloudItem::processNavigationKey(QKeyEvent* key_event) {
+  const InputResult result = input_.keyPress(*key_event);
+  if (result.action == InputAction::PointSizeDelta) {
+    emit pointSizeChanged();
+    update();
+    return true;
+  }
+  if (result.action == InputAction::CameraFlyTo) {
+    pick_x_ = static_cast<int>(last_mouse_.x());
+    pick_y_ = static_cast<int>(last_mouse_.y());
+    do_pick_ = true;
+    fly_to_ = true;
+    update();
+    return true;
+  }
+  if (result.action == InputAction::CameraReset) {
+    update();
+    return true;
+  }
+  if (result.action == InputAction::CameraFrameContent) {
+    frameCameraToContent();
+    return true;
+  }
+  return false;
+}
+
 bool PointCloudItem::event(QEvent* event) {
   const int w = std::max(1, static_cast<int>(width()));
   const int h = std::max(1, static_cast<int>(height()));
 
+  if (event->type() == QEvent::HoverMove) {
+    const auto* hover = static_cast<QHoverEvent*>(event);
+    last_mouse_ = hover->position();
+    return false;
+  }
+
   if (event->type() == QEvent::KeyPress) {
-    const auto* key_event = static_cast<QKeyEvent*>(event);
-    const InputResult result = input_.keyPress(*key_event);
-    if (result.action == InputAction::PointSizeDelta) {
-      emit pointSizeChanged();
-      update();
-      return true;
-    }
-    if (result.action == InputAction::CameraFlyTo) {
-      pick_x_ = static_cast<int>(last_mouse_.x());
-      pick_y_ = static_cast<int>(last_mouse_.y());
-      do_pick_ = true;
-      fly_to_ = true;
-      update();
-      return true;
-    }
-    if (result.action == InputAction::CameraReset) {
-      update();
+    if (processNavigationKey(static_cast<QKeyEvent*>(event))) {
       return true;
     }
   }

@@ -3,8 +3,12 @@
 #include <cstdint>
 #include <mutex>
 
+#include <Eigen/Core>
+
 #include <QPointF>
 #include <QQuickRhiItem>
+
+class QKeyEvent;
 #include <QtQml/qqmlregistration.h>
 
 #include "psiviz/point_cloud_buffers.hpp"
@@ -39,11 +43,18 @@ class PointCloudItem : public QQuickRhiItem {
   void setGizmoEnabled(bool e);
   bool interactionEnabled() const { return interaction_enabled_; }
   void setInteractionEnabled(bool e);
+  [[nodiscard]] bool hasPointCloudContent() const;
+  [[nodiscard]] std::uint64_t pointCloudPointCount() const;
 
   Q_INVOKABLE void setPointCloudData(const QVector<float>& positions, const QVector<float>& scalars,
                                      const QVector<float>& rgb);
+  /// Updates scalar/RGB buffers only; keeps camera and positions unchanged.
+  Q_INVOKABLE void updatePointCloudScalarsAndColors(const QVector<float>& scalars, const QVector<float>& rgb);
+  Q_INVOKABLE void frameCameraToContent();
   Q_INVOKABLE QVariantList poseMatrix() const;
   Q_INVOKABLE void setPoseMatrix(const QVariantList& values);
+  /// Navigation keys (`f`, `+`, `-`, `r`, `h`) for QML forwarding when the pointer is over the viewport.
+  Q_INVOKABLE bool handleNavigationKey(int key, int modifiers);
 
  signals:
   void blendWeightChanged();
@@ -61,6 +72,7 @@ class PointCloudItem : public QQuickRhiItem {
  private:
   friend class PointCloudRendererItem;
   void updateViewport();
+  bool processNavigationKey(QKeyEvent* key_event);
 
   int pick_x_{0};
   int pick_y_{0};
@@ -72,10 +84,13 @@ class PointCloudItem : public QQuickRhiItem {
   TrackballCamera camera_;
   PoseGizmo gizmo_;
   ViewerInputRouter input_{camera_, gizmo_};
-  std::mutex cloud_mutex_;
+  mutable std::mutex cloud_mutex_;
   PointCloudData pending_cloud_;
   bool cloud_dirty_{false};
   std::uint64_t cloud_revision_{0};
+  bool content_bounds_valid_{false};
+  Eigen::Vector3f content_bounds_min_{0.f, 0.f, 0.f};
+  Eigen::Vector3f content_bounds_max_{0.f, 0.f, 0.f};
   double blend_weight_{0.};
   double scalar_min_{0.};
   double scalar_max_{1.};

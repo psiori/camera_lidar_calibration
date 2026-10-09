@@ -7,6 +7,7 @@
 
 namespace psiviz {
 
+/// View navigation matching VTK vtkInteractorStyleTrackballCamera (Azimuth/Elevation about focal).
 class TrackballCamera {
  public:
   TrackballCamera();
@@ -22,6 +23,7 @@ class TrackballCamera {
   void reset();
   void flyTo(const Eigen::Vector3f& target, float duration_sec = 0.35f);
   void tick(float dt_sec);
+  [[nodiscard]] bool isFlying() const { return fly_t_ < 1.f; }
 
   [[nodiscard]] Eigen::Matrix4f viewMatrix() const;
   [[nodiscard]] Eigen::Matrix4f projectionMatrix() const;
@@ -31,11 +33,13 @@ class TrackballCamera {
   void adjustPointSize(float delta) { point_size_ = std::max(1.f, point_size_ + delta); }
 
  private:
+  void orthogonalizeViewUp();
+  void setOrbitFromForward(float orbit_distance);
+  [[nodiscard]] float orbitDistance() const;
+
+  Eigen::Vector3f position_{0.f, -2.96f, -9.55f};
   Eigen::Vector3f focal_{0.f, 0.f, 0.f};
-  float distance_{10.f};
-  float yaw_{0.f};
-  float pitch_{0.3f};
-  float roll_{0.f};
+  Eigen::Vector3f view_up_{0.f, 1.f, 0.f};
   float point_size_{2.f};
   int width_{1};
   int height_{1};
@@ -43,11 +47,13 @@ class TrackballCamera {
   float fovy_deg_{60.f};
   float z_near_{0.01f};
   float z_far_{1000.f};
+  float motion_factor_{10.f};
 
   Eigen::Vector3f fly_target_{};
+  Eigen::Vector3f fly_start_focal_{};
+  Eigen::Vector3f fly_start_position_{};
   float fly_t_{1.f};
   float fly_duration_{0.35f};
-  Eigen::Vector3f fly_start_focal_{};
 };
 
 }  // namespace psiviz

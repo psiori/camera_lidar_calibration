@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Quick ShaderTools GuiPrivate)
+find_package(Qt6 REQUIRED COMPONENTS Quick ShaderTools GuiPrivate Test)
 find_package(Eigen3 REQUIRED)
 
 qt_add_library(psiviz STATIC)
@@ -50,3 +50,9 @@ target_link_libraries(psiviz
 install(TARGETS psiviz EXPORT camera_lidar_calibrationTargets
   LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
+
+qt_add_executable(psiviz_scene_test tests/point_cloud_scene_test.cpp)
+target_link_libraries(psiviz_scene_test PRIVATE psiviz psivizplugin Qt6::Quick Qt6::Test)
+
+qt_add_executable(psiviz_trackball_test tests/trackball_camera_test.cpp)
+target_link_libraries(psiviz_trackball_test PRIVATE psiviz Qt6::Test)

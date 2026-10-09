@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QPointF>
+#include <QVariant>
 #include <QQuickPaintedItem>
 #include <QtQml/qqmlregistration.h>
 #include <vector>
@@ -15,6 +16,9 @@ class RangeImageItem : public QQuickPaintedItem {
   Q_PROPERTY(int maskHeight READ maskHeight WRITE setMaskHeight NOTIFY maskDataChanged)
   Q_PROPERTY(bool drawing READ drawing NOTIFY drawingChanged)
   Q_PROPERTY(bool fillBounds READ fillBounds WRITE setFillBounds NOTIFY fillBoundsChanged)
+  Q_PROPERTY(QVariantList closedPolygonOverlay READ closedPolygonOverlay WRITE setClosedPolygonOverlay
+                 NOTIFY closedPolygonOverlayChanged)
+  Q_PROPERTY(QObject* maskController READ maskController WRITE setMaskController NOTIFY maskControllerChanged)
 
  public:
   explicit RangeImageItem(QQuickItem* parent = nullptr);
@@ -30,6 +34,10 @@ class RangeImageItem : public QQuickPaintedItem {
   bool drawing() const { return drawing_; }
   bool fillBounds() const { return fill_bounds_; }
   void setFillBounds(bool fill);
+  QVariantList closedPolygonOverlay() const { return closed_polygon_overlay_; }
+  void setClosedPolygonOverlay(const QVariantList& vertices);
+  QObject* maskController() const { return mask_controller_; }
+  void setMaskController(QObject* controller);
 
   Q_INVOKABLE void undoVertex();
   Q_INVOKABLE void closePolygon();
@@ -41,6 +49,8 @@ class RangeImageItem : public QQuickPaintedItem {
   void maskDataChanged();
   void drawingChanged();
   void fillBoundsChanged();
+  void closedPolygonOverlayChanged();
+  void maskControllerChanged();
   void polygonCommitted(QVariantList nativeVertices);
 
  protected:
@@ -74,6 +84,8 @@ class RangeImageItem : public QQuickPaintedItem {
   bool fill_bounds_ = false;
   std::vector<QPointF> current_native_vertices_;
   std::vector<QPointF> pending_closed_native_vertices_;
+  QVariantList closed_polygon_overlay_;
+  QObject* mask_controller_ = nullptr;
   QPointF hover_native_;
   QPointF hover_display_;
   bool hover_use_display_ = false;

@@ -5,6 +5,8 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     required property var cloudView
+    property bool keysBlocked: colormapSlider.dragging || blendSlider.pressed
+
     color: "#e8e8ec"
     border.color: "#b0b0b8"
     radius: 6
@@ -32,19 +34,15 @@ Rectangle {
                 onActivated: controller.viewerScalarChannel = currentIndex
             }
         }
-        RowLayout {
-            Label { text: qsTr("Min") }
-            TextField {
-                implicitWidth: 56
-                text: String(controller.viewerColormapMin)
-                onEditingFinished: controller.viewerColormapMin = parseFloat(text)
-            }
-            Label { text: qsTr("Max") }
-            TextField {
-                implicitWidth: 56
-                text: String(controller.viewerColormapMax)
-                onEditingFinished: controller.viewerColormapMax = parseFloat(text)
-            }
+        ColormapRangeSlider {
+            id: colormapSlider
+            Layout.fillWidth: true
+            dataMin: controller.viewerDataMin
+            dataMax: controller.viewerDataMax
+            rangeMin: controller.viewerColormapMin
+            rangeMax: controller.viewerColormapMax
+            onRangeLive: (minValue, maxValue) => controller.previewViewerColormapRange(minValue, maxValue)
+            onRangeCommitted: (minValue, maxValue) => controller.commitViewerColormapRange(minValue, maxValue)
         }
         RowLayout {
             Layout.fillWidth: true

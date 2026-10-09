@@ -10,6 +10,7 @@ qt_add_qml_module(clc_app
     Expansion.qml
     MaskEditorWindow.qml
     ViewerOverlay.qml
+    ColormapRangeSlider.qml
   SOURCES
     range_image_item.cpp
 )

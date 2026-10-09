@@ -15,7 +15,7 @@ The 3D viewer SHALL render point clouds of up to approximately 20 million points
 
 ### Requirement: Scalar colormap display
 
-The viewer SHALL color points by a selectable scalar channel (intensity, x, y, or z) using a JET colormap with user-settable min and max bounds.
+The viewer SHALL color points by a selectable scalar channel (intensity, x, y, or z) using a JET colormap with user-settable min and max bounds via a dual-handle **RangeSlider** over the data extent. Changing bounds SHALL update colors only (shader uniforms and/or lightweight RGB refresh), not reload positions. While dragging, updates MAY be throttled; on release the view SHALL reflect the final bounds.
 
 #### Scenario: Switch to Z channel
 
@@ -33,12 +33,14 @@ Once a camera extrinsic and image are available, the viewer SHALL blend projecte
 
 ### Requirement: PCL trackball navigation
 
-View navigation SHALL follow PCL `pcd_viewer` conventions: left-drag rotate, middle-drag or Shift+left-drag pan, right-drag dolly, wheel dolly, Cmd+drag (macOS) or Ctrl+drag spin around view axis, `r` reset camera, `f` fly-to-point at cursor.
+View navigation SHALL follow PCL `pcd_viewer` conventions: left-drag rotate (drag up pitches forward), middle-drag or Shift+left-drag pan, right-drag dolly, wheel dolly, Cmd+drag (macOS) or Ctrl+drag spin around view axis, `r` reset camera, `f` fly-to-point at cursor, `h` frame content.
+
+Navigation keys SHALL apply when the pointer is over the 3D viewport without blocking overlay slider use.
 
 #### Scenario: Trackball rotate
 
 - **WHEN** the user left-drags without modifiers
-- **THEN** the view rotates around the focal point in trackball fashion
+- **THEN** the view rotates around the focal point in trackball fashion (vertical drag up pitches forward)
 
 #### Scenario: Fly to point
 

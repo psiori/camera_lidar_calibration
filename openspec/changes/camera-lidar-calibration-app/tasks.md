@@ -49,7 +49,7 @@
 ## 6. Calibration pipeline
 
 - [x] 6.1 Add compile-time `InitialGuessTraits` / `OptimizerTraits` and provider registry table
-- [ ] 6.2 Manual guess: gizmo + per-dataset Shift+click correspondences → `T_camera_lidar_initial`
+- [x] 6.2 Manual guess: gizmo + per-dataset Shift+click correspondences → `T_camera_lidar_initial`
 - [x] 6.3 Wire NID `run_alignment()` multi-dataset with global mask and progress callback
 - [x] 6.4 Live viewer update on `CalibrationProgress`
 - [x] 6.5 QML workflow: load → mask → fuse → guess → optimize → inspect (two-tab shell + mask editor window per `design.md`; includes session and dataset I/O per §1.5–1.9)
@@ -58,22 +58,22 @@
 
 - [x] 7.0 Add `ToolTip` text to calibration controls (scan time unit/origin/duration, fusion/alignment, blend, session); copy per `design.md` UI tooltips table
 - [x] 7.1 Expose `FusionParams` in QML (voxel size, threads, max correspondence, scan time)
-- [ ] 7.2 Extend `FusionProgress` (or callback) for partial cloud streaming preview
-- [ ] 7.3 Throttle preview uploads; feed `psiviz` `PointCloudItem`
-- [ ] 7.4 Single-scan passthrough path verification
+- [x] 7.2 Extend `FusionProgress` (or callback) for partial cloud streaming preview
+- [x] 7.3 Throttle preview uploads; feed `psiviz` `PointCloudItem`
+- [x] 7.4 Single-scan passthrough path verification
 - [x] 7.5 Export fused PCD action
 
 ## 8. Inspection
 
-- [ ] 8.1 Inspection dataset load path (fusion optional, no NID by default)
-- [ ] 8.2 Overlay inspection data with saved `T_camera_lidar`
-- [ ] 8.3 Export colored PCD from inspection view
+- [x] 8.1 Inspection dataset load path (fusion optional, no NID by default)
+- [x] 8.2 Overlay inspection data with saved `T_camera_lidar`
+- [x] 8.3 Export colored PCD from inspection view
 
 ## 9. Integration and tests
 
-- [ ] 9.1 Unit tests: mask rasterization, colormap, geometry validation, session round-trip
-- [ ] 9.2 Manual UAT checklist against spec scenarios (include verifying scan-time and fusion tooltips)
-- [ ] 9.3 Update `BUILD.md` with app workflow and `psiviz` build notes
+- [x] 9.1 Unit tests: mask rasterization, colormap, geometry validation, session round-trip
+- [x] 9.2 Manual UAT checklist against spec scenarios (include verifying scan-time and fusion tooltips)
+- [x] 9.3 Update `BUILD.md` with app workflow and `psiviz` build notes
 
 ## 10. Application shell (QML layout)
 
@@ -86,3 +86,12 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 10.5 Left column `ScrollView` + collapsible `Expansion` sections (Dataset expanded by default)
 - [x] 10.6 Viewer scalar/blend controls as `ViewerOverlay` on `PointCloudScene`
 - [x] 10.7 Segmented Calibration / Inspection tab styling (selected state visually distinct)
+
+## 11. Viewer interaction polish
+
+- [x] 11.1 `ColormapRangeSlider` + `ViewerOverlay`: dual-handle range slider for viewer colormap (live scalar uniforms; throttled RGB when blend &gt; 0; flush on release)
+- [x] 11.2 `MaskEditorWindow`: same `ColormapRangeSlider` for range-image colormap (throttled `refreshRangeImage` display while dragging)
+- [x] 11.3 `psiviz`: depth pick Y-flip + per-frame `TrackballCamera::tick`; reliable `f` fly-to at cursor
+- [x] 11.4 Viewport keyboard routing: pointer-over viewer activates nav keys (`f`, `+`, `-`, `r`/`h`); overlay controls keep focus while dragging sliders
+- [x] 11.5 `TrackballCamera::rotate`: vertical drag sign matches PCL `pcd_viewer` (drag up pitches forward)
+- [x] 11.6 UAT checklist: colormap slider, fly-to, keys, trackball pitch
