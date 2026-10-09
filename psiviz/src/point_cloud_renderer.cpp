@@ -1,0 +1,483 @@
+#include "psiviz/point_cloud_renderer.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <vector>
+
+#include <QColor>
+#include <QFile>
+#include <rhi/qrhi.h>
+#include <rhi/qshader.h>
+
+namespace psiviz {
+
+namespace {
+
+struct GpuVertex {
+  float px, py, pz;
+  float scalar;
+  float r, g, b;
+};
+
+struct UniformBlock {
+  float mvp[16];
+  float pointSize;
+  float blendWeight;
+  float scalarMin;
+  float scalarMax;
+};
+
+struct GizmoVertex {
+  float px, py, pz;
+  float r, g, b;
+};
+
+struct GizmoUniform {
+  float mvp[16];
+};
+
+QShader loadShader(const QString& name) {
+  QFile file(name);
+  if (!file.open(QIODevice::ReadOnly)) {
+    return {};
+  }
+  return QShader::fromSerialized(file.readAll());
+}
+
+QShader loadFirst(const QStringList& names) {
+  for (const auto& n : names) {
+    QShader s = loadShader(n);
+    if (s.isValid()) {
+      return s;
+    }
+  }
+  return {};
+}
+
+void appendAxis(std::vector<GizmoVertex>& v, const Eigen::Vector3f& o, const Eigen::Vector3f& dir, float len,
+                float r, float g, float b) {
+  const Eigen::Vector3f e = o + dir * len;
+  v.push_back({o.x(), o.y(), o.z(), r, g, b});
+  v.push_back({e.x(), e.y(), e.z(), r, g, b});
+}
+
+void appendRing(std::vector<GizmoVertex>& v, const Eigen::Vector3f& o, const Eigen::Matrix3f& R, int axis, float radius,
+                float r, float g, float b) {
+  constexpr int kSeg = 48;
+  Eigen::Vector3f u, w;
+  if (axis == 0) {
+    u = R.col(1);
+    w = R.col(2);
+  } else if (axis == 1) {
+    u = R.col(2);
+    w = R.col(0);
+  } else {
+    u = R.col(0);
+    w = R.col(1);
+  }
+  Eigen::Vector3f prev = o + u * radius;
+  for (int i = 1; i <= kSeg; ++i) {
+    const float a = static_cast<float>(i) / static_cast<float>(kSeg) * 6.2831853f;
+    const Eigen::Vector3f p = o + (u * std::cos(a) + w * std::sin(a)) * radius;
+    v.push_back({prev.x(), prev.y(), prev.z(), r, g, b});
+    v.push_back({p.x(), p.y(), p.z(), r, g, b});
+    prev = p;
+  }
+}
+
+}  // namespace
+
+struct PointCloudRenderer::RhiResources {
+  std::unique_ptr<QRhiBuffer> vertex_buffer;
+  std::unique_ptr<QRhiBuffer> uniform_buffer;
+  std::unique_ptr<QRhiGraphicsPipeline> pipeline;
+  std::unique_ptr<QRhiShaderResourceBindings> srb;
+
+  std::unique_ptr<QRhiBuffer> gizmo_vertex_buffer;
+  std::unique_ptr<QRhiBuffer> gizmo_uniform_buffer;
+  std::unique_ptr<QRhiGraphicsPipeline> gizmo_pipeline;
+  std::unique_ptr<QRhiShaderResourceBindings> gizmo_srb;
+
+  std::unique_ptr<QRhiTexture> pick_color;
+  std::unique_ptr<QRhiRenderBuffer> pick_depth;
+  std::unique_ptr<QRhiTextureRenderTarget> pick_rt;
+  std::unique_ptr<QRhiRenderPassDescriptor> pick_rp;
+  std::unique_ptr<QRhiGraphicsPipeline> pick_pipeline;
+  std::unique_ptr<QRhiShaderResourceBindings> pick_srb;
+  QSize pick_size;
+};
+
+PointCloudRenderer::PointCloudRenderer(QRhi* rhi) : rhi_(rhi), rhi_resources_(std::make_unique<RhiResources>()) {}
+
+PointCloudRenderer::~PointCloudRenderer() {
+  releaseResources();
+}
+
+void PointCloudRenderer::releaseResources() {
+  if (rhi_resources_) {
+    rhi_resources_->pick_pipeline.reset();
+    rhi_resources_->pick_srb.reset();
+    rhi_resources_->pick_rt.reset();
+    rhi_resources_->pick_rp.reset();
+    rhi_resources_->pick_depth.reset();
+    rhi_resources_->pick_color.reset();
+    rhi_resources_->gizmo_pipeline.reset();
+    rhi_resources_->gizmo_srb.reset();
+    rhi_resources_->gizmo_uniform_buffer.reset();
+    rhi_resources_->gizmo_vertex_buffer.reset();
+    rhi_resources_->srb.reset();
+    rhi_resources_->pipeline.reset();
+    rhi_resources_->uniform_buffer.reset();
+    rhi_resources_->vertex_buffer.reset();
+  }
+  initialized_ = false;
+  pipeline_ready_ = false;
+  point_count_ = 0;
+}
+
+void PointCloudRenderer::initialize(QRhiCommandBuffer* cb) {
+  Q_UNUSED(cb);
+  initialized_ = true;
+}
+
+void PointCloudRenderer::resize(int width, int height) {
+  width_ = width;
+  height_ = height;
+}
+
+void PointCloudRenderer::requestPick(int x, int y, float dpr) {
+  pick_requested_ = true;
+  pick_x_ = x;
+  pick_y_ = y;
+  pick_dpr_ = dpr;
+}
+
+void PointCloudRenderer::ensurePipeline(QRhiRenderTarget* rt) {
+  auto& res = *rhi_resources_;
+  if (!rhi_) {
+    return;
+  }
+
+  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/pointcloud.vert.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/pointcloud.vert.qsb")});
+  QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/pointcloud.frag.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/pointcloud.frag.qsb")});
+  if (!vs.isValid() || !fs.isValid()) {
+    return;
+  }
+
+  if (!res.uniform_buffer) {
+    res.uniform_buffer.reset(rhi_->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UniformBlock)));
+    res.uniform_buffer->create();
+  }
+  if (!res.vertex_buffer) {
+    res.vertex_buffer.reset(rhi_->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 0));
+    res.vertex_buffer->create();
+  }
+  if (!res.srb) {
+    res.srb.reset(rhi_->newShaderResourceBindings());
+    res.srb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                                                 res.uniform_buffer.get()),
+    });
+    res.srb->create();
+  }
+  if (!res.pipeline) {
+    res.pipeline.reset(rhi_->newGraphicsPipeline());
+    res.pipeline->setShaderStages({{QRhiShaderStage::Vertex, vs}, {QRhiShaderStage::Fragment, fs}});
+    QRhiVertexInputLayout input;
+    input.setBindings({{sizeof(GpuVertex)}});
+    input.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float3, 0},
+        {0, 1, QRhiVertexInputAttribute::Float, offsetof(GpuVertex, scalar)},
+        {0, 2, QRhiVertexInputAttribute::Float3, offsetof(GpuVertex, r)},
+    });
+    res.pipeline->setVertexInputLayout(input);
+    res.pipeline->setShaderResourceBindings(res.srb.get());
+    res.pipeline->setTopology(QRhiGraphicsPipeline::Points);
+    res.pipeline->setDepthTest(false);
+    res.pipeline->setDepthWrite(false);
+  }
+  if (rt && res.pipeline) {
+    QRhiRenderPassDescriptor* const pass = rt->renderPassDescriptor();
+    if (res.pipeline->renderPassDescriptor() != pass) {
+      res.pipeline->setRenderPassDescriptor(pass);
+      res.pipeline->create();
+      pipeline_ready_ = true;
+    } else if (!pipeline_ready_) {
+      res.pipeline->create();
+      pipeline_ready_ = true;
+    }
+  }
+}
+
+void PointCloudRenderer::ensureGizmoPipeline(QRhiRenderTarget* rt) {
+  auto& res = *rhi_resources_;
+  if (!rhi_ || !rt) {
+    return;
+  }
+  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/gizmo.vert.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/gizmo.vert.qsb")});
+  QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/gizmo.frag.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/gizmo.frag.qsb")});
+  if (!vs.isValid() || !fs.isValid()) {
+    return;
+  }
+  if (!res.gizmo_uniform_buffer) {
+    res.gizmo_uniform_buffer.reset(rhi_->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(GizmoUniform)));
+    res.gizmo_uniform_buffer->create();
+  }
+  if (!res.gizmo_vertex_buffer) {
+    res.gizmo_vertex_buffer.reset(rhi_->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 4096));
+    res.gizmo_vertex_buffer->create();
+  }
+  if (!res.gizmo_srb) {
+    res.gizmo_srb.reset(rhi_->newShaderResourceBindings());
+    res.gizmo_srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(
+        0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, res.gizmo_uniform_buffer.get())});
+    res.gizmo_srb->create();
+  }
+  if (!res.gizmo_pipeline) {
+    res.gizmo_pipeline.reset(rhi_->newGraphicsPipeline());
+    res.gizmo_pipeline->setShaderStages({{QRhiShaderStage::Vertex, vs}, {QRhiShaderStage::Fragment, fs}});
+    QRhiVertexInputLayout input;
+    input.setBindings({{sizeof(GizmoVertex)}});
+    input.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float3, 0},
+        {0, 1, QRhiVertexInputAttribute::Float3, offsetof(GizmoVertex, r)},
+    });
+    res.gizmo_pipeline->setVertexInputLayout(input);
+    res.gizmo_pipeline->setShaderResourceBindings(res.gizmo_srb.get());
+    res.gizmo_pipeline->setTopology(QRhiGraphicsPipeline::Lines);
+    res.gizmo_pipeline->setDepthTest(false);
+    res.gizmo_pipeline->setDepthWrite(false);
+    res.gizmo_pipeline->setLineWidth(2.f);
+  }
+  if (res.gizmo_pipeline->renderPassDescriptor() != rt->renderPassDescriptor()) {
+    res.gizmo_pipeline->setRenderPassDescriptor(rt->renderPassDescriptor());
+    res.gizmo_pipeline->create();
+  }
+}
+
+void PointCloudRenderer::ensurePickTarget(int width, int height) {
+  auto& res = *rhi_resources_;
+  if (!rhi_ || width <= 0 || height <= 0) {
+    return;
+  }
+  const QSize size(width, height);
+  if (res.pick_rt && res.pick_size == size) {
+    return;
+  }
+  res.pick_pipeline.reset();
+  res.pick_rt.reset();
+  res.pick_rp.reset();
+  res.pick_depth.reset();
+  res.pick_color.reset();
+
+  res.pick_color.reset(rhi_->newTexture(QRhiTexture::RGBA8, size, 1, QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+  res.pick_color->create();
+  res.pick_depth.reset(rhi_->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size));
+  res.pick_depth->create();
+  QRhiTextureRenderTargetDescription desc(res.pick_color.get());
+  desc.setDepthStencilBuffer(res.pick_depth.get());
+  res.pick_rt.reset(rhi_->newTextureRenderTarget(desc));
+  res.pick_rp.reset(res.pick_rt->newCompatibleRenderPassDescriptor());
+  res.pick_rt->setRenderPassDescriptor(res.pick_rp.get());
+  res.pick_rt->create();
+  res.pick_size = size;
+
+  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/pointcloud.vert.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/pointcloud.vert.qsb")});
+  QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/pick.frag.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/pick.frag.qsb")});
+  if (!vs.isValid() || !fs.isValid() || !res.srb) {
+    return;
+  }
+  res.pick_pipeline.reset(rhi_->newGraphicsPipeline());
+  res.pick_pipeline->setShaderStages({{QRhiShaderStage::Vertex, vs}, {QRhiShaderStage::Fragment, fs}});
+  QRhiVertexInputLayout input;
+  input.setBindings({{sizeof(GpuVertex)}});
+  input.setAttributes({
+      {0, 0, QRhiVertexInputAttribute::Float3, 0},
+      {0, 1, QRhiVertexInputAttribute::Float, offsetof(GpuVertex, scalar)},
+      {0, 2, QRhiVertexInputAttribute::Float3, offsetof(GpuVertex, r)},
+  });
+  res.pick_pipeline->setVertexInputLayout(input);
+  res.pick_pipeline->setShaderResourceBindings(res.srb.get());
+  res.pick_pipeline->setTopology(QRhiGraphicsPipeline::Points);
+  res.pick_pipeline->setDepthTest(true);
+  res.pick_pipeline->setDepthWrite(true);
+  res.pick_pipeline->setRenderPassDescriptor(res.pick_rp.get());
+  res.pick_pipeline->create();
+}
+
+void PointCloudRenderer::uploadGizmo(const PoseGizmo& gizmo) {
+  auto& res = *rhi_resources_;
+  if (!res.gizmo_vertex_buffer || !gizmo.enabled()) {
+    gizmo_vertex_count_ = 0;
+    return;
+  }
+  std::vector<GizmoVertex> verts;
+  const Eigen::Vector3f o = gizmo.pose().translation();
+  const Eigen::Matrix3f R = gizmo.pose().linear();
+  const float s = gizmo.clipScale();
+  appendAxis(verts, o, R.col(0), s, 1.f, 0.2f, 0.2f);
+  appendAxis(verts, o, R.col(1), s, 0.2f, 1.f, 0.2f);
+  appendAxis(verts, o, R.col(2), s, 0.3f, 0.4f, 1.f);
+  appendRing(verts, o, R, 0, s * 0.7f, 1.f, 0.3f, 0.3f);
+  appendRing(verts, o, R, 1, s * 0.7f, 0.3f, 1.f, 0.3f);
+  appendRing(verts, o, R, 2, s * 0.7f, 0.3f, 0.4f, 1.f);
+
+  const quint32 bytes = static_cast<quint32>(verts.size() * sizeof(GizmoVertex));
+  if (res.gizmo_vertex_buffer->size() < bytes) {
+    res.gizmo_vertex_buffer->setSize(bytes);
+    res.gizmo_vertex_buffer->create();
+  }
+  void* ptr = res.gizmo_vertex_buffer->beginFullDynamicBufferUpdateForCurrentFrame();
+  if (ptr) {
+    std::memcpy(ptr, verts.data(), bytes);
+    res.gizmo_vertex_buffer->endFullDynamicBufferUpdateForCurrentFrame();
+  }
+  gizmo_vertex_count_ = static_cast<int>(verts.size());
+}
+
+void PointCloudRenderer::uploadPointCloud(const PointCloudData& data, QRhiRenderTarget* rt) {
+  if (!rhi_ || data.point_count == 0) {
+    point_count_ = 0;
+    return;
+  }
+  ensurePipeline(rt);
+  auto& vb = rhi_resources_->vertex_buffer;
+  if (!vb) {
+    point_count_ = 0;
+    return;
+  }
+
+  std::vector<GpuVertex> vertices(data.point_count);
+  for (std::uint64_t i = 0; i < data.point_count; ++i) {
+    vertices[i].px = data.positions[i * 3 + 0];
+    vertices[i].py = data.positions[i * 3 + 1];
+    vertices[i].pz = data.positions[i * 3 + 2];
+    vertices[i].scalar = data.scalars[i];
+    vertices[i].r = data.rgb[i * 3 + 0];
+    vertices[i].g = data.rgb[i * 3 + 1];
+    vertices[i].b = data.rgb[i * 3 + 2];
+  }
+
+  const quint32 bytes = static_cast<quint32>(vertices.size() * sizeof(GpuVertex));
+  if (vb->size() < bytes) {
+    vb->setSize(bytes);
+    vb->create();
+  }
+  void* ptr = vb->beginFullDynamicBufferUpdateForCurrentFrame();
+  if (!ptr) {
+    point_count_ = 0;
+    return;
+  }
+  std::memcpy(ptr, vertices.data(), bytes);
+  vb->endFullDynamicBufferUpdateForCurrentFrame();
+  point_count_ = static_cast<int>(data.point_count);
+}
+
+void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h) {
+  auto& res = *rhi_resources_;
+  if (!res.pick_rt || !res.pick_pipeline || point_count_ <= 0) {
+    last_picked_depth_ = 1.f;
+    return;
+  }
+
+  cb->beginPass(res.pick_rt.get(), QColor::fromRgbF(1.f, 0.f, 0.f), {1.f, 0}, nullptr);
+  cb->setGraphicsPipeline(res.pick_pipeline.get());
+  cb->setViewport({0, 0, static_cast<float>(fb_w), static_cast<float>(fb_h)});
+  cb->setShaderResources();
+  const QRhiCommandBuffer::VertexInput vbuf(res.vertex_buffer.get(), 0);
+  cb->setVertexInput(0, 1, &vbuf);
+  cb->draw(point_count_);
+
+  const int px = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_x_) * pick_dpr_)), 0, fb_w - 1);
+  const int py = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_y_) * pick_dpr_)), 0, fb_h - 1);
+  QRhiReadbackDescription rb(res.pick_color.get());
+  QRhiReadbackResult result;
+  bool done = false;
+  result.completed = [&]() { done = true; };
+  QRhiResourceUpdateBatch* batch = rhi_->nextResourceUpdateBatch();
+  batch->readBackTexture(rb, &result);
+  cb->endPass(batch);
+  rhi_->finish();
+
+  last_picked_depth_ = 1.f;
+  if (done && !result.data.isEmpty()) {
+    const int row = result.pixelSize.width() > 0 ? result.pixelSize.width() : fb_w;
+    const int idx = (py * row + px) * 4;
+    if (idx >= 0 && idx + 3 < result.data.size()) {
+      const auto* bytes = reinterpret_cast<const unsigned char*>(result.data.constData());
+      last_picked_depth_ = static_cast<float>(bytes[idx]) / 255.f;
+    }
+  }
+  Q_UNUSED(camera);
+}
+
+void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo,
+                                QRhiRenderTarget* rt) {
+  auto& res = *rhi_resources_;
+  if (!rt) {
+    return;
+  }
+  ensurePipeline(rt);
+  ensureGizmoPipeline(rt);
+  uploadGizmo(gizmo);
+
+  const QSize fb = rt->pixelSize();
+  const int fb_w = fb.width() > 0 ? fb.width() : std::max(1, width_);
+  const int fb_h = fb.height() > 0 ? fb.height() : std::max(1, height_);
+
+  UniformBlock ub{};
+  const Eigen::Matrix4f mvp = camera.projectionMatrix() * camera.viewMatrix();
+  std::memcpy(ub.mvp, mvp.data(), sizeof(ub.mvp));
+  ub.pointSize = camera.pointSize();
+  ub.blendWeight = blend_weight_;
+  ub.scalarMin = scalar_min_;
+  ub.scalarMax = scalar_max_;
+
+  if (res.uniform_buffer) {
+    void* ptr = res.uniform_buffer->beginFullDynamicBufferUpdateForCurrentFrame();
+    if (ptr) {
+      std::memcpy(ptr, &ub, sizeof(ub));
+      res.uniform_buffer->endFullDynamicBufferUpdateForCurrentFrame();
+    }
+  }
+
+  cb->beginPass(rt, QColor::fromRgbF(0.08f, 0.09f, 0.11f), {1.f, 0}, nullptr);
+  if (pipeline_ready_ && res.pipeline && point_count_ > 0) {
+    cb->setGraphicsPipeline(res.pipeline.get());
+    cb->setViewport({0, 0, static_cast<float>(fb_w), static_cast<float>(fb_h)});
+    cb->setShaderResources();
+    const QRhiCommandBuffer::VertexInput vbuf(res.vertex_buffer.get(), 0);
+    cb->setVertexInput(0, 1, &vbuf);
+    cb->draw(point_count_);
+  }
+  if (res.gizmo_pipeline && gizmo_vertex_count_ > 0 && gizmo.enabled()) {
+    GizmoUniform gu{};
+    std::memcpy(gu.mvp, mvp.data(), sizeof(gu.mvp));
+    void* gptr = res.gizmo_uniform_buffer->beginFullDynamicBufferUpdateForCurrentFrame();
+    if (gptr) {
+      std::memcpy(gptr, &gu, sizeof(gu));
+      res.gizmo_uniform_buffer->endFullDynamicBufferUpdateForCurrentFrame();
+    }
+    cb->setGraphicsPipeline(res.gizmo_pipeline.get());
+    cb->setShaderResources();
+    const QRhiCommandBuffer::VertexInput gvbuf(res.gizmo_vertex_buffer.get(), 0);
+    cb->setVertexInput(0, 1, &gvbuf);
+    cb->draw(gizmo_vertex_count_);
+  }
+  cb->endPass();
+
+  if (pick_requested_) {
+    ensurePickTarget(fb_w, fb_h);
+    renderPickPass(cb, camera, fb_w, fb_h);
+    pick_requested_ = false;
+  }
+}
+
+}  // namespace psiviz
