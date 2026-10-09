@@ -13,7 +13,8 @@ if(BUILD_WITH_MARCH_NATIVE)
 endif()
 
 find_package(Eigen3 REQUIRED)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+include(cmake/clc_opencv.cmake)
+clc_ensure_opencv_found()
 find_package(PCL REQUIRED COMPONENTS io)
 find_package(nlohmann_json REQUIRED)
 
@@ -40,8 +41,9 @@ endif()
 add_subdirectory(clc_core)
 
 if(BUILD_CLC_APP)
-  find_package(Qt6 REQUIRED COMPONENTS Quick)
+  find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Qml Gui Core ShaderTools)
   qt_standard_project_setup()
+  add_subdirectory(psiviz)
   add_subdirectory(clc_app)
 endif()
 

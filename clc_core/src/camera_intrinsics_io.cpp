@@ -1,0 +1,121 @@
+#include <clc_core/camera_intrinsics_io.hpp>
+
+#include <opencv2/core.hpp>
+#include <opencv2/core/persistence.hpp>
+
+namespace clc {
+
+namespace {
+
+bool read_string_node(cv::FileNode node, std::string& out) {
+  if (node.empty()) {
+    return false;
+  }
+  if (node.isString()) {
+    out = static_cast<std::string>(node);
+    return true;
+  }
+  return false;
+}
+
+bool mat_to_intrinsics(const cv::Mat& k, std::vector<double>& intrinsics) {
+  if (k.empty() || k.rows != 3 || k.cols != 3) {
+    return false;
+  }
+  const double fx = k.at<double>(0, 0);
+  const double fy = k.at<double>(1, 1);
+  const double cx = k.at<double>(0, 2);
+  const double cy = k.at<double>(1, 2);
+  intrinsics = {fx, fy, cx, cy};
+  return true;
+}
+
+bool node_to_distortion(const cv::FileNode& node, std::vector<double>& distortion) {
+  if (node.empty()) {
+    return false;
+  }
+  if (node.isSeq()) {
+    distortion.clear();
+    for (auto it = node.begin(); it != node.end(); ++it) {
+      distortion.push_back(static_cast<double>(*it));
+    }
+    return !distortion.empty();
+  }
+  const cv::Mat d = node.mat();
+  if (!d.empty()) {
+    distortion.clear();
+    for (int r = 0; r < d.rows; ++r) {
+      for (int c = 0; c < d.cols; ++c) {
+        distortion.push_back(d.at<double>(r, c));
+      }
+    }
+    return !distortion.empty();
+  }
+  return false;
+}
+
+std::string normalize_camera_model(std::string model) {
+  if (model == "pinhole" || model == "opencv" || model.empty()) {
+    return "plumb_bob";
+  }
+  return model;
+}
+
+}  // namespace
+
+bool load_camera_intrinsics_file(const std::string& path, CameraIntrinsics& camera, std::string& error) {
+  cv::FileStorage fs(path, cv::FileStorage::READ);
+  if (!fs.isOpened()) {
+    error = "failed to open intrinsics file: " + path;
+    return false;
+  }
+
+  std::string model;
+  if (read_string_node(fs["camera_model"], model) || read_string_node(fs["distortion_model"], model) ||
+      read_string_node(fs["camera"]["camera_model"], model)) {
+    camera.model = normalize_camera_model(model);
+  } else {
+    camera.model = "plumb_bob";
+  }
+
+  cv::Mat k;
+  if (!fs["camera_matrix"].empty()) {
+    fs["camera_matrix"] >> k;
+  } else if (!fs["K"].empty()) {
+    fs["K"] >> k;
+  } else if (!fs["camera"]["intrinsics"].empty()) {
+    const auto& node = fs["camera"]["intrinsics"];
+    if (node.isSeq()) {
+      camera.intrinsics.clear();
+      for (auto it = node.begin(); it != node.end(); ++it) {
+        camera.intrinsics.push_back(static_cast<double>(*it));
+      }
+    }
+  }
+
+  if (!k.empty()) {
+    if (!mat_to_intrinsics(k, camera.intrinsics)) {
+      error = "invalid camera_matrix in: " + path;
+      return false;
+    }
+  }
+
+  if (camera.intrinsics.size() != 4) {
+    error = "expected 4 intrinsic parameters (fx, fy, cx, cy) in: " + path;
+    return false;
+  }
+
+  if (!node_to_distortion(fs["distortion_coefficients"], camera.distortion_coeffs)) {
+    if (!node_to_distortion(fs["D"], camera.distortion_coeffs)) {
+      if (!node_to_distortion(fs["distortion_coeffs"], camera.distortion_coeffs)) {
+        if (!node_to_distortion(fs["camera"]["distortion_coeffs"], camera.distortion_coeffs)) {
+          camera.distortion_coeffs = {0, 0, 0, 0, 0};
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+}  // namespace clc

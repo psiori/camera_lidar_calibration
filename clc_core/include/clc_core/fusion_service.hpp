@@ -17,4 +17,8 @@ glim_cloud_fusion::FusionResult run_fusion(
 
 bool save_dense_pcd(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud, std::string& error);
 
+/// `rgb` interleaved [0,1], length = cloud.points.size() * 3.
+bool save_dense_pcd_rgb(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud,
+                        const std::vector<float>& rgb, std::string& error);
+
 }  // namespace clc

@@ -1,11 +1,11 @@
-#include <QGuiApplication>
+#include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
 #include "app_controller.hpp"
 
 int main(int argc, char* argv[]) {
-  QGuiApplication app(argc, argv);
+  QApplication app(argc, argv);
   AppController controller;
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("controller", &controller);

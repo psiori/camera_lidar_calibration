@@ -1,0 +1,46 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <Eigen/Core>
+
+#include <clc_core/pcd_io.hpp>
+
+namespace clc {
+
+struct RangeImage {
+  int width = 0;
+  int height = 0;
+  std::vector<float> range;
+  std::vector<float> intensity;
+};
+
+enum class RangeImageChannel { Range, Intensity };
+
+RangeImage build_range_image(const PointXYZITCloud& cloud);
+
+struct Polygon2f {
+  std::vector<Eigen::Vector2f> vertices;
+};
+
+struct MaskPolygonOp {
+  Polygon2f polygon;
+  /// When true, set polygon interior to 255 (keep); when false, set interior to 0 (exclude).
+  bool keep_inside = false;
+};
+
+/// Rasterize polygons onto a WxH binary mask. Pixel 255 = keep, 0 = exclude.
+std::vector<std::uint8_t> rasterize_mask(int width, int height, const std::vector<Polygon2f>& polygons, bool keep_inside);
+
+/// Build mask by applying each op in order onto an initial all-keep (255) canvas.
+std::vector<std::uint8_t> build_mask_from_ops(int width, int height, const std::vector<MaskPolygonOp>& ops);
+
+bool save_mask_png(const std::string& path, int width, int height, const std::vector<std::uint8_t>& mask);
+bool load_mask_png(const std::string& path, int width, int height, std::vector<std::uint8_t>& mask, std::string& error);
+
+/// Apply WxH mask to a structured scan (`keep` per point; 0 excludes).
+void apply_mask_to_scan(glim_cloud_fusion::LidarScan& scan, const std::vector<std::uint8_t>& mask);
+
+}  // namespace clc

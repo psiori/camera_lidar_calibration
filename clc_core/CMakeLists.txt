@@ -3,6 +3,11 @@ add_library(clc_core SHARED
   src/session.cpp
   src/calibration_service.cpp
   src/fusion_service.cpp
+  src/camera_intrinsics_io.cpp
+  src/scan_geometry.cpp
+  src/colormap.cpp
+  src/range_image.cpp
+  src/point_color_model.cpp
 )
 target_include_directories(clc_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -31,6 +36,7 @@ target_link_libraries(clc_core PUBLIC
   Eigen3::Eigen
   ${_clc_pcl_target}
 )
+clc_target_link_opencv(clc_core)
 if(PCL_INCLUDE_DIRS)
   target_include_directories(clc_core SYSTEM PUBLIC ${PCL_INCLUDE_DIRS})
 endif()
