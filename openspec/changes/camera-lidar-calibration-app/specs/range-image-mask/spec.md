@@ -4,6 +4,24 @@ Lets users author a global exclusion mask on structured lidar range/intensity im
 
 ## ADDED Requirements
 
+### Requirement: Mask editor window
+
+Channel selection, Y-stretch, range colormap bounds, polygon draw/finish tools, and **Keep** / **Remove** (or **Discard**) actions for a closed polygon SHALL live in a dedicated **resizable window** launched from **Edit mask…** on the Calibration tab. Load, browse, save, and clear mask actions SHALL remain on the main window.
+
+#### Scenario: Pop out mask editor
+
+- **WHEN** the user clicks Edit mask…
+- **THEN** a separate window opens where they can resize the view, adjust aspect (Y-stretch), and draw polygons on the range image
+
+### Requirement: Range image fits layout bounds
+
+The range image widget SHALL scale the displayed scan to fit within its allocated layout rectangle (uniform scale, letterboxing as needed). Display SHALL NOT force the parent layout wider or taller than the window from native lidar aspect ratio alone.
+
+#### Scenario: Wide structured scan
+
+- **WHEN** a scan has many more columns than rows
+- **THEN** the widget remains inside its cell without clipping controls off-screen or requiring horizontal window growth
+
 ### Requirement: Structured range image display
 
 The range image view SHALL display a structured lidar scan as a 2D `width × height` image where each pixel encodes range or intensity. This view SHALL NOT use camera intrinsics or extrinsics.

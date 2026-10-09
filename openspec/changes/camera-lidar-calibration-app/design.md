@@ -138,6 +138,83 @@ Expose `FusionParams` only: `voxel_resolution`, `num_threads`, `max_corresponden
 
 `voxel_resolution` is applied in `voxel_merge()` after SLAM (or on single-scan passthrough), independent of GLIM iVox.
 
+### Session and dataset I/O (v1 UI)
+
+`clc_app` exposes paths and session persistence in `Main.qml`:
+
+- **Session directory** + **Load** / **Save**: read/write `session.json` under the chosen folder (intrinsics, extrinsics, fusion/scan-time params, dataset paths, mask path when modeled).
+- **Image path** and **PCD directory**: per-dataset inputs; PCD directory is scanned for `.pcd` files when set or after session load.
+- **Load intrinsics** (planned): OpenCV YAML via `FileStorage`; path stored in session on save.
+
+After **Load**, the controller SHALL push restored values into bound QML fields (paths, scan time, gizmo/extrinsic) so the UI matches `SessionData`, not only in-memory state behind text fields the user typed earlier.
+
+### Main window shell (`clc_app` QML)
+
+#### UI planning decisions (conversation record)
+
+| Topic | Decision | Status |
+|-------|----------|--------|
+| Top-level navigation | **Two tabs only:** **Calibration** and **Inspection** (`TabBar` + `StackLayout`) | **Adopted** |
+| Three-tab shell (Loading/preprocessing · Calibration · Inspection) | Dedicated preprocessing tab with full-screen 2D mask and no 3D viewer | **Rejected** — user chose to keep two tabs |
+| Mask authoring layout | **Resizable popout window** from **Edit mask…**; user adjusts window size and Y-stretch for aspect | **Adopted** (`MaskEditorWindow.qml`) |
+| Mask file I/O on main window | **Load**, **Browse**, **Save**, **Clear** stay in **Global mask** on Calibration tab | **Adopted** |
+| Mask editing controls in popout | Channel, Y-stretch, colormap min/max, polygon draw tools, **Keep** / **Remove** / **Discard** after close polygon | **Adopted** |
+| Range image in main column | No inline `RangeImageItem` on main window (frees horizontal space; avoids lidar aspect blowing layout) | **Adopted** |
+| Inspection tab scope | Paths + fuse only; **no** new inspection features tied to this UI pass | **Adopted** |
+| Default **50 / 50** `SplitView` (controls vs 3D) | Equal split with draggable divider | **Adopted** |
+| Collapsible control sections (Dataset open by default) | Scroll + `Expansion` sections | **Adopted** |
+| Viewer scalar/blend as **overlay** on `PointCloudScene` | `ViewerOverlay` on 3D, not left column | **Adopted** |
+| Strong tab chrome (segmented selected state) | Calibration vs Inspection visually obvious | **Adopted** |
+| Session bar | Directory + **Load** / **Save** below tab content, visible on both tabs | **Adopted** |
+
+#### Implemented shell (v1)
+
+**Calibration tab**
+
+- Horizontal **`SplitView`** default **50 / 50**: left **`ScrollView`** with collapsible **`Expansion`** sections (Dataset expanded by default); right column for `PointCloudScene` with **`ViewerOverlay`** (scalar, colormap, blend).
+- No range image or polygon editor in this column.
+
+**Global mask editor window**
+
+- **Edit mask…** opens a separate **resizable** top-level window (`MaskEditorWindow.qml`).
+- Popout: range/intensity channel, Y-stretch, colormap bounds, polygon tools (close / undo / cancel draw), then **Keep** or **Remove** for a closed polygon (or **Discard polygon**), and `RangeImageItem` with **`fillBounds`** (letterboxed, uniform scale).
+- **Load mask**, **Browse mask…**, **Save mask**, **Clear mask**, and **Edit mask…** on the main **Global mask** group only.
+
+**Inspection tab**
+
+- Dataset paths and fuse action; same shared session and 3D viewer wiring as today. No mask popout requirement on this tab.
+
+**Responsive behavior**
+
+- Left column uses `ScrollView` so controls are not clipped when the window is short.
+- `RangeImageItem` in the mask editor MUST use fit-in-rect scaling so wide structured scans do not dictate main-window geometry.
+- Top-level **Calibration / Inspection** switch uses segmented buttons with clear selected styling (not plain unstyled `TabBar` labels).
+
+### UI tooltips (v1)
+
+Use Qt Quick `ToolTip` (or `ToolTip.visible` on hover) on labeled controls in `clc_app` QML. Keep strings in QML or a single `Tooltips.qml` / `qsTr` resource for easy edit; design lists canonical v1 copy below.
+
+**Scan time** (maps to `glim_cloud_fusion::ScanTimeParams` for deskew / motion compensation):
+
+| Control | Tooltip (v1 copy) |
+|---------|-------------------|
+| Time unit | Unit of the per-point `time` values in your PCD files. Choose Seconds or Nanoseconds to match how timestamps are stored. Used when fusing scans to correct motion during each sweep. |
+| Time origin | How each scan’s timestamps are zeroed before deskew. **First point:** time 0 at the earliest point in the scan. **Scan start:** time 0 at the scan header stamp; you must also set scan duration. |
+| Scan duration (s) | Length of one full lidar sweep in seconds. Required when time origin is Scan start. Ignored or optional when using First point, depending on PCD metadata. |
+
+**Other controls (minimum v1):**
+
+| Control | Tooltip (v1 copy) |
+|---------|-------------------|
+| Run fusion | Merge loaded PCD scans into one deskewed cloud (CT-GICP), using the global mask and scan-time settings. |
+| Run alignment | Optimize camera–lidar extrinsic (NID) using the current image, fused cloud, and correspondences. |
+| Blend | Mix lidar scalar color with projected camera RGB (0 = lidar only, 1 = camera only). |
+| Load / Save session | Load or save datasets, mask, intrinsics, and extrinsic from a session directory. |
+| Session directory | Folder containing `session.json` and related calibration data. |
+| Image path | Path to the camera image for this dataset (projection and NID alignment). |
+| PCD directory | Folder of structured `.pcd` scans to fuse (calibration or inspection). |
+| Load intrinsics | OpenCV camera intrinsics YAML (`FileStorage`); used for projection and NID. |
+
 ### Fusion streaming preview
 
 Extend `FusionProgress` (or parallel callback) with partial cloud snapshots; throttle uploads (every K scans or M points). Same `psiviz` renderer as final cloud.

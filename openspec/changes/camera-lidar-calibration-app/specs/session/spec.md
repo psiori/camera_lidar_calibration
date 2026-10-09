@@ -40,6 +40,20 @@ The session SHALL be saveable and loadable to a directory including intrinsics, 
 - **WHEN** the user saves the session and later loads it
 - **THEN** all datasets, mask reference, and `T_camera_lidar` are restored
 
+### Requirement: Session load and save from UI
+
+The UI SHALL expose session directory, Load, and Save on the main window.
+
+#### Scenario: Load session from UI
+
+- **WHEN** the user chooses a session directory and activates Load
+- **THEN** `session.json` is read and the UI shows restored dataset paths, fusion/scan-time settings, intrinsics (if saved), and `T_camera_lidar` (including gizmo pose)
+
+#### Scenario: Save session from UI
+
+- **WHEN** the user activates Save for the current session directory
+- **THEN** `session.json` reflects the current session state (paths, parameters, extrinsic, and mask reference when applicable)
+
 ### Requirement: Structured scan geometry validation
 
 All structured input scans in a session MUST share the same `width` and `height` as the first loaded scan. Mismatched scans SHALL produce an error and disable fusion.

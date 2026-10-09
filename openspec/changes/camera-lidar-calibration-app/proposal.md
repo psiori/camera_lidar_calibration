@@ -14,11 +14,14 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - LiDAR fusion UI with streaming preview, voxel output resolution, geometry validation
 - Inspection datasets with overlay and colored PCD export
 - Session persistence for datasets, mask, intrinsics, and calibrated extrinsic
+- In-app tooltips on calibration/fusion controls (including scan-time deskew settings) so operators can learn parameters without external docs
+- **App shell (agreed UX):** two tabs with segmented chrome; 50/50 calibration split; scrollable collapsible controls; viewer overlay; mask **popout** with I/O on main window; three-tab preprocessing workflow **not** pursued
 
 ## Capabilities
 
 ### New Capabilities
 
+- `app-shell`: Two-tab main window, mask editor popout, session bar (see `design.md` UI decisions)
 - `session`: Session model, calibration vs inspection datasets, single extrinsic, save/load
 - `range-image-mask`: Structured range/intensity image, polygon mask, Y-stretch display, binary mask I/O
 - `point-cloud-viewer`: QRhi renderer, colormap/blend, PCL navigation, depth picking, 20M-point target
@@ -34,7 +37,7 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 ## Impact
 
 - **WP3** `psiviz` (in-repo): QRhi point viewer, trackball camera, depth picking, pose gizmo; README + API docs
-- **WP3** `clc_app`: QML workflow, `RangeImageItem`, integration with `psiviz` and `clc_core`
+- **WP3** `clc_app`: Two-tab QML shell, resizable mask editor window, `RangeImageItem`, integration with `psiviz` and `clc_core`
 - **WP3** `clc_core`: Session schema, mask application, colormap/projection math, provider traits
 - **WP2** `glim_cloud_fusion`: Fusion progress callbacks for streaming preview (may extend `FusionProgress`)
 - **WP1** `vlcal_align`: Consumed via existing NID API; mask passed into alignment input

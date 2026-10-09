@@ -33,7 +33,7 @@ The user SHALL set output voxel resolution (e.g. 1 cm, 2 cm) via `FusionParams.v
 
 ### Requirement: Exposed fusion parameters v1
 
-The UI SHALL expose `FusionParams` fields: `voxel_resolution`, `num_threads`, `max_correspondence_distance`, and scan-time parameters (`time_unit`, `time_origin`, `scan_duration`). Internal GLIM odometry/submap parameters remain hardcoded.
+The UI SHALL expose `FusionParams` fields: `voxel_resolution`, `num_threads`, `max_correspondence_distance`, and scan-time parameters (`time_unit`, `time_origin`, `scan_duration`). Internal GLIM odometry/submap parameters remain hardcoded. Each exposed field SHALL have an in-app tooltip (see `calibration-pipeline` tooltips requirement).
 
 #### Scenario: Adjust correspondence distance
 

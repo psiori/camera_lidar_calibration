@@ -49,6 +49,27 @@ While optimization runs, the pose gizmo SHALL be disabled (see `pose-gizmo` spec
 - **WHEN** optimization is in progress
 - **THEN** gizmo and correspondence picking do not accept input
 
+### Requirement: In-app control tooltips
+
+Primary workflow controls in the calibration UI SHALL expose short tooltips (Qt `ToolTip` on hover, or equivalent) explaining what each control does and when it matters. Tooltips SHALL use plain language, not internal type names alone.
+
+At minimum, tooltips SHALL cover: scan time (time unit, time origin, scan duration), fusion actions and fusion parameters, blend slider, session load/save, and run alignment/fusion buttons.
+
+#### Scenario: Scan time unit
+
+- **WHEN** the user hovers the time-unit control in the Scan time section
+- **THEN** a tooltip explains that it selects the unit of per-point timestamps in the PCD (seconds vs nanoseconds) used for motion compensation during fusion
+
+#### Scenario: Scan time origin
+
+- **WHEN** the user hovers the time-origin control
+- **THEN** a tooltip explains FirstPoint (zero time at the first point in each scan) vs ScanStart (zero at the scan header stamp, requires scan duration)
+
+#### Scenario: Scan duration
+
+- **WHEN** the user hovers the scan duration field
+- **THEN** a tooltip explains it is the full sweep period in seconds, required when time origin is ScanStart, used to normalize point times for deskewing
+
 ### Requirement: Camera intrinsics input
 
 Calibration SHALL load camera intrinsics from OpenCV YAML via `cv::FileStorage` (not PyYAML).
