@@ -57,7 +57,7 @@ bash "${SCRIPT_DIR}/ensure-brew-deps.sh"
 brew_cmake_prefix_path() {
   local prefix path="" opt
   prefix="$(brew --prefix)"
-  for opt in qt@6 qt opencv libomp; do
+  for opt in qt@6 qt opencv@4 libomp; do
     if [[ -d "${prefix}/opt/${opt}" ]]; then
       if [[ -n "${path}" ]]; then
         path="${path};${prefix}/opt/${opt}"
@@ -105,7 +105,7 @@ conan install "${APP_REPO}" \
 GENERATORS_DIR="${BUILD_DIR}/build/Release/generators"
 BREW_PREFIX_PATH="$(brew_cmake_prefix_path)"
 BREW_QT6_DIR="$(brew --prefix qt@6)/lib/cmake/Qt6"
-BREW_OPENCV_DIR="$(brew --prefix opencv)/lib/cmake/opencv5"
+BREW_OPENCV_DIR="$(brew --prefix opencv@4)/lib/cmake/opencv4"
 CMAKE_EXTRA_ARGS=()
 if [[ -d "${BREW_QT6_DIR}" ]]; then
   CMAKE_EXTRA_ARGS+=(-DQt6_DIR="${BREW_QT6_DIR}")

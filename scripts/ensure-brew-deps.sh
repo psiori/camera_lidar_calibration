@@ -6,7 +6,7 @@
 #   1. Exit immediately on non-macOS systems (Linux uses system/Conan packages instead).
 #   2. Verify Homebrew is installed; print install instructions and exit if missing.
 #   3. Check which required formulae are not yet installed:
-#        opencv, qt@6, libomp, ninja
+#        opencv@4, qt@6, libomp, ninja
 #   4. Install any missing packages with `brew install`.
 #   5. Print the Homebrew prefix and Qt6 CMake path for downstream scripts.
 #
@@ -25,7 +25,7 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 BREW_PACKAGES=(
-  opencv
+  opencv@4
   qt@6
   libomp
   ninja

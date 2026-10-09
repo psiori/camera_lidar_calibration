@@ -5,7 +5,7 @@
 # What this script does, step by step:
 #   1. Resolve paths and environment variables (CALIB_SRC, CONAN_HOME, branch, etc.).
 #   2. Ensure Conan 2 is installed (via pip3 or pipx if missing).
-#   3. Install macOS Homebrew packages (opencv, qt@6, libomp, ninja) via ensure-brew-deps.sh because building them with Conan is a lengthy process
+#   3. Install macOS Homebrew packages (opencv@4, qt@6, libomp, ninja) via ensure-brew-deps.sh because building them with Conan is a lengthy process
 #   4. Detect or create a Conan host profile (native-macos on Darwin, native elsewhere).
 #   5. Clone or update all source repos (gtsam, gtsam_points, glim, etc.) via clone-repos.sh.
 #   6. On macOS, load OpenCV/OpenMP/Qt toolchain hints from conan-macos-toolchain-args.sh. These are used to build the libraries with the correct flags.
@@ -19,10 +19,11 @@
 # Environment variables (all optional):
 #   CALIB_SRC          — Parent directory holding all cloned repos (default: parent of this repo).
 #   CONAN_HOME         — Conan cache directory (default: ~/.calib-conan).
-#   CALIB_BRANCH       — Git branch to check out (default: feature/camera-lidar-calibration-libs).
+#   CALIB_BRANCH       — Git branch for stack repos (default: feature/camera-lidar-calibration-libs).
 #   GITHUB_ORG         — GitHub org for cloning (default: psiori).
 #   CALIB_MARCH_NATIVE — Pass -march=native to builds (default: True).
 #   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: true).
+#   CALIB_FORCE_REBUILD — Force rebuild glim and vlcal_align (default: false).
 #
 set -euo pipefail
 
@@ -103,16 +104,26 @@ conan create "${CALIB_SRC}/gtsam_points" --name=gtsam_points --version=1.2.2 \
   -o "gtsam_points/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "gtsam_points/*:build_with_cuda=False"
 
+# vlcal_align pulls Conan opencv when its recipe requires it; glim defaults build_with_opencv=False.
+# Rebuild only when missing
+# or when recipe/options/profile change. Force with: CALIB_FORCE_REBUILD=true
+EXTRA_BUILD=()
+if [[ "${CALIB_FORCE_REBUILD:-false}" == "true" ]]; then
+  EXTRA_BUILD=(--build=glim/* --build=vlcal_align/*)
+fi
+
 conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" \
+  "${EXTRA_BUILD[@]}" "${CONAN_BUILD[@]}" \
   -o "glim/*:build_with_viewer=False" \
+  -o "glim/*:build_with_opencv=False" \
   -o "glim/*:build_with_cuda=False" \
   -o "glim/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "glim/*:build_glim_cloud_fusion=True"
 
 conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version=0.1.0 \
   -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" \
-  --build=vlcal_align/* --build=missing \
+  "${EXTRA_BUILD[@]}" "${CONAN_BUILD[@]}" \
   -o "vlcal_align/*:shared=False" \
   -o "vlcal_align/*:build_with_viewer=False" \
   -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \

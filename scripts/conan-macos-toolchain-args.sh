@@ -5,7 +5,8 @@
 # What this script does, step by step:
 #   1. Exit with no output on non-macOS systems (Linux builds do not need this).
 #   2. Run conan/emit_toolchain_conf.py to generate a toolchain configuration string
-#      that points Conan at Homebrew OpenCV, OpenMP (libomp), and Qt6 paths.
+#      that points Conan at Homebrew OpenMP (libomp) and Qt6 paths (OpenCV is
+#      set only when configuring the app in build-app.sh).
 #   3. Print the result as null-delimited Conan -c arguments for the caller to consume.
 #
 # This script is sourced by install-deps.sh and build-app.sh via process substitution.

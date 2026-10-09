@@ -19,7 +19,7 @@ Clone repositories as siblings under one directory (default `~/source_builds`):
   camera_lidar_calibration/
 ```
 
-All feature branches: **`feature/camera-lidar-calibration-libs`**
+All stack repos use branch **`feature/camera-lidar-calibration-libs`** on **psiori** (including `gtsam`, which adds Conan support on that branch).
 
 ### Clone (once)
 
@@ -35,7 +35,7 @@ Or clone `camera_lidar_calibration` first, then run the script from that checkou
 bash ~/source_builds/camera_lidar_calibration/scripts/ensure-brew-deps.sh
 ```
 
-Installs: `opencv`, `qt@6`, `libomp`, `ninja`.
+Installs: `opencv@4`, `qt@6`, `libomp`, `ninja`. (Use the `opencv@4` formula, not Homebrew `opencv` 5.)
 
 ## Step 1 — Conan dependencies
 
@@ -46,6 +46,7 @@ CALIB_SRC=~/source_builds CONAN_HOME=~/.calib-conan \
   bash ~/source_builds/camera_lidar_calibration/scripts/install-deps.sh
 ```
 
+
 Dependency order:
 
 1. `gtsam`
@@ -55,7 +56,7 @@ Dependency order:
 
 The Conan profile (`conan/profiles/native-macos`) uses `compiler.version=13` for Conan Center binary compatibility. The numeric stack (`gtsam`, `gtsam_points`, `glim`, `vlcal_align`, and `clc_core`) is built from source with `-march=native` enabled by default (`CALIB_MARCH_NATIVE=True`). Set `CALIB_MARCH_NATIVE=False` to disable CPU-specific tuning.
 
-Hybrid Homebrew integration (OpenCV, Qt, libomp) lives only in this repo under `conan/calib_deps.py` and is injected into all `conan create` / `conan install` calls via `scripts/conan-macos-toolchain-args.sh`. Library repos do not ship or import that module.
+Hybrid Homebrew integration (OpenMP, Qt hints for Conan; OpenCV 4 and Qt for the app) lives only in this repo under `conan/calib_deps.py` and `scripts/build-app.sh`. Conan library packages use Conan Center OpenCV 4.x; `build-app.sh` passes Homebrew `opencv@4` `OpenCV_DIR` / `Qt6_DIR` when configuring the app. If you upgrade `opencv@4`, rerun `install-deps.sh` to refresh `vlcal_align` in the Conan cache when needed.
 
 ## Step 2 — app shell
 

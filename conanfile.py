@@ -62,6 +62,8 @@ class CameraLidarCalibrationConan(ConanFile):
         self.options["vlcal_align"].shared = False
         self.options["vlcal_align"].build_vlcal_preprocess = True
         self.options["vlcal_align"].build_with_viewer = False
+        self.options["opencv"].with_ffmpeg = False
+        self.options["opencv"].with_gtk = False
 
     def requirements(self):
         self.requires("vlcal_align/0.1.0")
@@ -74,6 +76,7 @@ class CameraLidarCalibrationConan(ConanFile):
         self.requires("spdlog/1.12.0")
         self.requires("boost/1.83.0")
         self.requires("nlohmann_json/3.11.3")
+        self.requires("opencv/[>=4.0.0 <5.0.0]")
 
     def layout(self):
         cmake_layout(self)

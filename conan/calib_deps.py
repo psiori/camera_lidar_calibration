@@ -8,8 +8,10 @@ import os
 import shutil
 import subprocess
 
+# Qt and Homebrew opencv@4 for the app shell are passed in scripts/build-app.sh.
+# Do not set OpenCV_DIR here: Conan packages (e.g. vlcal_align) must use OpenCV
+# 4.x so installed CMake targets do not embed brittle Homebrew paths.
 _HOMEBREW_CMAKE_HINTS = (
-    ("OpenCV_DIR", "opt/opencv/lib/cmake/opencv5"),
     ("Qt6_DIR", "opt/qt@6/lib/cmake/Qt6"),
 )
 
