@@ -2,6 +2,8 @@
 
 #include <QtGui/QKeyEvent>
 
+#include <cmath>
+
 #include "psiviz/pose_gizmo.hpp"
 #include "psiviz/trackball_camera.hpp"
 
@@ -30,16 +32,18 @@ InputResult ViewerInputRouter::mousePress(const QMouseEvent& event, int width, i
     }
   }
 
-  if (event.button() == Qt::LeftButton && event.modifiers().testFlag(Qt::ShiftModifier) && picking_enabled_) {
-    shift_pick_pending_ = true;
-    result.action = InputAction::PickPoint;
+  if (event.button() == Qt::LeftButton && event.modifiers().testFlag(Qt::ShiftModifier)) {
+    shift_left_active_ = true;
+    shift_press_pos_ = last_pos_;
+    shift_dragged_ = false;
+    shift_pick_pending_ = picking_enabled_;
+    result.action = InputAction::CameraPan;
     return result;
   }
 
   if (event.button() == Qt::LeftButton) {
     result.action = InputAction::CameraRotate;
-  } else if (event.button() == Qt::MiddleButton ||
-             (event.button() == Qt::LeftButton && event.modifiers().testFlag(Qt::ShiftModifier))) {
+  } else if (event.button() == Qt::MiddleButton) {
     result.action = InputAction::CameraPan;
   } else if (event.button() == Qt::RightButton) {
     result.action = InputAction::CameraDolly;
@@ -69,11 +73,21 @@ InputResult ViewerInputRouter::mouseMove(const QMouseEvent& event, int width, in
   if (drag_button_ == Qt::LeftButton && cmd) {
     camera_.spin(dx, dy);
     result.action = InputAction::CameraSpin;
-  } else if (drag_button_ == Qt::LeftButton && !event.modifiers().testFlag(Qt::ShiftModifier)) {
+  } else if (drag_button_ == Qt::LeftButton && shift_left_active_) {
+    if (!shift_dragged_) {
+      const float dist =
+          std::hypot(static_cast<float>(pos.x() - shift_press_pos_.x()), static_cast<float>(pos.y() - shift_press_pos_.y()));
+      if (dist > static_cast<float>(kPickClickMoveThresholdPx)) {
+        shift_dragged_ = true;
+        shift_pick_pending_ = false;
+      }
+    }
+    camera_.pan(dx, dy);
+    result.action = InputAction::CameraPan;
+  } else if (drag_button_ == Qt::LeftButton) {
     camera_.rotate(dx, dy);
     result.action = InputAction::CameraRotate;
-  } else if (drag_button_ == Qt::MiddleButton ||
-             (drag_button_ == Qt::LeftButton && event.modifiers().testFlag(Qt::ShiftModifier))) {
+  } else if (drag_button_ == Qt::MiddleButton) {
     camera_.pan(dx, dy);
     result.action = InputAction::CameraPan;
   } else if (drag_button_ == Qt::RightButton) {
@@ -86,10 +100,12 @@ InputResult ViewerInputRouter::mouseMove(const QMouseEvent& event, int width, in
 
 InputResult ViewerInputRouter::mouseRelease(const QMouseEvent& event) {
   InputResult result;
-  if (shift_pick_pending_ && event.button() == Qt::LeftButton) {
+  if (shift_pick_pending_ && !shift_dragged_ && event.button() == Qt::LeftButton) {
     result.action = InputAction::PickPoint;
-    shift_pick_pending_ = false;
   }
+  shift_pick_pending_ = false;
+  shift_left_active_ = false;
+  shift_dragged_ = false;
   if (gizmo_.isManipulating()) {
     gizmo_.endDrag();
     result.action = InputAction::GizmoDrag;
@@ -111,6 +127,18 @@ InputResult ViewerInputRouter::wheel(const QWheelEvent& event) {
 
 InputResult ViewerInputRouter::keyPress(const QKeyEvent& event) {
   InputResult result;
+  const bool plus_key = event.key() == Qt::Key_Plus || event.key() == Qt::Key_Equal;
+  const bool minus_key = event.key() == Qt::Key_Minus;
+  if (plus_key) {
+    camera_.adjustPointSize(0.5f);
+    result.action = InputAction::PointSizeDelta;
+    return result;
+  }
+  if (minus_key) {
+    camera_.adjustPointSize(-0.5f);
+    result.action = InputAction::PointSizeDelta;
+    return result;
+  }
   if (!interaction_enabled_) {
     return result;
   }
@@ -121,12 +149,6 @@ InputResult ViewerInputRouter::keyPress(const QKeyEvent& event) {
     result.action = InputAction::CameraFlyTo;
   } else if (event.key() == Qt::Key_H || event.key() == Qt::Key_Home) {
     result.action = InputAction::CameraFrameContent;
-  } else if (event.key() == Qt::Key_Plus || event.key() == Qt::Key_Equal) {
-    camera_.adjustPointSize(0.5f);
-    result.action = InputAction::PointSizeDelta;
-  } else if (event.key() == Qt::Key_Minus) {
-    camera_.adjustPointSize(-0.5f);
-    result.action = InputAction::PointSizeDelta;
   }
   return result;
 }

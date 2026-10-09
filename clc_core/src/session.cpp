@@ -1,6 +1,9 @@
 #include <clc_core/session.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -65,6 +68,37 @@ DatasetEntry dataset_from_json(const nlohmann::json& j) {
 }
 
 }  // namespace
+
+int default_fusion_num_threads() {
+  const unsigned hw = std::thread::hardware_concurrency();
+  return hw > 0 ? static_cast<int>(hw) : 4;
+}
+
+void apply_default_fusion_params(glim_cloud_fusion::FusionParams& params) {
+  params.num_threads = default_fusion_num_threads();
+  params.max_correspondence_distance = 0.5;
+}
+
+void apply_default_scan_time_params(glim_cloud_fusion::ScanTimeParams& scan_time) {
+  scan_time.time_unit = glim_cloud_fusion::TimeUnit::Nanoseconds;
+  scan_time.time_origin = glim_cloud_fusion::TimeOrigin::ScanStart;
+  scan_time.scan_duration.reset();
+}
+
+std::optional<double> infer_scan_duration_seconds(
+  const glim_cloud_fusion::LidarScan& scan,
+  const glim_cloud_fusion::ScanTimeParams& params) {
+  if (scan.times.empty()) {
+    return std::nullopt;
+  }
+  const double max_t = *std::max_element(scan.times.begin(), scan.times.end());
+  const double scale = (params.time_unit == glim_cloud_fusion::TimeUnit::Nanoseconds) ? 1e-9 : 1.0;
+  const double duration = max_t * scale;
+  if (duration <= 0.0 || !std::isfinite(duration)) {
+    return std::nullopt;
+  }
+  return duration;
+}
 
 void SessionData::ensurePrimaryCalibration() {
   if (calibration_datasets.empty()) {
@@ -140,6 +174,7 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   }
   j["fusion"]["voxel_resolution"] = session.fusion_params.voxel_resolution;
   j["fusion"]["num_threads"] = session.fusion_params.num_threads;
+  j["fusion"]["max_correspondence_distance"] = session.fusion_params.max_correspondence_distance;
   j["scan_time"]["time_unit"] = static_cast<int>(session.scan_time.time_unit);
   j["scan_time"]["time_origin"] = static_cast<int>(session.scan_time.time_origin);
   if (session.scan_time.scan_duration.has_value()) {
@@ -202,9 +237,12 @@ bool load_session(const std::string& path, SessionData& session) {
     session.syncLegacyFromPrimary();
   }
   session.fusion_params.voxel_resolution = j["fusion"].value("voxel_resolution", 0.05);
-  session.fusion_params.num_threads = j["fusion"].value("num_threads", 4);
-  session.scan_time.time_unit = static_cast<glim_cloud_fusion::TimeUnit>(j["scan_time"].value("time_unit", 0));
-  session.scan_time.time_origin = static_cast<glim_cloud_fusion::TimeOrigin>(j["scan_time"].value("time_origin", 0));
+  session.fusion_params.num_threads = j["fusion"].value("num_threads", default_fusion_num_threads());
+  session.fusion_params.max_correspondence_distance = j["fusion"].value("max_correspondence_distance", 0.5);
+  session.scan_time.time_unit = static_cast<glim_cloud_fusion::TimeUnit>(
+    j["scan_time"].value("time_unit", static_cast<int>(glim_cloud_fusion::TimeUnit::Nanoseconds)));
+  session.scan_time.time_origin = static_cast<glim_cloud_fusion::TimeOrigin>(
+    j["scan_time"].value("time_origin", static_cast<int>(glim_cloud_fusion::TimeOrigin::ScanStart)));
   if (j["scan_time"].contains("scan_duration")) {
     session.scan_time.scan_duration = j["scan_time"]["scan_duration"].get<double>();
   }

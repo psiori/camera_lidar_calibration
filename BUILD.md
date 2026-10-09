@@ -71,6 +71,19 @@ Run:
 ~/source_builds/camera_lidar_calibration/build/clc_app/clc_app
 ```
 
+### Fusion benchmark CLI (`clc_fusion`)
+
+Same fusion defaults as the app (hardware thread count, 0.5 m max correspondence, nanosecond scan-start timestamps). Built alongside `clc_app` by `build-app.sh`:
+
+```bash
+~/source_builds/camera_lidar_calibration/build/tools/clc_fusion/clc_fusion \
+  /path/to/pcd_dir --sort timestamp \
+  --glim-config ~/source_builds/glim/config \
+  --output /tmp/fused.pcd
+```
+
+Use `--max-scans N` for a quick timing sample. Progress lines report load and per-scan fusion timing.
+
 ### App workflow (v1)
 
 1. **Session** — choose a session directory, **Load** / **Save** (`session.json` with calibration + inspection datasets, mask path, extrinsics, fusion/scan-time params).

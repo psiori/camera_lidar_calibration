@@ -24,7 +24,7 @@ Holds `Eigen::Affine3f` pose. `beginFrame`, `hitTest`, `drag`, `isManipulating()
 
 ## `psiviz::ViewerInputRouter`
 
-Priority: gizmo drag > Shift+click pick > camera. Returns `InputAction` for the item to apply.
+Priority: gizmo drag > Shift+left-drag pan / Shift+click pick > camera. Returns `InputAction` for the item to apply.
 
 ## `psiviz::PointCloudItem` (QML: `PointCloudScene`)
 
@@ -39,6 +39,18 @@ Priority: gizmo drag > Shift+click pick > camera. Returns `InputAction` for the 
 | Signal | Description |
 |--------|-------------|
 | `pointPicked(x, y, z)` | Shift+click depth pick |
+
+### Scene shapes (non-pickable)
+
+Rudimentary meshes (UV spheres) render in the main pass only; they are **not** drawn in the depth pick pass.
+
+| Method | Description |
+|--------|-------------|
+| `setSphereMarkerPositions(xyz…)` | Flat `x,y,z` triples for gold correspondence markers |
+| `setPendingSphereMarker(x,y,z)` | Cyan sphere for an in-progress pick |
+| `clearPendingSphereMarker()` | Remove pending marker |
+| `clearSphereMarkers()` | Remove all markers |
+| `markerSphereRadius` | World radius (`0` = auto from cloud bounds) |
 | `poseChanged()` | Gizmo moved the pose matrix |
 
 `poseMatrix()` / `setPoseMatrix()` expose the 4×4 pose as 16 doubles (column-major).

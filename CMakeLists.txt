@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_CLC_APP "Build Qt QML application" ON)
+option(BUILD_CLC_FUSION_CLI "Build clc_fusion command-line fusion tool" ON)
 option(BUILD_WITH_MARCH_NATIVE "Enable -march=native" OFF)
 option(CLC_DEV_BUILD "Link against sibling source build trees" ON)
 
@@ -41,6 +42,10 @@ else()
 endif()
 
 add_subdirectory(clc_core)
+
+if(BUILD_CLC_FUSION_CLI)
+  add_subdirectory(tools/clc_fusion)
+endif()
 
 if(BUILD_CLC_APP)
   find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Qml Gui Core ShaderTools)

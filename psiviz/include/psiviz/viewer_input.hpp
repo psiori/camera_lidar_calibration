@@ -49,7 +49,11 @@ class ViewerInputRouter {
   bool dragging_{false};
   Qt::MouseButton drag_button_{Qt::NoButton};
   QPoint last_pos_;
+  QPoint shift_press_pos_;
+  bool shift_left_active_{false};
   bool shift_pick_pending_{false};
+  bool shift_dragged_{false};
+  static constexpr int kPickClickMoveThresholdPx = 4;
 };
 
 }  // namespace psiviz

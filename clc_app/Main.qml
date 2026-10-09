@@ -254,7 +254,7 @@ ApplicationWindow {
                                     Label { text: "Threads" }
                                     SpinBox {
                                         from: 1
-                                        to: 64
+                                        to: Math.max(64, controller.fusionNumThreads)
                                         value: controller.fusionNumThreads
                                         onValueModified: controller.fusionNumThreads = value
                                     }
@@ -460,25 +460,53 @@ ApplicationWindow {
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onHoveredChanged: {
                         if (hovered) {
-                            viewerPane.forceActiveFocus()
+                            cloudView.forceActiveFocus()
+                            cloudView.setPointerPosition(point.position.x, point.position.y)
                         }
                     }
                 }
 
-                Keys.onPressed: (event) => {
-                    if (!viewerHover.hovered || viewerOverlay.keysBlocked) {
-                        return
-                    }
-                    if (cloudView.handleNavigationKey(event.key, event.modifiers)) {
-                        event.accepted = true
-                    }
+                Timer {
+                    interval: 16
+                    running: viewerHover.hovered
+                    repeat: true
+                    onTriggered: cloudView.setPointerPosition(viewerHover.point.position.x, viewerHover.point.position.y)
+                }
+
+                Shortcut {
+                    sequences: ["F", "f"]
+                    context: Qt.ApplicationShortcut
+                    enabled: viewerHover.hovered && !viewerOverlay.keysBlocked
+                    onActivated: cloudView.flyToUnderCursor()
+                }
+
+                Shortcut {
+                    sequences: ["+", "Shift+=", "="]
+                    context: Qt.ApplicationShortcut
+                    enabled: viewerHover.hovered && !viewerOverlay.keysBlocked
+                    onActivated: cloudView.bumpPointSize(0.5)
+                }
+                Shortcut {
+                    sequences: ["-", "_"]
+                    context: Qt.ApplicationShortcut
+                    enabled: viewerHover.hovered && !viewerOverlay.keysBlocked
+                    onActivated: cloudView.bumpPointSize(-0.5)
                 }
 
                 PointCloudScene {
                     id: cloudView
                     anchors.fill: parent
                     gizmoEnabled: !controller.inspectionMode
-                    focus: false
+                    focus: viewerHover.hovered
+                    activeFocusOnTab: true
+                    Keys.onPressed: (event) => {
+                        if (!viewerHover.hovered || viewerOverlay.keysBlocked) {
+                            return
+                        }
+                        if (cloudView.handleNavigationKey(event.key, event.modifiers)) {
+                            event.accepted = true
+                        }
+                    }
                     Component.onCompleted: Qt.callLater(controller.setViewer, cloudView)
                 }
 

@@ -121,5 +121,6 @@ cmake -S "${APP_REPO}" -B "${BUILD_DIR}" -G Ninja \
   -DBUILD_WITH_MARCH_NATIVE="${CMAKE_MARCH_NATIVE}" \
   "${CMAKE_EXTRA_ARGS[@]}"
 
-cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" --target clc_app clc_fusion
 echo "Built: ${BUILD_DIR}/clc_app/clc_app"
+echo "Built: ${BUILD_DIR}/tools/clc_fusion/clc_fusion"

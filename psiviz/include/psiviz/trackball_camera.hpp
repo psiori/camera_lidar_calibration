@@ -54,6 +54,7 @@ class TrackballCamera {
   Eigen::Vector3f fly_start_position_{};
   float fly_t_{1.f};
   float fly_duration_{0.35f};
+  float fly_distance_{0.f};
 };
 
 }  // namespace psiviz

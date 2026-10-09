@@ -188,7 +188,7 @@ private:
   void refreshPcdCatalog();
   void refreshRangeImage();
   void uploadPreviewScanToViewer(bool preserve_view_state = false);
-  void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud);
+  void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud, bool preserve_view_state = false);
   void uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, bool preserve_view_state = false);
   void refreshPreviewCloudFromMask(bool preserve_view_state = true);
   void refreshCameraPreview();
@@ -197,17 +197,19 @@ private:
   clc::DatasetEntry& activeDatasetEntry();
   const clc::DatasetEntry& activeDatasetEntry() const;
   bool loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err);
+  void maybeInferScanDurationFromScan(const clc::PointXYZITCloud& cloud);
   void rebuildMaskFromOps();
   int maskRasterWidth() const;
   int maskRasterHeight() const;
   void setMaskPolygonPending(bool pending);
-  void refreshViewerColormapBounds();
+  void refreshViewerColormapBounds(bool reset_colormap_range = true);
   void refreshRangeImageDisplay();
   void applyViewerScalarRangeToItem();
   void applySessionToViewer();
   void emitSessionUiState();
   void syncColorModelFromSession();
   void refreshViewerRgb(float blend_weight);
+  void syncCorrespondenceMarkers();
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);
   void joinWorker();
   void setWorkerRunning(bool running);
@@ -229,6 +231,7 @@ private:
   int range_channel_ = 0;
   double range_y_stretch_ = 1.0;
   bool preview_upload_pending_ = false;
+  bool viewer_scalar_bounds_valid_ = false;
   double viewer_colormap_min_ = 0.0;
   double viewer_colormap_max_ = 1.0;
   double viewer_data_min_ = 0.0;

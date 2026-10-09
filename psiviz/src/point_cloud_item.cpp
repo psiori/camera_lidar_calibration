@@ -3,17 +3,36 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include <QKeyEvent>
+#include <QLoggingCategory>
+#include <QMetaObject>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QQuickWindow>
 #include <QWheelEvent>
+#include <rhi/qrhi.h>
 
 #include "psiviz/depth_picker.hpp"
 #include "psiviz/point_cloud_renderer.hpp"
 
 namespace psiviz {
+
+namespace {
+Q_LOGGING_CATEGORY(psivizPickLog, "psiviz.pick")
+
+Eigen::Matrix4f clipViewProjection(QRhi* rhi, const TrackballCamera& camera) {
+  Eigen::Matrix4f clip_corr = Eigen::Matrix4f::Identity();
+  if (rhi) {
+    const QMatrix4x4 qt_corr = rhi->clipSpaceCorrMatrix();
+    std::memcpy(clip_corr.data(), qt_corr.constData(), sizeof(float) * 16);
+  }
+  return clip_corr * camera.projectionMatrix() * camera.viewMatrix();
+}
+
+}  // namespace
 
 class PointCloudRendererItem : public QQuickRhiItemRenderer {
  public:
@@ -27,8 +46,11 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
 
   void synchronize(QQuickRhiItem* item) override {
     auto* cloud_item = static_cast<PointCloudItem*>(item);
+    item_ = cloud_item;
     if (camera_sync_from_render_) {
+      const float point_size = cloud_item->camera_.pointSize();
       cloud_item->camera_ = render_camera_;
+      cloud_item->camera_.setPointSize(point_size);
       camera_sync_from_render_ = false;
     }
     cloud_item->updateViewport();
@@ -71,10 +93,23 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     cloud_item->do_pick_ = false;
     fly_to_ = cloud_item->fly_to_;
     cloud_item->fly_to_ = false;
+    pick_emit_signal_ = cloud_item->pick_emit_signal_;
+    cloud_item->pick_emit_signal_ = false;
     emit_pose_ = cloud_item->emit_pose_;
     cloud_item->emit_pose_ = false;
 
     synchronizePick(cloud_item);
+
+    {
+      std::lock_guard lock(cloud_item->markers_mutex_);
+      if (cloud_item->markers_dirty_) {
+        cloud_item->rebuildSphereMarkersFromPositions();
+        cloud_item->markers_dirty_ = false;
+      }
+      if (renderer_) {
+        renderer_->setSphereMarkers(cloud_item->sphere_markers_);
+      }
+    }
   }
 
   void render(QRhiCommandBuffer* cb) override {
@@ -95,23 +130,42 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     if (do_pick_) {
       last_depth_ = renderer_->lastPickedDepth();
       pick_ready_ = true;
-      const Eigen::Matrix4f view = camera_.viewMatrix();
-      const Eigen::Matrix4f proj = camera_.projectionMatrix();
-      picked_point_ = DepthPicker::unproject(last_depth_, pick_x_, pick_y_, width_, height_, static_cast<float>(dpr_),
-                                             view, proj);
-    }
-    if (fly_to_) {
-      const Eigen::Matrix4f view = camera_.viewMatrix();
-      const Eigen::Matrix4f proj = camera_.projectionMatrix();
-      const auto pt = DepthPicker::unproject(last_depth_, pick_x_, pick_y_, width_, height_, static_cast<float>(dpr_),
-                                             view, proj);
-      if (pt) {
-        camera_.flyTo(*pt);
+      last_pick_x_ = pick_x_;
+      last_pick_y_ = pick_y_;
+      const float dpr = static_cast<float>(dpr_);
+      const Eigen::Matrix4f clip_vp = clipViewProjection(rhi(), camera_);
+      const float pick_radius = std::max(16.f, camera_.pointSize() * 3.f) * dpr;
+      picked_point_ =
+          DepthPicker::pickNearestOnScreen(pending_.positions.data(), pending_.point_count, pick_x_, pick_y_, width_,
+                                           height_, dpr, clip_vp, pick_radius);
+      pick_used_cpu_ = picked_point_.has_value();
+      if (!picked_point_) {
+        picked_point_ = DepthPicker::unproject(last_depth_, pick_x_, pick_y_, width_, height_, dpr, clip_vp);
+        pick_used_cpu_ = false;
       }
+      if (picked_point_) {
+        if (fly_to_) {
+          camera_.flyTo(*picked_point_);
+          qCInfo(psivizPickLog) << "fly-to focal ->" << picked_point_->x() << picked_point_->y() << picked_point_->z()
+                                << "at pixel" << pick_x_ << pick_y_ << "depth01" << last_depth_;
+        }
+      } else {
+        qCInfo(psivizPickLog) << "pick missed at pixel" << pick_x_ << pick_y_ << "depth01" << last_depth_
+                              << "points" << static_cast<qulonglong>(pending_.point_count);
+      }
+      do_pick_ = false;
+      fly_to_ = false;
     }
     render_camera_ = camera_;
     if (camera_.isFlying()) {
       camera_sync_from_render_ = true;
+    }
+    requestItemUpdate();
+  }
+
+  void requestItemUpdate() {
+    if (item_ && (camera_.isFlying() || camera_sync_from_render_)) {
+      QMetaObject::invokeMethod(item_, "update", Qt::QueuedConnection);
     }
   }
 
@@ -121,8 +175,26 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     }
     pick_ready_ = false;
     if (picked_point_) {
-      emit item->pointPicked(picked_point_->x(), picked_point_->y(), picked_point_->z());
+      const auto& p = *picked_point_;
+      qCInfo(psivizPickLog).noquote()
+          << QStringLiteral("picked (%1, %2, %3) pixel=(%4,%5) depth01=%6 cpu=%7")
+                 .arg(p.x(), 0, 'f', 4)
+                 .arg(p.y(), 0, 'f', 4)
+                 .arg(p.z(), 0, 'f', 4)
+                 .arg(last_pick_x_)
+                 .arg(last_pick_y_)
+                 .arg(last_depth_, 0, 'f', 4)
+                 .arg(pick_used_cpu_);
+      if (pick_emit_signal_) {
+        emit item->pointPicked(p.x(), p.y(), p.z());
+      }
+    } else {
+      qCInfo(psivizPickLog).noquote() << QStringLiteral("pick failed pixel=(%1,%2) depth01=%3")
+                                            .arg(last_pick_x_)
+                                            .arg(last_pick_y_)
+                                            .arg(last_depth_, 0, 'f', 4);
     }
+    pick_emit_signal_ = false;
   }
 
   std::unique_ptr<PointCloudRenderer> renderer_;
@@ -145,9 +217,14 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
   float last_depth_{1.f};
   std::optional<Eigen::Vector3f> picked_point_;
   bool fly_to_{false};
+  bool pick_emit_signal_{false};
+  bool pick_used_cpu_{false};
+  int last_pick_x_{0};
+  int last_pick_y_{0};
   bool emit_pose_{false};
   TrackballCamera render_camera_;
   bool camera_sync_from_render_{false};
+  QPointer<PointCloudItem> item_;
 };
 
 PointCloudItem::PointCloudItem(QQuickItem* parent) : QQuickRhiItem(parent) {
@@ -187,6 +264,125 @@ void PointCloudItem::setScalarMax(double v) {
 void PointCloudItem::setPointSize(double s) {
   camera_.setPointSize(static_cast<float>(s));
   emit pointSizeChanged();
+  update();
+}
+
+void PointCloudItem::bumpPointSize(double delta) {
+  camera_.adjustPointSize(static_cast<float>(delta));
+  emit pointSizeChanged();
+  update();
+}
+
+void PointCloudItem::setPointerPosition(double x, double y) {
+  last_mouse_ = QPointF(x, y);
+  pointer_position_valid_ = true;
+}
+
+float PointCloudItem::effectiveMarkerSphereRadius() const {
+  if (marker_sphere_radius_ > 0.) {
+    return static_cast<float>(marker_sphere_radius_);
+  }
+  if (content_bounds_valid_) {
+    return std::max(0.01f, (content_bounds_max_ - content_bounds_min_).norm() * 0.008f);
+  }
+  return 0.05f;
+}
+
+void PointCloudItem::rebuildSphereMarkersFromPositions() {
+  sphere_markers_.clear();
+  const float radius = effectiveMarkerSphereRadius();
+  const int count = static_cast<int>(marker_positions_xyz_.size() / 3);
+  for (int i = 0; i < count; ++i) {
+    SphereMarker marker;
+    marker.center = Eigen::Vector3f(static_cast<float>(marker_positions_xyz_[i * 3 + 0]),
+                                    static_cast<float>(marker_positions_xyz_[i * 3 + 1]),
+                                    static_cast<float>(marker_positions_xyz_[i * 3 + 2]));
+    marker.radius = radius;
+    marker.color = Eigen::Vector3f(1.f, 0.82f, 0.15f);
+    sphere_markers_.push_back(marker);
+  }
+  if (pending_marker_) {
+    SphereMarker marker;
+    marker.center = *pending_marker_;
+    marker.radius = radius;
+    marker.color = Eigen::Vector3f(0.35f, 0.9f, 1.f);
+    sphere_markers_.push_back(marker);
+  }
+}
+
+void PointCloudItem::setSphereMarkerPositions(const QVector<double>& positions_xyz) {
+  if (positions_xyz.size() % 3 != 0) {
+    return;
+  }
+  {
+    std::lock_guard lock(markers_mutex_);
+    marker_positions_xyz_ = positions_xyz;
+    markers_dirty_ = true;
+  }
+  update();
+}
+
+void PointCloudItem::setPendingSphereMarker(double x, double y, double z) {
+  {
+    std::lock_guard lock(markers_mutex_);
+    pending_marker_ = Eigen::Vector3f(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    markers_dirty_ = true;
+  }
+  update();
+}
+
+void PointCloudItem::clearPendingSphereMarker() {
+  {
+    std::lock_guard lock(markers_mutex_);
+    pending_marker_.reset();
+    markers_dirty_ = true;
+  }
+  update();
+}
+
+void PointCloudItem::clearSphereMarkers() {
+  {
+    std::lock_guard lock(markers_mutex_);
+    marker_positions_xyz_.clear();
+    pending_marker_.reset();
+    sphere_markers_.clear();
+    markers_dirty_ = true;
+  }
+  update();
+}
+
+void PointCloudItem::setMarkerSphereRadius(double radius) {
+  if (marker_sphere_radius_ == radius) {
+    return;
+  }
+  marker_sphere_radius_ = radius;
+  {
+    std::lock_guard lock(markers_mutex_);
+    markers_dirty_ = true;
+  }
+  emit markerSphereRadiusChanged();
+  update();
+}
+
+void PointCloudItem::flyToUnderCursor() {
+  if (!interaction_enabled_) {
+    return;
+  }
+  const int w = std::max(1, static_cast<int>(width()));
+  const int h = std::max(1, static_cast<int>(height()));
+  if (pointer_position_valid_) {
+    pick_x_ = static_cast<int>(last_mouse_.x());
+    pick_y_ = static_cast<int>(last_mouse_.y());
+  } else {
+    pick_x_ = w / 2;
+    pick_y_ = h / 2;
+  }
+  pick_x_ = std::clamp(pick_x_, 0, w - 1);
+  pick_y_ = std::clamp(pick_y_, 0, h - 1);
+  do_pick_ = true;
+  fly_to_ = true;
+  pick_emit_signal_ = false;
+  qCInfo(psivizPickLog) << "fly-to requested at pixel" << pick_x_ << pick_y_;
   update();
 }
 
@@ -338,10 +534,21 @@ bool PointCloudItem::processNavigationKey(QKeyEvent* key_event) {
     return true;
   }
   if (result.action == InputAction::CameraFlyTo) {
-    pick_x_ = static_cast<int>(last_mouse_.x());
-    pick_y_ = static_cast<int>(last_mouse_.y());
+    const int w = std::max(1, static_cast<int>(width()));
+    const int h = std::max(1, static_cast<int>(height()));
+    if (pointer_position_valid_) {
+      pick_x_ = static_cast<int>(last_mouse_.x());
+      pick_y_ = static_cast<int>(last_mouse_.y());
+    } else {
+      pick_x_ = w / 2;
+      pick_y_ = h / 2;
+    }
+    pick_x_ = std::clamp(pick_x_, 0, w - 1);
+    pick_y_ = std::clamp(pick_y_, 0, h - 1);
     do_pick_ = true;
     fly_to_ = true;
+    pick_emit_signal_ = false;
+    qCInfo(psivizPickLog) << "fly-to requested at pixel" << pick_x_ << pick_y_;
     update();
     return true;
   }
@@ -363,6 +570,7 @@ bool PointCloudItem::event(QEvent* event) {
   if (event->type() == QEvent::HoverMove) {
     const auto* hover = static_cast<QHoverEvent*>(event);
     last_mouse_ = hover->position();
+    pointer_position_valid_ = true;
     return false;
   }
 
@@ -374,12 +582,12 @@ bool PointCloudItem::event(QEvent* event) {
 
   if (event->type() == QEvent::MouseButtonPress) {
     const auto* mouse = static_cast<QMouseEvent*>(event);
+    forceActiveFocus(Qt::MouseFocusReason);
     last_mouse_ = mouse->position();
+    pointer_position_valid_ = true;
     const InputResult result = input_.mousePress(*mouse, w, h);
     if (result.action == InputAction::PickPoint) {
-      pick_x_ = static_cast<int>(mouse->position().x());
-      pick_y_ = static_cast<int>(mouse->position().y());
-      do_pick_ = true;
+      return true;
     }
     if (result.action != InputAction::None) {
       update();
@@ -390,6 +598,7 @@ bool PointCloudItem::event(QEvent* event) {
   if (event->type() == QEvent::MouseMove) {
     const auto* mouse = static_cast<QMouseEvent*>(event);
     last_mouse_ = mouse->position();
+    pointer_position_valid_ = true;
     const InputResult result = input_.mouseMove(*mouse, w, h);
     if (result.action == InputAction::GizmoDrag) {
       emit_pose_ = true;
@@ -408,6 +617,9 @@ bool PointCloudItem::event(QEvent* event) {
       pick_x_ = static_cast<int>(mouse->position().x());
       pick_y_ = static_cast<int>(mouse->position().y());
       do_pick_ = true;
+      pick_emit_signal_ = true;
+      fly_to_ = false;
+      qCInfo(psivizPickLog) << "shift+click pick at pixel" << pick_x_ << pick_y_;
     }
     if (result.action == InputAction::GizmoDrag) {
       emit poseChanged();

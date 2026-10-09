@@ -6,6 +6,7 @@
 
 #include "psiviz/point_cloud_buffers.hpp"
 #include "psiviz/pose_gizmo.hpp"
+#include "psiviz/scene_shapes.hpp"
 #include "psiviz/trackball_camera.hpp"
 
 class QRhi;
@@ -30,6 +31,7 @@ class PointCloudRenderer {
     scalar_max_ = max_v;
   }
   void requestPick(int x, int y, float dpr);
+  void setSphereMarkers(const std::vector<SphereMarker>& markers);
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
   [[nodiscard]] float lastPickedDepth() const { return last_picked_depth_; }
@@ -37,8 +39,10 @@ class PointCloudRenderer {
  private:
   void ensurePipeline(QRhiRenderTarget* rt);
   void ensureGizmoPipeline(QRhiRenderTarget* rt);
+  void ensureShapePipeline(QRhiRenderTarget* rt);
   void ensurePickTarget(int width, int height);
   void uploadGizmo(const PoseGizmo& gizmo);
+  void uploadSphereMarkers();
   void renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h);
   void releaseResources();
 
@@ -59,6 +63,8 @@ class PointCloudRenderer {
   float pick_dpr_{1.f};
   float last_picked_depth_{1.f};
   int gizmo_vertex_count_{0};
+  int shape_vertex_count_{0};
+  std::vector<SphereMarker> sphere_markers_;
 };
 
 }  // namespace psiviz

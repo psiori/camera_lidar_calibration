@@ -70,4 +70,14 @@ struct SessionData {
 bool save_session(const std::string& path, const SessionData& session);
 bool load_session(const std::string& path, SessionData& session);
 
+/// Default fusion thread count (hardware concurrency, minimum 1).
+int default_fusion_num_threads();
+void apply_default_fusion_params(glim_cloud_fusion::FusionParams& params);
+void apply_default_scan_time_params(glim_cloud_fusion::ScanTimeParams& scan_time);
+
+/// Sweep length in seconds from per-point timestamps (e.g. max time when origin is scan start).
+std::optional<double> infer_scan_duration_seconds(
+  const glim_cloud_fusion::LidarScan& scan,
+  const glim_cloud_fusion::ScanTimeParams& params);
+
 }  // namespace clc

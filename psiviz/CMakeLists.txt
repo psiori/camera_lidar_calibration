@@ -12,6 +12,7 @@ qt_add_qml_module(psiviz
     src/trackball_camera.cpp
     src/depth_picker.cpp
     src/pose_gizmo.cpp
+    src/scene_shapes.cpp
     src/viewer_input.cpp
     src/point_cloud_renderer.cpp
     src/point_cloud_item.cpp
