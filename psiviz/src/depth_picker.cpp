@@ -36,11 +36,20 @@ std::optional<Eigen::Vector3f> DepthPicker::unproject(float depth01, int x, int 
   return world.head<3>();
 }
 
-std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,
-                                                                int x, int y, int width, int height,
-                                                                float device_pixel_ratio,
-                                                                const Eigen::Matrix4f& clip_view_projection,
-                                                                float max_pixel_radius) {
+std::optional<std::uint64_t> DepthPicker::decodePickIndexFromRgba(unsigned char r, unsigned char g, unsigned char b) {
+  const std::uint32_t enc = (static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
+                            static_cast<std::uint32_t>(b);
+  if (enc == 0) {
+    return std::nullopt;
+  }
+  return static_cast<std::uint64_t>(enc - 1u);
+}
+
+std::optional<std::uint64_t> DepthPicker::pickNearestIndexOnScreen(const float* positions, std::uint64_t point_count,
+                                                                   int x, int y, int width, int height,
+                                                                   float device_pixel_ratio,
+                                                                   const Eigen::Matrix4f& clip_view_projection,
+                                                                   float max_pixel_radius) {
   if (!positions || point_count == 0 || width <= 0 || height <= 0 || max_pixel_radius <= 0.f) {
     return std::nullopt;
   }
@@ -54,7 +63,7 @@ std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* pos
 
   float best_dist_sq = std::numeric_limits<float>::infinity();
   float best_depth = std::numeric_limits<float>::infinity();
-  Eigen::Vector3f best_point = Eigen::Vector3f::Zero();
+  std::uint64_t best_index = 0;
   bool found = false;
 
   for (std::uint64_t i = 0; i < point_count; ++i) {
@@ -81,7 +90,7 @@ std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* pos
     if (dist_sq < best_dist_sq || (dist_sq == best_dist_sq && ndc_z < best_depth)) {
       best_dist_sq = dist_sq;
       best_depth = ndc_z;
-      best_point = world.head<3>();
+      best_index = i;
       found = true;
     }
   }
@@ -89,7 +98,21 @@ std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* pos
   if (!found) {
     return std::nullopt;
   }
-  return best_point;
+  return best_index;
+}
+
+std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,
+                                                                int x, int y, int width, int height,
+                                                                float device_pixel_ratio,
+                                                                const Eigen::Matrix4f& clip_view_projection,
+                                                                float max_pixel_radius) {
+  const auto index = pickNearestIndexOnScreen(positions, point_count, x, y, width, height, device_pixel_ratio,
+                                              clip_view_projection, max_pixel_radius);
+  if (!index) {
+    return std::nullopt;
+  }
+  const std::uint64_t i = *index;
+  return Eigen::Vector3f(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2]);
 }
 
 }  // namespace psiviz

@@ -67,6 +67,10 @@ class PointCloudItem : public QQuickRhiItem {
   Q_INVOKABLE void setPendingSphereMarker(double x, double y, double z);
   Q_INVOKABLE void clearPendingSphereMarker();
   Q_INVOKABLE void clearSphereMarkers();
+  /// Same pick path as Shift+click at viewport pixel (x, y); emits `pointPicked` when complete.
+  Q_INVOKABLE void requestPickAt(int x, int y);
+  /// Force one point to bright red (scalar max + RGB) and upload to the GPU.
+  Q_INVOKABLE void highlightPointIndex(qint64 index);
 
   double markerSphereRadius() const { return marker_sphere_radius_; }
   void setMarkerSphereRadius(double radius);
@@ -78,7 +82,7 @@ class PointCloudItem : public QQuickRhiItem {
   void gizmoEnabledChanged();
   void interactionEnabledChanged();
   void markerSphereRadiusChanged();
-  void pointPicked(double x, double y, double z);
+  void pointPicked(qint64 point_index);
   void poseChanged();
 
  protected:

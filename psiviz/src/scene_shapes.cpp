@@ -7,10 +7,10 @@ namespace psiviz {
 namespace {
 
 void appendTriangle(std::vector<ShapeVertex>& out, const Eigen::Vector3f& a, const Eigen::Vector3f& b,
-                    const Eigen::Vector3f& c, float r, float g, float bl) {
-  out.push_back({a.x(), a.y(), a.z(), r, g, bl});
-  out.push_back({b.x(), b.y(), b.z(), r, g, bl});
-  out.push_back({c.x(), c.y(), c.z(), r, g, bl});
+                    const Eigen::Vector3f& c, float r, float g, float bl, float alpha) {
+  out.push_back({a.x(), a.y(), a.z(), r, g, bl, alpha});
+  out.push_back({b.x(), b.y(), b.z(), r, g, bl, alpha});
+  out.push_back({c.x(), c.y(), c.z(), r, g, bl, alpha});
 }
 
 }  // namespace
@@ -22,6 +22,7 @@ void appendSphereTriangles(std::vector<ShapeVertex>& out, const SphereMarker& sp
   const float r = sphere.color.x();
   const float g = sphere.color.y();
   const float b = sphere.color.z();
+  const float alpha = sphere.alpha;
   const Eigen::Vector3f& c = sphere.center;
   const float rad = sphere.radius;
 
@@ -47,10 +48,10 @@ void appendSphereTriangles(std::vector<ShapeVertex>& out, const SphereMarker& sp
       const Eigen::Vector3f p11 = c + sph(phi1, theta1) * rad;
 
       if (i > 0) {
-        appendTriangle(out, p00, p10, p11, r, g, b);
+        appendTriangle(out, p00, p10, p11, r, g, b, alpha);
       }
       if (i < stacks - 1) {
-        appendTriangle(out, p00, p11, p01, r, g, b);
+        appendTriangle(out, p00, p11, p01, r, g, b, alpha);
       }
     }
   }

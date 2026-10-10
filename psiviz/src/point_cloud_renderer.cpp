@@ -1,5 +1,6 @@
 #include "psiviz/point_cloud_renderer.hpp"
 
+#include "psiviz/depth_picker.hpp"
 #include "psiviz/scene_shapes.hpp"
 
 #include <algorithm>
@@ -22,6 +23,7 @@ struct GpuVertex {
   float px, py, pz;
   float scalar;
   float r, g, b;
+  float pick_index;
 };
 
 struct UniformBlock {
@@ -287,10 +289,10 @@ void PointCloudRenderer::ensureShapePipeline(QRhiRenderTarget* rt) {
   if (!rhi_ || !rt) {
     return;
   }
-  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/gizmo.vert.qsb"),
-                          QStringLiteral(":/psiviz/shaders/shaders/gizmo.vert.qsb")});
-  QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/gizmo.frag.qsb"),
-                          QStringLiteral(":/psiviz/shaders/shaders/gizmo.frag.qsb")});
+  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/shape.vert.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/shape.vert.qsb")});
+  QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/shape.frag.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/shape.frag.qsb")});
   if (!vs.isValid() || !fs.isValid()) {
     return;
   }
@@ -317,13 +319,23 @@ void PointCloudRenderer::ensureShapePipeline(QRhiRenderTarget* rt) {
     input.setAttributes({
         {0, 0, QRhiVertexInputAttribute::Float3, 0},
         {0, 1, QRhiVertexInputAttribute::Float3, offsetof(ShapeVertex, r)},
+        {0, 2, QRhiVertexInputAttribute::Float, offsetof(ShapeVertex, a)},
     });
     res.shape_pipeline->setVertexInputLayout(input);
     res.shape_pipeline->setShaderResourceBindings(res.shape_srb.get());
     res.shape_pipeline->setTopology(QRhiGraphicsPipeline::Triangles);
     res.shape_pipeline->setDepthTest(true);
-    res.shape_pipeline->setDepthWrite(true);
+    res.shape_pipeline->setDepthWrite(false);
     res.shape_pipeline->setCullMode(QRhiGraphicsPipeline::Back);
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.opColor = QRhiGraphicsPipeline::Add;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.opAlpha = QRhiGraphicsPipeline::Add;
+    res.shape_pipeline->setTargetBlends({blend});
   }
   if (res.shape_pipeline->renderPassDescriptor() != rt->renderPassDescriptor()) {
     res.shape_pipeline->setRenderPassDescriptor(rt->renderPassDescriptor());
@@ -387,8 +399,8 @@ void PointCloudRenderer::ensurePickTarget(int width, int height) {
   res.pick_rt->create();
   res.pick_size = size;
 
-  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/pointcloud.vert.qsb"),
-                          QStringLiteral(":/psiviz/shaders/shaders/pointcloud.vert.qsb")});
+  QShader vs = loadFirst({QStringLiteral(":/psiviz/shaders/pick.vert.qsb"),
+                          QStringLiteral(":/psiviz/shaders/shaders/pick.vert.qsb")});
   QShader fs = loadFirst({QStringLiteral(":/psiviz/shaders/pick.frag.qsb"),
                           QStringLiteral(":/psiviz/shaders/shaders/pick.frag.qsb")});
   if (!vs.isValid() || !fs.isValid() || !res.srb) {
@@ -402,6 +414,7 @@ void PointCloudRenderer::ensurePickTarget(int width, int height) {
       {0, 0, QRhiVertexInputAttribute::Float3, 0},
       {0, 1, QRhiVertexInputAttribute::Float, offsetof(GpuVertex, scalar)},
       {0, 2, QRhiVertexInputAttribute::Float3, offsetof(GpuVertex, r)},
+      {0, 3, QRhiVertexInputAttribute::Float, offsetof(GpuVertex, pick_index)},
   });
   res.pick_pipeline->setVertexInputLayout(input);
   res.pick_pipeline->setShaderResourceBindings(res.srb.get());
@@ -463,6 +476,7 @@ void PointCloudRenderer::uploadPointCloud(const PointCloudData& data, QRhiRender
     vertices[i].r = data.rgb[i * 3 + 0];
     vertices[i].g = data.rgb[i * 3 + 1];
     vertices[i].b = data.rgb[i * 3 + 2];
+    vertices[i].pick_index = static_cast<float>(i);
   }
 
   const quint32 bytes = static_cast<quint32>(vertices.size() * sizeof(GpuVertex));
@@ -486,6 +500,7 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   auto& res = *rhi_resources_;
   if (!res.pick_rt || !res.pick_pipeline || point_count_ <= 0) {
     last_picked_depth_ = 1.f;
+    last_picked_point_index_.reset();
     return;
   }
 
@@ -509,7 +524,7 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
     }
   }
 
-  cb->beginPass(res.pick_rt.get(), QColor::fromRgbF(1.f, 0.f, 0.f), {1.f, 0}, nullptr);
+  cb->beginPass(res.pick_rt.get(), QColor::fromRgbF(0.f, 0.f, 0.f, 0.f), {1.f, 0}, nullptr);
   cb->setGraphicsPipeline(res.pick_pipeline.get());
   cb->setViewport({0, 0, static_cast<float>(fb_w), static_cast<float>(fb_h)});
   cb->setShaderResources();
@@ -530,12 +545,14 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   rhi_->finish();
 
   last_picked_depth_ = 1.f;
+  last_picked_point_index_.reset();
   if (done && !result.data.isEmpty()) {
     const int row = result.pixelSize.width() > 0 ? result.pixelSize.width() : fb_w;
     const int idx = (py * row + px) * 4;
     if (idx >= 0 && idx + 3 < result.data.size()) {
       const auto* bytes = reinterpret_cast<const unsigned char*>(result.data.constData());
-      last_picked_depth_ = static_cast<float>(bytes[idx]) / 255.f;
+      last_picked_depth_ = static_cast<float>(bytes[idx + 3]) / 255.f;
+      last_picked_point_index_ = DepthPicker::decodePickIndexFromRgba(bytes[idx], bytes[idx + 1], bytes[idx + 2]);
     }
   }
   Q_UNUSED(camera);

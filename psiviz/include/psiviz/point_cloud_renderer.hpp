@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 
 #include <Eigen/Core>
 
@@ -35,6 +37,7 @@ class PointCloudRenderer {
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
   [[nodiscard]] float lastPickedDepth() const { return last_picked_depth_; }
+  [[nodiscard]] std::optional<std::uint64_t> lastPickedPointIndex() const { return last_picked_point_index_; }
 
  private:
   void ensurePipeline(QRhiRenderTarget* rt);
@@ -62,6 +65,7 @@ class PointCloudRenderer {
   int pick_y_{0};
   float pick_dpr_{1.f};
   float last_picked_depth_{1.f};
+  std::optional<std::uint64_t> last_picked_point_index_;
   int gizmo_vertex_count_{0};
   int shape_vertex_count_{0};
   std::vector<SphereMarker> sphere_markers_;

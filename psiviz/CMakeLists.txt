@@ -27,6 +27,9 @@ qt6_add_shaders(psiviz "psiviz_shaders"
     shaders/pointcloud.frag
     shaders/gizmo.vert
     shaders/gizmo.frag
+    shaders/shape.vert
+    shaders/shape.frag
+    shaders/pick.vert
     shaders/pick.frag
 )
 
@@ -57,3 +60,9 @@ target_link_libraries(psiviz_scene_test PRIVATE psiviz psivizplugin Qt6::Quick Q
 
 qt_add_executable(psiviz_trackball_test tests/trackball_camera_test.cpp)
 target_link_libraries(psiviz_trackball_test PRIVATE psiviz Qt6::Test)
+
+qt_add_executable(psiviz_depth_picker_test tests/depth_picker_test.cpp)
+target_link_libraries(psiviz_depth_picker_test PRIVATE psiviz Qt6::Test)
+
+qt_add_executable(psiviz_pick_highlight_demo tests/pick_highlight_demo.cpp)
+target_link_libraries(psiviz_pick_highlight_demo PRIVATE psiviz psivizplugin Qt6::Quick Qt6::Test)

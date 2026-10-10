@@ -177,7 +177,7 @@ signals:
   void correspondencesChanged();
   void cameraPreviewChanged();
 private slots:
-  void onPointPicked(double x, double y, double z);
+  void onPointPicked(qint64 point_index);
   void onViewerPoseChanged();
   void onViewerColormapDebounce();
   void onRangeColormapDebounce();
@@ -210,6 +210,7 @@ private:
   void syncColorModelFromSession();
   void refreshViewerRgb(float blend_weight);
   void syncCorrespondenceMarkers();
+  void mutateViewerPointAtIndex(qint64 point_index);
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);
   void joinWorker();
   void setWorkerRunning(bool running);

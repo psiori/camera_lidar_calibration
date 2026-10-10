@@ -18,6 +18,14 @@ class DepthPicker {
   [[nodiscard]] static std::optional<Eigen::Vector3f> pickNearestOnScreen(
       const float* positions, std::uint64_t point_count, int x, int y, int width, int height, float device_pixel_ratio,
       const Eigen::Matrix4f& clip_view_projection, float max_pixel_radius);
+
+  /// Same screen-space search as `pickNearestOnScreen`, but returns the point index in `positions`.
+  [[nodiscard]] static std::optional<std::uint64_t> pickNearestIndexOnScreen(
+      const float* positions, std::uint64_t point_count, int x, int y, int width, int height, float device_pixel_ratio,
+      const Eigen::Matrix4f& clip_view_projection, float max_pixel_radius);
+
+  [[nodiscard]] static std::optional<std::uint64_t> decodePickIndexFromRgba(unsigned char r, unsigned char g,
+                                                                              unsigned char b);
 };
 
 }  // namespace psiviz

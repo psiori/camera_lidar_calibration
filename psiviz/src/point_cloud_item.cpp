@@ -87,6 +87,9 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       renderer_->resize(width_, height_);
     }
 
+    // Deliver prior-frame pick results before overwriting pick_emit_signal_.
+    synchronizePick(cloud_item);
+
     pick_x_ = cloud_item->pick_x_;
     pick_y_ = cloud_item->pick_y_;
     do_pick_ = cloud_item->do_pick_;
@@ -97,8 +100,6 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     cloud_item->pick_emit_signal_ = false;
     emit_pose_ = cloud_item->emit_pose_;
     cloud_item->emit_pose_ = false;
-
-    synchronizePick(cloud_item);
 
     {
       std::lock_guard lock(cloud_item->markers_mutex_);
@@ -136,13 +137,21 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       const float dpr = static_cast<float>(dpr_);
       const Eigen::Matrix4f clip_vp = clipViewProjection(rhi(), camera_);
       const float pick_radius = std::max(16.f, camera_.pointSize() * 3.f) * dpr;
-      picked_point_ =
-          DepthPicker::pickNearestOnScreen(pending_.positions.data(), pending_.point_count, pick_x_, pick_y_, width_,
-                                           height_, dpr, clip_vp, pick_radius);
-      pick_used_cpu_ = picked_point_.has_value();
-      if (!picked_point_) {
+      picked_point_index_ = renderer_->lastPickedPointIndex();
+      pick_used_cpu_ = false;
+      if (!picked_point_index_ && pending_.point_count > 0) {
+        picked_point_index_ =
+            DepthPicker::pickNearestIndexOnScreen(pending_.positions.data(), pending_.point_count, pick_x_, pick_y_,
+                                                  width_, height_, dpr, clip_vp, pick_radius);
+        pick_used_cpu_ = picked_point_index_.has_value();
+      }
+      picked_point_.reset();
+      if (picked_point_index_ && *picked_point_index_ < pending_.point_count) {
+        const std::uint64_t i = *picked_point_index_;
+        picked_point_ = Eigen::Vector3f(pending_.positions[i * 3 + 0], pending_.positions[i * 3 + 1],
+                                        pending_.positions[i * 3 + 2]);
+      } else if (fly_to_) {
         picked_point_ = DepthPicker::unproject(last_depth_, pick_x_, pick_y_, width_, height_, dpr, clip_vp);
-        pick_used_cpu_ = false;
       }
       if (picked_point_) {
         if (fly_to_) {
@@ -156,6 +165,10 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       }
       do_pick_ = false;
       fly_to_ = false;
+      // Pick results are delivered in synchronize(); schedule one more frame.
+      if (pick_emit_signal_ && item_) {
+        QMetaObject::invokeMethod(item_, "update", Qt::QueuedConnection);
+      }
     }
     render_camera_ = camera_;
     if (flying_before || camera_.isFlying()) {
@@ -175,19 +188,20 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       return;
     }
     pick_ready_ = false;
-    if (picked_point_) {
-      const auto& p = *picked_point_;
+    if (picked_point_index_) {
+      const auto& p = picked_point_;
       qCInfo(psivizPickLog).noquote()
-          << QStringLiteral("picked (%1, %2, %3) pixel=(%4,%5) depth01=%6 cpu=%7")
-                 .arg(p.x(), 0, 'f', 4)
-                 .arg(p.y(), 0, 'f', 4)
-                 .arg(p.z(), 0, 'f', 4)
+          << QStringLiteral("picked index=%1 xyz=(%2,%3,%4) pixel=(%5,%6) depth01=%7 cpu=%8")
+                 .arg(static_cast<qulonglong>(*picked_point_index_))
+                 .arg(p ? p->x() : 0.f, 0, 'f', 4)
+                 .arg(p ? p->y() : 0.f, 0, 'f', 4)
+                 .arg(p ? p->z() : 0.f, 0, 'f', 4)
                  .arg(last_pick_x_)
                  .arg(last_pick_y_)
                  .arg(last_depth_, 0, 'f', 4)
                  .arg(pick_used_cpu_);
       if (pick_emit_signal_) {
-        emit item->pointPicked(p.x(), p.y(), p.z());
+        emit item->pointPicked(static_cast<qint64>(*picked_point_index_));
       }
     } else {
       qCInfo(psivizPickLog).noquote() << QStringLiteral("pick failed pixel=(%1,%2) depth01=%3")
@@ -217,6 +231,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
   bool pick_ready_{false};
   float last_depth_{1.f};
   std::optional<Eigen::Vector3f> picked_point_;
+  std::optional<std::uint64_t> picked_point_index_;
   bool fly_to_{false};
   bool pick_emit_signal_{false};
   bool pick_used_cpu_{false};
@@ -296,14 +311,16 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
                                     static_cast<float>(marker_positions_xyz_[i * 3 + 1]),
                                     static_cast<float>(marker_positions_xyz_[i * 3 + 2]));
     marker.radius = radius;
-    marker.color = Eigen::Vector3f(1.f, 0.82f, 0.15f);
+    marker.color = Eigen::Vector3f(1.f, 0.45f, 0.f);
+    marker.alpha = 0.5f;
     sphere_markers_.push_back(marker);
   }
   if (pending_marker_) {
     SphereMarker marker;
     marker.center = *pending_marker_;
     marker.radius = radius;
-    marker.color = Eigen::Vector3f(0.35f, 0.9f, 1.f);
+    marker.color = Eigen::Vector3f(1.f, 0.45f, 0.f);
+    marker.alpha = 0.5f;
     sphere_markers_.push_back(marker);
   }
 }
@@ -469,6 +486,42 @@ void PointCloudItem::updatePointCloudScalarsAndColors(const QVector<float>& scal
   if (pending_cloud_.rgb.size() < count * 3) {
     pending_cloud_.rgb.resize(count * 3, 0.5f);
   }
+  cloud_dirty_ = true;
+  ++cloud_revision_;
+  update();
+}
+
+void PointCloudItem::requestPickAt(int x, int y) {
+  const int w = std::max(1, static_cast<int>(width()));
+  const int h = std::max(1, static_cast<int>(height()));
+  pick_x_ = std::clamp(x, 0, w - 1);
+  pick_y_ = std::clamp(y, 0, h - 1);
+  do_pick_ = true;
+  pick_emit_signal_ = true;
+  fly_to_ = false;
+  qCInfo(psivizPickLog) << "programmatic pick at pixel" << pick_x_ << pick_y_;
+  update();
+}
+
+void PointCloudItem::highlightPointIndex(qint64 index) {
+  if (index < 0) {
+    return;
+  }
+  std::lock_guard lock(cloud_mutex_);
+  if (static_cast<std::uint64_t>(index) >= pending_cloud_.point_count) {
+    return;
+  }
+  const auto i = static_cast<std::uint64_t>(index);
+  if (pending_cloud_.scalars.size() < pending_cloud_.point_count) {
+    pending_cloud_.scalars.resize(pending_cloud_.point_count, 0.f);
+  }
+  if (pending_cloud_.rgb.size() < pending_cloud_.point_count * 3) {
+    pending_cloud_.rgb.resize(pending_cloud_.point_count * 3, 0.5f);
+  }
+  pending_cloud_.scalars[i] = static_cast<float>(scalar_max_);
+  pending_cloud_.rgb[i * 3 + 0] = 1.f;
+  pending_cloud_.rgb[i * 3 + 1] = 0.f;
+  pending_cloud_.rgb[i * 3 + 2] = 0.f;
   cloud_dirty_ = true;
   ++cloud_revision_;
   update();

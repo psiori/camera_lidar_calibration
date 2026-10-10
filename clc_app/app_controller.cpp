@@ -1422,8 +1422,41 @@ void AppController::syncCorrespondenceMarkers() {
   }
 }
 
-void AppController::onPointPicked(double x, double y, double z) {
-  qInfo().noquote() << QStringLiteral("3D correspondence pick: x=%1 y=%2 z=%3")
+void AppController::mutateViewerPointAtIndex(qint64 point_index) {
+  auto* item = qobject_cast<psiviz::PointCloudItem*>(viewer_);
+  if (!item || point_index < 0 || viewer_positions_.isEmpty()) {
+    return;
+  }
+  const int n = viewer_positions_.size() / 3;
+  if (point_index >= n) {
+    return;
+  }
+  if (viewer_scalars_.size() < n) {
+    viewer_scalars_.resize(n, 0.f);
+  }
+  if (viewer_rgb_.size() < n * 3) {
+    viewer_rgb_.resize(n * 3, 0.5f);
+  }
+  viewer_scalars_[static_cast<int>(point_index)] = static_cast<float>(viewer_colormap_max_);
+  viewer_rgb_[static_cast<int>(point_index) * 3 + 0] = 1.f;
+  viewer_rgb_[static_cast<int>(point_index) * 3 + 1] = 0.f;
+  viewer_rgb_[static_cast<int>(point_index) * 3 + 2] = 0.f;
+  item->setScalarMin(viewer_colormap_min_);
+  item->setScalarMax(viewer_colormap_max_);
+  item->updatePointCloudScalarsAndColors(viewer_scalars_, viewer_rgb_);
+  qInfo().noquote() << QStringLiteral("Mutated viewer point index %1").arg(point_index);
+}
+
+void AppController::onPointPicked(qint64 point_index) {
+  mutateViewerPointAtIndex(point_index);
+  if (point_index < 0 || point_index * 3 + 2 >= viewer_positions_.size()) {
+    return;
+  }
+  const double x = viewer_positions_[static_cast<int>(point_index) * 3 + 0];
+  const double y = viewer_positions_[static_cast<int>(point_index) * 3 + 1];
+  const double z = viewer_positions_[static_cast<int>(point_index) * 3 + 2];
+  qInfo().noquote() << QStringLiteral("3D correspondence pick: index=%1 x=%2 y=%3 z=%4")
+                           .arg(point_index)
                            .arg(x, 0, 'f', 4)
                            .arg(y, 0, 'f', 4)
                            .arg(z, 0, 'f', 4);

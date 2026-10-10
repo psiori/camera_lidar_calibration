@@ -9,12 +9,15 @@ namespace psiviz {
 struct ShapeVertex {
   float px, py, pz;
   float r, g, b;
+  float a;
 };
 
 struct SphereMarker {
   Eigen::Vector3f center{0.f, 0.f, 0.f};
   float radius{0.05f};
-  Eigen::Vector3f color{1.f, 0.85f, 0.2f};
+  /// Bright orange (sRGB-ish linear).
+  Eigen::Vector3f color{1.f, 0.45f, 0.f};
+  float alpha{0.5f};
 };
 
 /// Append a UV-sphere as triangle list (world-space vertices).

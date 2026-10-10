@@ -38,7 +38,7 @@ Priority: gizmo drag > Shift+left-drag pan / Shift+click pick > camera. Returns 
 
 | Signal | Description |
 |--------|-------------|
-| `pointPicked(x, y, z)` | Shift+click depth pick |
+| `pointPicked(point_index)` | Shift+click pick; index into the uploaded point cloud |
 
 ### Scene shapes (non-pickable)
 
@@ -46,8 +46,8 @@ Rudimentary meshes (UV spheres) render in the main pass only; they are **not** d
 
 | Method | Description |
 |--------|-------------|
-| `setSphereMarkerPositions(xyz…)` | Flat `x,y,z` triples for gold correspondence markers |
-| `setPendingSphereMarker(x,y,z)` | Cyan sphere for an in-progress pick |
+| `setSphereMarkerPositions(xyz…)` | Flat `x,y,z` triples; 0.05 m orange markers at 50% opacity |
+| `setPendingSphereMarker(x,y,z)` | Same style for an in-progress pick |
 | `clearPendingSphereMarker()` | Remove pending marker |
 | `clearSphereMarkers()` | Remove all markers |
 | `markerSphereRadius` | World radius in scene units (`0` = default 0.05) |
