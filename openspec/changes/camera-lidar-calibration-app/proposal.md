@@ -8,25 +8,27 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - Add **`psiviz`**, a self-contained Qt/QRhi 3D library in this repository (documented, calibration-agnostic; may be factored out later)
 - Structured lidar range-image mask authoring (pre-calibration, global mask applied per scan)
 - Point cloud viewer (`psiviz`) with PCL-style navigation, depth-buffer picking, and live color blending
-- In-scene pose gizmo for `T_camera_lidar` (disabled during NID optimization)
-- Manual initial guess (gizmo + Shift+click correspondences per dataset)
+- Camera pose gizmo on Initial alignment and Calibrate (v1: display at `T_camera_lidar`; post-v1: ImGuizmo-style interaction on Initial alignment only)
+- Initial alignment workspace: tri-pane (image | correspondence table | 3D), segmented calibration sections, manual correspondences with unified method interface (gizmo-seeded solve; feature methods later)
 - NID calibration with live preview; compile-time extensible provider/optimizer traits
 - LiDAR fusion UI with streaming preview, voxel output resolution, geometry validation
 - Inspection datasets with overlay and colored PCD export
 - Session persistence for datasets, mask, intrinsics, and calibrated extrinsic
 - In-app tooltips on calibration/fusion controls (including scan-time deskew settings) so operators can learn parameters without external docs
-- **App shell (agreed UX):** two tabs with segmented chrome; 50/50 calibration split; scrollable collapsible controls; viewer overlay; mask **popout** with I/O on main window; three-tab preprocessing workflow **not** pursued
+- **App shell:** four tabs (Datasets · Initial alignment · Calibrate · Inspection); shared calibration-dataset selector; multi-dataset fuse/mask/params on Datasets; tri-pane initial alignment; automatic NID on Calibrate; mask popout with dataset preview selector
+- **Multi-dataset session:** timestamp id, immutable paths, per-dataset fusion/scan_time, shared mask and sensor grid, lazy fused-cloud loading
 
 ## Capabilities
 
 ### New Capabilities
 
-- `app-shell`: Two-tab main window, mask editor popout, session bar (see `design.md` UI decisions)
+- `app-shell`: Four-tab workflow shell, shared dataset selector, mask editor popout (see `design.md` UI decisions)
 - `session`: Session model, calibration vs inspection datasets, single extrinsic, save/load
 - `range-image-mask`: Structured range/intensity image, polygon mask, Y-stretch display, binary mask I/O
 - `point-cloud-viewer`: QRhi renderer, colormap/blend, PCL navigation, depth picking, 20M-point target
-- `pose-gizmo`: In-scene manipulation of `T_camera_lidar`; disabled during optimization
-- `calibration-pipeline`: Manual initial guess, NID optimizer, compile-time provider traits, multi-dataset support
+- `pose-gizmo`: Camera-frame pose indicator on Initial alignment and Calibrate (v1 display-only; post-v1 interaction on Initial alignment)
+- `initial-alignment`: Tri-pane manual picking UI, correspondence table across datasets, compile-time initial-alignment methods, compute shared extrinsic from all pairs
+- `calibration-pipeline`: NID optimizer, compile-time provider traits, orchestration with `initial-alignment` for manual guess
 - `lidar-fusion`: Masked scan fusion, passthrough single scan, streaming preview, user voxel size
 - `inspection`: Test datasets, camera-lidar overlay, export PCD with intensity and RGB
 

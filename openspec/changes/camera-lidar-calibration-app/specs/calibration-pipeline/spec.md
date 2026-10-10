@@ -15,16 +15,30 @@ Initial-guess providers and optimizers SHALL be registered at compile time via t
 
 ### Requirement: Manual initial guess v1
 
-The v1 initial-guess provider SHALL combine in-scene pose gizmo manipulation with per-dataset Shift+click 3D–2D correspondences (solvePnP optional intermediate). ALIKED/LightGlue and target-based methods are out of scope for v1.
+The v1 initial-guess provider SHALL estimate a shared `T_camera_lidar` from per-dataset 3D–2D correspondences and an in-scene pose seed, using the manual workflow and UI defined in `initial-alignment`. ALIKED/LightGlue and target-based methods are out of scope for v1 and SHALL be added as separate initial-alignment methods later.
 
 #### Scenario: Per-dataset correspondence
 
-- **WHEN** the user Shift+clicks a 3D point and picks the matching image location for dataset A
-- **THEN** the correspondence is stored on dataset A only and contributes to the shared extrinsic estimate
+- **WHEN** the user completes a correspondence pair on calibration dataset A
+- **THEN** the pair is stored on dataset A only and contributes to the shared extrinsic when the user runs compute initial alignment
+
+#### Scenario: Delegation to initial-alignment UI
+
+- **WHEN** the user works on the Initial alignment tab
+- **THEN** correspondence picking, table editing, and compute initial alignment follow the `initial-alignment` spec
+
+### Requirement: Calibrate tab optimization
+
+NID optimization SHALL be started only from the **Calibrate** tab. The UI SHALL expose session-global `VisualCameraCalibrationParams` (or equivalent) there. The optimizer SHALL run on all **ready** calibration datasets jointly, sharing one `T_camera_lidar`. Not-ready datasets SHALL be skipped with a visible warning rather than blocking ready datasets from optimizing.
+
+#### Scenario: Partial readiness
+
+- **WHEN** two datasets exist and only one is ready
+- **THEN** Run alignment uses the ready dataset and warns that the other was skipped
 
 ### Requirement: NID optimization v1
 
-The v1 optimizer SHALL run vlcal NID (BFGS or Nelder-Mead) on all calibration datasets sharing one `T_camera_lidar`, respecting the global range mask on structured input.
+The v1 optimizer SHALL run vlcal NID (BFGS or Nelder-Mead) on all ready calibration datasets sharing one `T_camera_lidar`, respecting the global range mask on structured input used to produce each dataset’s cloud.
 
 #### Scenario: Multi-dataset optimize
 
@@ -40,14 +54,14 @@ During NID, the system SHALL stream progress including the current `T_camera_lid
 - **WHEN** the optimizer reports a new iteration
 - **THEN** the viewer refreshes projected RGB colors for the current extrinsic
 
-### Requirement: Gizmo disabled during optimize
+### Requirement: Gizmo and picking during optimize
 
-While optimization runs, the pose gizmo SHALL be disabled (see `pose-gizmo` spec). Correspondence picking SHALL also be disabled during optimization.
+While NID optimization runs, correspondence picking SHALL be disabled. The pose gizmo on Calibrate SHALL remain display-only and SHALL update with each optimizer extrinsic; on Initial alignment the gizmo is display-only in v1. When interactive gizmo is added post-v1 on Initial alignment, it SHALL be non-interactive during optimization (see `pose-gizmo`).
 
 #### Scenario: No user interference
 
 - **WHEN** optimization is in progress
-- **THEN** gizmo and correspondence picking do not accept input
+- **THEN** correspondence picking does not accept input
 
 ### Requirement: In-app control tooltips
 

@@ -6,7 +6,7 @@ Lets users author a global exclusion mask on structured lidar range/intensity im
 
 ### Requirement: Mask editor window
 
-Channel selection, Y-stretch, range colormap bounds, polygon draw/finish tools, and **Keep** / **Remove** (or **Discard**) actions for a closed polygon SHALL live in a dedicated **resizable window** launched from **Edit mask…** on the Calibration tab. Load, browse, save, and clear mask actions SHALL remain on the main window.
+Channel selection, Y-stretch, range colormap bounds, polygon draw/finish tools, and **Keep** / **Remove** (or **Discard**) actions for a closed polygon SHALL live in a dedicated **resizable window** launched from **Edit mask…** on the **Datasets** tab. The editor SHALL include a calibration-dataset selector so the user can display the range image built from any dataset’s structured scans when choosing where to draw. Load, browse, save, and clear mask actions SHALL remain on the Datasets tab (global mask group).
 
 #### Scenario: Pop out mask editor
 

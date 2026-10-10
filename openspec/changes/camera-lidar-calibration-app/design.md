@@ -50,8 +50,8 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
   - `PointCloudView` / `PointCloudItem` — large point lists, scalar JET colormap, per-point RGB, blend uniform, point size
   - `TrackballCamera` — PCL `pcd_viewer` navigation semantics
   - `DepthPicker` — depth render target readback + unproject (`devicePixelRatio`-aware)
-  - `PoseGizmo` — in-scene translate/rotate handles (ImGuizmo interaction pattern, QRhi drawing, no ImGui)
-  - Input routing: gizmo hit → gizmo drag; else Shift+click → pick; else camera
+  - `PoseGizmo` — in-scene camera-frame widget (QRhi); v1 display-only; post-v1 ImGuizmo-style interaction (no ImGui)
+  - Input routing (post-v1): gizmo hit → gizmo drag; else Shift+click → pick; else camera. **v1:** gizmo not in hit path
 - **Out of scope for `psiviz`:** mesh I/O, volume rendering, range-image UI, NID/fusion, session JSON, VTK/PCL viz.
 - **Documentation:** `psiviz/README.md` (build, minimal example), `psiviz/docs/API.md` (public classes, threading, buffer upload contract), Doxygen on public headers.
 - **Rejected:** ImGui/ImGuizmo in Qt Quick; Easy3D (GPL); VTK/PCL visualization; raw OpenGL-only stack on macOS.
@@ -62,19 +62,25 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
 ```
 Session
   T_camera_lidar, T_camera_lidar_initial
-  global_mask (WxH binary, topology from reference scan)
-  calibration_datasets[]: { image, cloud_path(s), correspondences[] }
+  global_mask (WxH binary, shared across calibration datasets, same sensor grid)
+  reference_scan_width, reference_scan_height
+  calibration_datasets[]: {
+    id,  // timestamp from earliest PCD by filename (lexicographic = time); unique
+    image_path, cloud_directory,  // immutable after add
+    fusion_params, scan_time,
+    fused_cloud_path, correspondences[], ready
+  }
   inspection_datasets[]: { image, cloud_path(s) }
 ```
 
-One extrinsic for all datasets. Correspondences are per-dataset. `clc_app` binds gizmo pose ↔ `T_camera_lidar`.
+One extrinsic for all datasets. Correspondences are per-dataset. Gizmo display on **Initial alignment** and **Calibrate** (tracks `T_camera_lidar`; v1 non-interactive). Add/remove datasets only on **Datasets** tab; shared dataset selector elsewhere.
 
 ### Range image and mask
 
 - Native structured `width × height` grid; value = range or intensity per cell
 - Not a camera projection; camera irrelevant at this stage
 - Y-stretch is display-only for labeling squished vertical FOV
-- Mask authored on one reference scan; saved as binary `width × height`; applied to every structured PCD before fusion
+- Mask shared session-wide; editor may preview range image from any calibration dataset; saved as binary `width × height`; applied to every structured PCD before fusion per dataset
 - Post-fusion cloud is unstructured; no further masking
 - Implemented in **`clc_app`** / **`clc_core`**, not in `psiviz`
 
@@ -107,11 +113,10 @@ No Alt+wheel FOV zoom.
 
 ### Pose gizmo (`psiviz`)
 
-- 3D widget in scene representing a generic `4×4` pose (app maps to `T_camera_lidar`)
+- In-scene widget at `T_camera_lidar`; **camera frame**: +X image width, +Y image down, +Z optical axis
+- **v1:** QRhi draw only (axes / ImGuizmo-style rings for readability); **no** pointer interaction; visible on Initial alignment + Calibrate; tracks `T_camera_lidar` on load, compute initial alignment, and live during/after NID on Calibrate
+- **Post-v1:** ImGuizmo-equivalent translate + rotate on all camera axes (Iridescence parity); gizmo hit before trackball; disabled during NID
 - Does not move view camera
-- Translate/rotate in local frame; QRhi axis/ring handles (no ImGui)
-- **Disabled during NID optimization** (app sets `psiviz` interaction flags); re-enabled after completion
-- Gizmo captures mouse when hit; otherwise navigation/picking apply
 
 ### Picking
 
@@ -119,18 +124,31 @@ No Alt+wheel FOV zoom.
 - Retina: multiply by `devicePixelRatio` before depth read
 - No octree; depth buffer only (PCL/Iridescence pattern)
 
+### Initial alignment (`initial-alignment` spec)
+
+**Layout:** Image | table/controls | 3D when the Initial alignment section is selected (see app-shell).
+
+**Image pane (`CameraImageItem` in `clc_app`):** Reuse interaction patterns from `RangeImageItem` (uniform scale, letterbox, wheel zoom, drag pan). Reticle at cursor; click commits image side of a pair when a 3D pick is pending or when editing the selected table row.
+
+**Correspondences:** Stored per calibration dataset in session; UI shows **all** rows, with non-active datasets read-only and visually distinct. Row select → highlight markers; re-pick updates that endpoint; delete removes markers and session entry. **Compute initial alignment** runs the active compile-time method over **all** datasets’ pairs (v1 minimum: three pairs total + intrinsics). Result writes `T_camera_lidar_initial` and working `T_camera_lidar`; blend slider on 3D inspects projection.
+
+**Pose seed:** Manual solve uses session `T_camera_lidar` (`ManualGuessInput::gizmo_T_camera_lidar`). Gizmo on Initial alignment visualizes that pose in v1; interactive nudging is post-v1 (`pose-gizmo`).
+
+**Extensibility:** `InitialGuessTraits` gains UI capability metadata (needs image, 3D, correspondence editor, pose seed) so a future feature-based provider can hide the table or populate it read-only. No runtime plugins.
+
 ### Calibration providers (compile-time)
 
 ```cpp
 struct InitialGuessTraits<ManualGuess> {
   static constexpr bool supports_multi_dataset = true;
+  // UI: image + 3D + correspondence editor + pose seed
 };
 struct OptimizerTraits<NidOptimizer> {
   static constexpr bool supports_multi_dataset = true;
 };
 ```
 
-v1: `ManualGuess` (gizmo + correspondences), `NidOptimizer` only.
+v1: `ManualGuess` (pose seed + correspondences), `NidOptimizer` only.
 
 ### Fusion parameters (v1 UI)
 
@@ -154,8 +172,17 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 
 | Topic | Decision | Status |
 |-------|----------|--------|
-| Top-level navigation | **Two tabs only:** **Calibration** and **Inspection** (`TabBar` + `StackLayout`) | **Adopted** |
-| Three-tab shell (Loading/preprocessing · Calibration · Inspection) | Dedicated preprocessing tab with full-screen 2D mask and no 3D viewer | **Rejected** — user chose to keep two tabs |
+| Top-level navigation | **Four tabs:** **Datasets**, **Initial alignment**, **Calibrate**, **Inspection** | **Adopted** |
+| Two-tab Calibration + Inspection only | Older shell | **Superseded** |
+| Shared calibration dataset selector | Same tabs on Datasets / Initial alignment / Calibrate; add/remove only on Datasets | **Adopted** |
+| Dataset id | Timestamp from earliest PCD by **filename** (lexicographic = chronological); duplicate → error | **Adopted** |
+| PCD scan order | Ascending filename within each dataset directory | **Adopted** |
+| Paths after add | Immutable; delete dataset to change | **Adopted** |
+| Per-dataset fusion + scan_time | Copy from first dataset on add; edited on Datasets tab | **Adopted** |
+| Mask | Session-global; editor has dataset selector for preview only | **Adopted** |
+| Post-fusion memory | Fused cloud to disk; lazy/async viewer load; drop resident multi-scan buffers | **Adopted** |
+| Gizmo display | Initial alignment + Calibrate (v1 display-only); updates with `T_camera_lidar` | **Adopted** |
+| Gizmo interaction | Post-v1 on Initial alignment only; Calibrate stays display-only | **Adopted** |
 | Mask authoring layout | **Resizable popout window** from **Edit mask…**; user adjusts window size and Y-stretch for aspect | **Adopted** (`MaskEditorWindow.qml`) |
 | Mask file I/O on main window | **Load**, **Browse**, **Save**, **Clear** stay in **Global mask** on Calibration tab | **Adopted** |
 | Mask editing controls in popout | Channel, Y-stretch, colormap min/max, polygon draw tools, **Keep** / **Remove** / **Discard** after close polygon | **Adopted** |
@@ -166,13 +193,28 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 | Viewer scalar/blend as **overlay** on `PointCloudScene` | `ViewerOverlay` on 3D, not left column | **Adopted** |
 | Strong tab chrome (segmented selected state) | Calibration vs Inspection visually obvious | **Adopted** |
 | Session bar | Directory + **Load** / **Save** below tab content, visible on both tabs | **Adopted** |
+| **Initial alignment** layout | Tri-pane: image \| table \| 3D on its own top-level tab | **Adopted** |
+| **Datasets** tab | Fuse, mask I/O, intrinsics, per-dataset params; 50/50 with 3D preview optional | **Adopted** |
+| Correspondence table | All datasets’ pairs in one table; only active dataset rows editable; compute uses all pairs | **Adopted** |
+| Initial-alignment methods | Compile-time registry + per-method UI capability flags; v1 manual only | **Adopted** |
 
-#### Implemented shell (v1)
+#### Target shell (multi-dataset)
 
-**Calibration tab**
+**Datasets tab**
 
-- Horizontal **`SplitView`** default **50 / 50**: left **`ScrollView`** with collapsible **`Expansion`** sections (Dataset expanded by default); right column for `PointCloudScene` with **`ViewerOverlay`** (scalar, colormap, blend).
-- No range image or polygon editor in this column.
+- Shared **dataset tabs** + Add / Remove. Active dataset: show baked paths (read-only), fuse, per-dataset scan time + fusion params, global mask I/O, Edit mask…, intrinsics (session). **`SplitView`** ~50/50 with `PointCloudScene` showing active dataset’s ready cloud.
+
+**Initial alignment tab**
+
+- Same dataset selector (not-ready entries disabled + tooltip). Tri-pane: image | table + compute | 3D + gizmo (when implemented) + overlay.
+
+**Calibrate tab**
+
+- Global NID params + Run alignment; 3D preview with display-only gizmo updating live during NID.
+
+**Inspection tab**
+
+- Unchanged scope; inspection datasets only.
 
 **Global mask editor window**
 

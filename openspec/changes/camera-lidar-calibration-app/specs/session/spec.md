@@ -24,16 +24,66 @@ The session SHALL distinguish calibration datasets (used for initial guess and N
 
 ### Requirement: Per-dataset image and cloud pairing
 
-Each dataset SHALL contain exactly one image and one point cloud (fused output or single scan).
+Each calibration dataset SHALL contain exactly one image path, one PCD directory (baked in at creation), and one point cloud used for labeling and optimization: either the fused output or a single-scan passthrough cloud. Paths SHALL NOT be changed after the dataset is added; the user SHALL remove the dataset and add a new one to use different paths.
 
 #### Scenario: Fused cloud pairing
 
 - **WHEN** fusion completes for a set of masked scans
-- **THEN** the resulting unstructured cloud is paired with one user-selected image as a single dataset entry
+- **THEN** the resulting unstructured cloud is paired with that dataset’s image as the dataset’s working cloud (and persisted path when saved)
+
+#### Scenario: Single-scan ready
+
+- **WHEN** a dataset has exactly one structured PCD and fusion passthrough has run (or equivalent single-scan output exists)
+- **THEN** the dataset is **ready** without multi-scan SLAM
+
+### Requirement: PCD scan order by filename timestamp
+
+Within a dataset’s PCD directory, scans SHALL be ordered by **filename** ascending. Filenames SHALL encode capture time in a sortable string format so lexicographic order matches chronological scan order. Fusion and “first scan” rules SHALL use this ordering, not directory enumeration order or file modification time.
+
+#### Scenario: Multi-scan fuse order
+
+- **WHEN** fusion runs on a directory with several `.pcd` files
+- **THEN** scans are processed in ascending filename order
+
+### Requirement: Dataset identity from first scan timestamp
+
+Each calibration dataset SHALL be identified by the timestamp parsed from the **first** PCD in filename order (the earliest scan in that directory). That value SHALL be unique among all calibration datasets in the session. If a new dataset would duplicate an existing id, the system SHALL show an error and SHALL NOT add the dataset.
+
+#### Scenario: Duplicate timestamp rejected
+
+- **WHEN** the user adds a dataset whose first-scan filename timestamp matches another calibration dataset’s id
+- **THEN** the add fails with an error and the session’s dataset list is unchanged
+
+### Requirement: Per-dataset fusion and scan-time parameters
+
+Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty). Session-level legacy fusion/scan-time fields MAY remain for migration but the UI SHALL edit per-dataset values on the Datasets tab.
+
+#### Scenario: Copy on add
+
+- **WHEN** the user adds a second calibration dataset
+- **THEN** its fusion and scan-time controls start equal to dataset one’s values until the user changes them
+
+### Requirement: Dataset readiness
+
+A calibration dataset SHALL be **ready** for initial alignment and NID when it has a valid image path, baked PCD directory, matching session sensor geometry, and a usable cloud: either fusion has completed (fused cloud in memory or on disk) or exactly one scan was processed through the single-scan passthrough path. Not-ready datasets SHALL remain in the session but SHALL be excluded from picking and from optimization until ready.
+
+#### Scenario: Multi-scan not fused
+
+- **WHEN** a dataset has two or more PCDs and no fused output yet
+- **THEN** it is not ready and Initial alignment treats it as disabled in the shared selector
+
+### Requirement: Shared sensor geometry
+
+All structured PCDs across all calibration datasets in a session SHALL share the same `width` and `height` (same physical lidar). The session SHALL store reference dimensions; any scan or dataset that violates them SHALL error and block fusion for that dataset.
+
+#### Scenario: Mismatched scan dimensions
+
+- **WHEN** a user adds a dataset whose scans do not match the session reference width and height
+- **THEN** the system shows an error and does not treat that dataset as valid until resolved
 
 ### Requirement: Session persistence
 
-The session SHALL be saveable and loadable to a directory including intrinsics, extrinsics, mask path, fusion parameters, scan-time settings, dataset paths, and per-dataset correspondences.
+The session SHALL be saveable and loadable to a directory including intrinsics, extrinsics, global mask path, per-dataset fusion and scan-time settings, dataset ids and paths, fused cloud paths, and per-dataset correspondences.
 
 #### Scenario: Save and reload
 
@@ -56,7 +106,7 @@ The UI SHALL expose session directory, Load, and Save on the main window.
 
 ### Requirement: Structured scan geometry validation
 
-All structured input scans in a session MUST share the same `width` and `height` as the first loaded scan. Mismatched scans SHALL produce an error and disable fusion.
+All structured input scans in a session MUST share the same `width` and `height` as the session reference (established by the first valid calibration dataset). Mismatched scans SHALL produce an error and disable fusion for the affected dataset.
 
 #### Scenario: Mismatched scan dimensions
 

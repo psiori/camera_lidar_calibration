@@ -95,3 +95,36 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 11.4 Viewport keyboard routing: pointer-over viewer activates nav keys (`f`, `+`, `-`, `r`/`h`); overlay controls keep focus while dragging sliders
 - [x] 11.5 `TrackballCamera::rotate`: vertical drag sign matches PCL `pcd_viewer` (drag up pitches forward)
 - [x] 11.6 UAT checklist: colormap slider, fly-to, keys, trackball pitch
+
+## 12. Initial alignment workspace (spec: `initial-alignment`, `app-shell`)
+
+- [ ] 12.1 Calibration **section strip** (segmented): Dataset, Mask, Fusion, Scan time, Initial alignment, Actions; single active section in left scroll column
+- [ ] 12.2 **Tri-pane** layout when Initial alignment active: `CameraImageItem` (pan/zoom/reticle) | table + method/compute | `PointCloudScene` + overlay
+- [ ] 12.3 Correspondence model in controller: pending pick, row selection, re-pick, per-row delete, markers in image + 3D
+- [ ] 12.4 Table lists all datasets’ pairs; active dataset editable; read-only rows visually distinct; switch dataset updates image pane
+- [ ] 12.5 `InitialGuessTraits` UI capability flags; wire Compute to multi-dataset `compute_manual_initial_guess` (all pairs + pose seed)
+- [ ] 12.6 Remove legacy tiny image embed from old Initial guess expansion; tooltips for compute/correspondence flow
+
+## 13. Multi-dataset session and shell (spec: `session`, `app-shell`, `lidar-fusion`)
+
+- [ ] 13.1 Four top-level tabs + shared calibration dataset selector; add/remove datasets only on Datasets tab
+- [ ] 13.2 `DatasetEntry`: id from earliest PCD filename timestamp (lexicographic scan order), per-dataset `fusion_params` / `scan_time`, readiness, immutable paths; session JSON migration
+- [ ] 13.3 Duplicate timestamp on add → error; geometry validation across datasets (shared WxH)
+- [ ] 13.4 Per-dataset fuse; post-fuse drop in-memory scans; persist fused cloud; lazy/async load into viewer
+- [ ] 13.5 Mask editor dataset selector (shared global mask); grey out not-ready datasets on Initial alignment / Calibrate
+- [ ] 13.6 Calibrate tab: global NID params + run on all ready datasets; 3D preview with display-only gizmo
+
+## 14. Camera pose gizmo — display (spec: `pose-gizmo`, `initial-alignment`, `calibration-pipeline`)
+
+v1 is **display-only** on Initial alignment and Calibrate (no drag/rotate). Camera frame: +X width, +Y down, +Z optical. Visual target: ImGuizmo / Iridescence.
+
+- [ ] 14.1 `psiviz`: QRhi draw camera pose gizmo at `T_camera_lidar` (axes and/or rings); matrix from app each frame
+- [ ] 14.2 Show gizmo on **Initial alignment** and **Calibrate** tabs only; hide on Datasets and Inspection
+- [ ] 14.3 Sync gizmo whenever `T_camera_lidar` changes (session load, compute initial alignment, NID progress callbacks on Calibrate)
+- [ ] 14.4 v1: gizmo not in pick/hit path — trackball and Shift+pick unchanged; document post-v1 interaction in `psiviz` API
+
+## 15. Camera pose gizmo — interaction (post-v1, Initial alignment only, spec: `pose-gizmo`)
+
+- [ ] 15.1 Translate on camera X/Y/Z and rotate about all three axes (ImGuizmo parity with Iridescence)
+- [ ] 15.2 Input router on Initial alignment: gizmo handle hit before trackball; write `T_camera_lidar` on drag
+- [ ] 15.3 Disable gizmo interaction during fusion and NID workers; re-enable on Initial alignment after completion

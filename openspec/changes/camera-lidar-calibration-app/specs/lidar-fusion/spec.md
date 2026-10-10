@@ -66,3 +66,21 @@ Fusion SHALL run on a worker thread; UI updates SHALL be marshalled to the main 
 
 - **WHEN** fusion is running
 - **THEN** the main thread remains responsive and preview updates via queued signals
+
+### Requirement: Per-dataset fusion
+
+Fusion SHALL be invoked for one calibration dataset at a time using that dataset’s PCD directory, per-dataset scan-time and fusion parameters, and the session global mask. Input scans SHALL be ordered by ascending PCD filename (timestamp-in-filename; see `session`). Progress and output SHALL apply to the active dataset only.
+
+#### Scenario: Fuse dataset two
+
+- **WHEN** the user runs fusion with dataset B active on the Datasets tab
+- **THEN** only dataset B’s scans are merged and dataset B becomes ready when complete
+
+### Requirement: Release structured scans after fusion
+
+After fusion completes successfully for a dataset, the application SHALL release in-memory copies of all source structured PCDs for that dataset. The fused cloud SHALL be persisted under the session directory (or configured path) and SHALL be loaded lazily and asynchronously for viewing. Structured scans SHALL be re-read from disk only when needed (for example mask preview or re-fuse).
+
+#### Scenario: Memory after fuse
+
+- **WHEN** fusion completes for a dataset with many scans
+- **THEN** the viewer loads the fused cloud for display without keeping every input scan resident in RAM
