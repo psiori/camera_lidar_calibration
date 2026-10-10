@@ -50,7 +50,7 @@ Rudimentary meshes (UV spheres) render in the main pass only; they are **not** d
 | `setPendingSphereMarker(x,y,z)` | Cyan sphere for an in-progress pick |
 | `clearPendingSphereMarker()` | Remove pending marker |
 | `clearSphereMarkers()` | Remove all markers |
-| `markerSphereRadius` | World radius (`0` = auto from cloud bounds) |
+| `markerSphereRadius` | World radius in scene units (`0` = default 0.05) |
 | `poseChanged()` | Gizmo moved the pose matrix |
 
 `poseMatrix()` / `setPoseMatrix()` expose the 4×4 pose as 16 doubles (column-major).

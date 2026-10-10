@@ -120,7 +120,7 @@ class PointCloudItem : public QQuickRhiItem {
   double scalar_min_{0.};
   double scalar_max_{1.};
   bool interaction_enabled_{true};
-  double marker_sphere_radius_{0.};
+  double marker_sphere_radius_{0.05};
 };
 
 

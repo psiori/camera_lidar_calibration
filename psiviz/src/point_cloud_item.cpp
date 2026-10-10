@@ -124,6 +124,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     if (do_pick_) {
       renderer_->requestPick(pick_x_, pick_y_, static_cast<float>(dpr_));
     }
+    const bool flying_before = camera_.isFlying();
     camera_.tick(1.f / 60.f);
     renderer_->render(cb, camera_, gizmo_, renderTarget());
 
@@ -157,7 +158,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       fly_to_ = false;
     }
     render_camera_ = camera_;
-    if (camera_.isFlying()) {
+    if (flying_before || camera_.isFlying()) {
       camera_sync_from_render_ = true;
     }
     requestItemUpdate();
@@ -281,9 +282,6 @@ void PointCloudItem::setPointerPosition(double x, double y) {
 float PointCloudItem::effectiveMarkerSphereRadius() const {
   if (marker_sphere_radius_ > 0.) {
     return static_cast<float>(marker_sphere_radius_);
-  }
-  if (content_bounds_valid_) {
-    return std::max(0.01f, (content_bounds_max_ - content_bounds_min_).norm() * 0.008f);
   }
   return 0.05f;
 }

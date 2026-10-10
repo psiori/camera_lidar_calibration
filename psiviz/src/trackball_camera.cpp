@@ -172,18 +172,14 @@ void TrackballCamera::tick(float dt_sec) {
   if (fly_t_ >= 1.f) {
     return;
   }
-  const float prev_t = fly_t_;
   fly_t_ = std::min(1.f, fly_t_ + dt_sec / fly_duration_);
   const auto smooth = [](float t) { return t * t * (3.f - 2.f * t); };
-  const float s0 = smooth(prev_t);
   const float s1 = smooth(fly_t_);
   const Eigen::Vector3f delta = fly_target_ - fly_start_focal_;
   focal_ = fly_start_focal_ + delta * s1;
   position_ = fly_start_position_ + delta * s1;
-  // VTK vtkRenderWindowInteractor::FlyTo dollies in while moving the focal point.
-  if (fly_distance_ > 1e-4f && s1 > s0) {
-    const float dolly_step = (fly_distance_ * 0.35f / fly_duration_) * dt_sec;
-    dolly(dolly_step);
+  if (fly_t_ >= 1.f) {
+    orthogonalizeViewUp();
   }
 }
 
