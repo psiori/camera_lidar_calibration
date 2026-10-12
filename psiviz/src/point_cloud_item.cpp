@@ -330,9 +330,9 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
   if (pending_marker_) {
     SphereMarker marker;
     marker.center = *pending_marker_;
-    marker.radius = radius;
-    marker.color = Eigen::Vector3f(1.f, 0.45f, 0.f);
-    marker.alpha = 0.5f;
+    marker.radius = radius * 1.35f;
+    marker.color = Eigen::Vector3f(0.15f, 0.95f, 1.f);
+    marker.alpha = 0.85f;
     sphere_markers_.push_back(marker);
   }
 }
@@ -418,6 +418,15 @@ void PointCloudItem::setGizmoEnabled(bool e) {
   emit gizmoEnabledChanged();
 }
 
+void PointCloudItem::setGizmoManipulable(bool m) {
+  if (gizmo_manipulable_ == m) {
+    return;
+  }
+  gizmo_manipulable_ = m;
+  input_.setGizmoManipulable(m);
+  emit gizmoManipulableChanged();
+}
+
 void PointCloudItem::setInteractionEnabled(bool e) {
   if (interaction_enabled_ == e) {
     return;
@@ -461,7 +470,7 @@ void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QV
     data.scalars.resize(count, 0.f);
   }
   if (data.rgb.size() < count * 3) {
-    data.rgb.resize(count * 3, 0.5f);
+    data.rgb.resize(count * 3, 0.f);
   }
   Eigen::Vector3f bounds_min(1e30f, 1e30f, 1e30f);
   Eigen::Vector3f bounds_max(-1e30f, -1e30f, -1e30f);
@@ -505,7 +514,7 @@ void PointCloudItem::updatePointCloudScalarsAndColors(const QVector<float>& scal
   }
   pending_cloud_.rgb.assign(rgb.begin(), rgb.end());
   if (pending_cloud_.rgb.size() < count * 3) {
-    pending_cloud_.rgb.resize(count * 3, 0.5f);
+    pending_cloud_.rgb.resize(count * 3, 0.f);
   }
   cloud_dirty_ = true;
   ++cloud_revision_;

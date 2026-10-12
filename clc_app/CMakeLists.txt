@@ -11,6 +11,9 @@ qt_add_qml_module(clc_app
     MaskEditorWindow.qml
     ViewerOverlay.qml
     ColormapRangeSlider.qml
+    CameraImageItem.qml
+    PointCloudViewerPane.qml
+    AddDatasetDialog.qml
   SOURCES
     range_image_item.cpp
 )
@@ -26,4 +29,8 @@ target_link_libraries(clc_app PRIVATE
   psivizplugin
 )
 target_include_directories(clc_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+option(CLC_DEV_ADD_DATASET_DEFAULTS "Pre-fill Add Dataset dialog with dev sample paths" ON)
+if(CLC_DEV_ADD_DATASET_DEFAULTS)
+  target_compile_definitions(clc_app PRIVATE CLC_DEV_ADD_DATASET_DEFAULTS)
+endif()
 qt_import_qml_plugins(clc_app)

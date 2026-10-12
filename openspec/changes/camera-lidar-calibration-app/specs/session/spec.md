@@ -54,6 +54,11 @@ Each calibration dataset SHALL be identified by the timestamp parsed from the **
 - **WHEN** the user adds a dataset whose first-scan filename timestamp matches another calibration dataset’s id
 - **THEN** the add fails with an error and the session’s dataset list is unchanged
 
+#### Scenario: Add dialog validates before create
+
+- **WHEN** the user confirms **Add calibration dataset** with image and LiDAR paths filled in
+- **THEN** the system scans the LiDAR path (file or directory), assigns `id` from the first PCD in filename order, rejects duplicates and geometry mismatches with an error message in the dialog or status bar, and only then appends the dataset
+
 ### Requirement: Per-dataset fusion and scan-time parameters
 
 Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty). Session-level legacy fusion/scan-time fields MAY remain for migration but the UI SHALL edit per-dataset values on the Datasets tab.

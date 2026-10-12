@@ -56,10 +56,7 @@ Rectangle {
                 from: 0
                 to: 1
                 value: cloudView.blendWeight
-                onValueChanged: {
-                    cloudView.blendWeight = value
-                    controller.refreshViewerColors()
-                }
+                onValueChanged: cloudView.blendWeight = value
                 Layout.fillWidth: true
             }
         }

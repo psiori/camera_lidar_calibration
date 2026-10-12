@@ -2,7 +2,6 @@
 
 #include <cmath>
 
-#include <clc_core/colormap.hpp>
 #include <vlcal/common/estimate_fov.hpp>
 
 namespace clc {
@@ -25,17 +24,13 @@ void PointColorModel::setPoints(const std::vector<Eigen::Vector3d, Eigen::aligne
   intensities_ = intensities;
 }
 
-void PointColorModel::projectColors(const Eigen::Isometry3d& T_camera_lidar, float blend_weight, float scalar_min,
-                                    float scalar_max, std::vector<float>& rgb_out) const {
+void PointColorModel::projectCameraRgb(const Eigen::Isometry3d& T_camera_lidar, std::vector<float>& rgb_out) const {
   const size_t n = points_.size();
   rgb_out.resize(n * 3);
   if (!camera_ || image_.empty() || n == 0) {
+    std::fill(rgb_out.begin(), rgb_out.end(), 0.f);
     return;
   }
-
-  const float blend = std::clamp(blend_weight, 0.f, 1.f);
-  const float inv_blend = 1.f - blend;
-  const float span = scalar_max > scalar_min ? (scalar_max - scalar_min) : 1.f;
 
   for (size_t i = 0; i < n; ++i) {
     const Eigen::Vector4d pt_camera = T_camera_lidar * Eigen::Vector4d(points_[i].x(), points_[i].y(), points_[i].z(), 1.0);
@@ -49,23 +44,16 @@ void PointColorModel::projectColors(const Eigen::Isometry3d& T_camera_lidar, flo
       in_image = false;
     }
 
-    float cr = 0.5f;
-    float cg = 0.5f;
-    float cb = 0.5f;
-    if (in_image) {
-      const cv::Vec3b pix = image_.at<cv::Vec3b>(pt_2d.y(), pt_2d.x());
-      cb = pix[0] / 255.f;
-      cg = pix[1] / 255.f;
-      cr = pix[2] / 255.f;
+    if (!in_image) {
+      rgb_out[i * 3 + 0] = 0.f;
+      rgb_out[i * 3 + 1] = 0.f;
+      rgb_out[i * 3 + 2] = 0.f;
+      continue;
     }
-
-    const double intensity = i < intensities_.size() ? intensities_[i] : 0.0;
-    const float t = std::clamp(static_cast<float>((intensity - scalar_min) / span), 0.f, 1.f);
-    const auto jet = jet_color(t);
-
-    rgb_out[i * 3 + 0] = cr * blend + jet[0] * inv_blend;
-    rgb_out[i * 3 + 1] = cg * blend + jet[1] * inv_blend;
-    rgb_out[i * 3 + 2] = cb * blend + jet[2] * inv_blend;
+    const cv::Vec3b pix = image_.at<cv::Vec3b>(pt_2d.y(), pt_2d.x());
+    rgb_out[i * 3 + 0] = pix[2] / 255.f;
+    rgb_out[i * 3 + 1] = pix[1] / 255.f;
+    rgb_out[i * 3 + 2] = pix[0] / 255.f;
   }
 }
 

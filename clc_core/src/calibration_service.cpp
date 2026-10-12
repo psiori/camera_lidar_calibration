@@ -1,5 +1,7 @@
 #include <clc_core/calibration_service.hpp>
 
+#include <stdexcept>
+
 #include <vlcal/common/estimate_pose.hpp>
 #include <vlcal/common/visual_lidar_data.hpp>
 
@@ -44,10 +46,17 @@ InitialGuessResult compute_manual_initial_guess(const ManualGuessInput& input) {
     pairs.emplace_back(Eigen::Vector2d(c.u, c.v), Eigen::Vector4d(c.x, c.y, c.z, 1.0));
   }
 
-  vlcal::PoseEstimation estimator;
-  result.T_camera_lidar = estimator.estimate(input.camera, pairs);
-  result.ok = true;
-  result.message = "estimated from correspondences";
+  vlcal::PoseEstimationParams pose_params;
+  pose_params.trust_correspondences = true;
+  vlcal::PoseEstimation estimator(pose_params);
+  try {
+    result.T_camera_lidar = estimator.estimate(input.camera, pairs);
+    result.ok = true;
+    result.message = "estimated from correspondences";
+  } catch (const std::exception& e) {
+    result.ok = false;
+    result.message = e.what();
+  }
   return result;
 }
 

@@ -36,7 +36,8 @@ Priority: gizmo drag > Shift+left-drag pan / Shift+click pick > camera. Returns 
 | `blendWeight` | 0 = scalar colormap only, 1 = RGB only |
 | `scalarMin`, `scalarMax` | JET range |
 | `pointSize` | Screen-space point diameter |
-| `gizmoEnabled` | Enable pose manipulation |
+| `gizmoEnabled` | Draw the camera pose gizmo at `poseMatrix` |
+| `gizmoManipulable` | When false, gizmo is display-only (no hit-test or drag); trackball and Shift+pick unchanged |
 | `interactionEnabled` | Camera/gizmo navigation |
 | `pickingEnabled` | Shift+click point pick (when interaction is enabled) |
 

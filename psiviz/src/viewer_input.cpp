@@ -20,12 +20,13 @@ InputResult ViewerInputRouter::mousePress(const QMouseEvent& event, int width, i
   drag_button_ = event.button();
   dragging_ = true;
 
-  if (gizmo_.enabled() && event.button() == Qt::LeftButton && !event.modifiers().testFlag(Qt::ShiftModifier)) {
+  if (gizmo_manipulable_ && gizmo_.enabled() && event.button() == Qt::LeftButton &&
+      !event.modifiers().testFlag(Qt::ShiftModifier)) {
     const Eigen::Matrix4f view = camera_.viewMatrix();
     const Eigen::Matrix4f proj = camera_.projectionMatrix();
-    const int axis = gizmo_.hitTest(last_pos_.x(), last_pos_.y(), width, height, view, proj);
-    if (axis >= 0) {
-      gizmo_.beginDrag(axis, GizmoMode::Translate);
+    const GizmoHit hit = gizmo_.hitTestDetailed(last_pos_.x(), last_pos_.y(), width, height, view, proj);
+    if (hit.axis >= 0) {
+      gizmo_.beginDrag(hit.axis, hit.mode);
       result.action = InputAction::GizmoDrag;
       result.gizmo_captured = true;
       return result;

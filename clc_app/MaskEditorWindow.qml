@@ -21,6 +21,18 @@ Window {
 
         RowLayout {
             Layout.fillWidth: true
+            visible: controller.calibrationDatasetIds.length > 0
+            Label { text: qsTr("Preview dataset") }
+            ComboBox {
+                Layout.fillWidth: true
+                model: controller.calibrationDatasetIds
+                currentIndex: controller.activeCalibrationDatasetIndex
+                onActivated: controller.setMaskPreviewDatasetIndex(currentIndex)
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
             Label { text: qsTr("Channel") }
             ComboBox {
                 model: [qsTr("Range"), qsTr("Intensity")]

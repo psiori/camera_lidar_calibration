@@ -30,22 +30,65 @@ Eigen::Vector2f project(const Eigen::Vector3f& p, const Eigen::Matrix4f& view, c
 
 int PoseGizmo::hitTest(int x, int y, int width, int height, const Eigen::Matrix4f& view,
                        const Eigen::Matrix4f& proj) const {
+  const GizmoHit hit = hitTestDetailed(x, y, width, height, view, proj);
+  return hit.mode == GizmoMode::Translate ? hit.axis : -1;
+}
+
+GizmoHit PoseGizmo::hitTestDetailed(int x, int y, int width, int height, const Eigen::Matrix4f& view,
+                                  const Eigen::Matrix4f& proj) const {
+  GizmoHit best_hit;
   if (!enabled_) {
-    return -1;
+    return best_hit;
   }
   const Eigen::Vector3f origin = pose_.translation();
-  float best = 20.f;
-  int best_axis = -1;
+  const Eigen::Vector2f cursor(static_cast<float>(x), static_cast<float>(y));
+  float best_dist = 20.f;
+
   for (int axis = 0; axis < 3; ++axis) {
     const Eigen::Vector3f world = origin + pose_.linear() * axisDir(axis) * clip_scale_;
     const Eigen::Vector2f screen = project(world, view, proj, width, height);
-    const float d = (screen - Eigen::Vector2f(static_cast<float>(x), static_cast<float>(y))).norm();
-    if (d < best) {
-      best = d;
-      best_axis = axis;
+    const float d = (screen - cursor).norm();
+    if (d < best_dist) {
+      best_dist = d;
+      best_hit.axis = axis;
+      best_hit.mode = GizmoMode::Translate;
     }
   }
-  return best_axis;
+
+  const float ring_scale = clip_scale_ * 0.7f;
+  const int ring_segments = 24;
+  for (int axis = 0; axis < 3; ++axis) {
+    const Eigen::Vector3f n = pose_.linear() * axisDir(axis);
+    Eigen::Vector3f tangent = pose_.linear() * axisDir((axis + 1) % 3);
+    if (tangent.norm() < 1e-6f) {
+      continue;
+    }
+    tangent.normalize();
+    const Eigen::Vector3f bitangent = n.cross(tangent).normalized();
+    for (int seg_i = 0; seg_i < ring_segments; ++seg_i) {
+      constexpr float kPi = 3.14159265f;
+      const float a0 = static_cast<float>(seg_i) / static_cast<float>(ring_segments) * 2.f * kPi;
+      const float a1 = static_cast<float>(seg_i + 1) / static_cast<float>(ring_segments) * 2.f * kPi;
+      const Eigen::Vector3f p0 = origin + ring_scale * (std::cos(a0) * tangent + std::sin(a0) * bitangent);
+      const Eigen::Vector3f p1 = origin + ring_scale * (std::cos(a1) * tangent + std::sin(a1) * bitangent);
+      const Eigen::Vector2f s0 = project(p0, view, proj, width, height);
+      const Eigen::Vector2f s1 = project(p1, view, proj, width, height);
+      const Eigen::Vector2f seg_dir = s1 - s0;
+      const float len2 = seg_dir.squaredNorm();
+      float t = 0.f;
+      if (len2 > 1e-6f) {
+        t = std::clamp((cursor - s0).dot(seg_dir) / len2, 0.f, 1.f);
+      }
+      const Eigen::Vector2f closest = s0 + t * seg_dir;
+      const float d = (closest - cursor).norm();
+      if (d < best_dist) {
+        best_dist = d;
+        best_hit.axis = axis;
+        best_hit.mode = GizmoMode::Rotate;
+      }
+    }
+  }
+  return best_hit;
 }
 
 void PoseGizmo::beginDrag(int axis, GizmoMode mode) {

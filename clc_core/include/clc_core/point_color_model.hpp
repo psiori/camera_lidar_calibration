@@ -16,9 +16,8 @@ class PointColorModel {
   void setPoints(const std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>& points,
                  const std::vector<double>& intensities);
 
-  /// Writes interleaved RGB in [0, 1]; size must be points.size() * 3.
-  void projectColors(const Eigen::Isometry3d& T_camera_lidar, float blend_weight, float scalar_min, float scalar_max,
-                     std::vector<float>& rgb_out) const;
+  /// Per-point camera RGB in [0, 1] (black when not visible in the image). Blend with intensity colormap on the GPU.
+  void projectCameraRgb(const Eigen::Isometry3d& T_camera_lidar, std::vector<float>& rgb_out) const;
 
   bool ready() const { return camera_ && !image_.empty() && !points_.empty(); }
   size_t pointCount() const { return points_.size(); }

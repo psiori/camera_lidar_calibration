@@ -5,6 +5,7 @@ add_library(clc_core SHARED
   src/fusion_service.cpp
   src/camera_intrinsics_io.cpp
   src/scan_geometry.cpp
+  src/dataset_util.cpp
   src/colormap.cpp
   src/range_image.cpp
   src/point_color_model.cpp

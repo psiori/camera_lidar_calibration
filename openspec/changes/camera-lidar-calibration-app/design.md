@@ -154,7 +154,7 @@ v1: `ManualGuess` (pose seed + correspondences), `NidOptimizer` only.
 
 Expose `FusionParams` only: `voxel_resolution`, `num_threads`, `max_correspondence_distance`, `scan_time`. Internal GLIM params remain hardcoded in `fusion.cpp`.
 
-`voxel_resolution` is applied in `voxel_merge()` after SLAM (or on single-scan passthrough), independent of GLIM iVox.
+`voxel_resolution` is applied in `voxel_merge()` after multi-scan SLAM. On single-scan passthrough, `voxel_merge()` downsamples the masked scan only (no SLAM or deskew). Independent of GLIM iVox.
 
 ### Session and dataset I/O (v1 UI)
 
@@ -197,12 +197,28 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 | **Datasets** tab | Fuse, mask I/O, intrinsics, per-dataset params; 50/50 with 3D preview optional | **Adopted** |
 | Correspondence table | All datasets’ pairs in one table; only active dataset rows editable; compute uses all pairs | **Adopted** |
 | Initial-alignment methods | Compile-time registry + per-method UI capability flags; v1 manual only | **Adopted** |
+| **Add calibration dataset** | Modal `AddDatasetDialog.qml` (image + LiDAR file/dir + session intrinsics); not chained `FileDialog`s | **Adopted** |
+| **Single-scan Datasets UI** | Grey out Scan time + multi-scan Fusion fields when catalog has one PCD; keep voxel + **Run fusion** | **Adopted** |
 
 #### Target shell (multi-dataset)
 
 **Datasets tab**
 
-- Shared **dataset tabs** + Add / Remove. Active dataset: show baked paths (read-only), fuse, per-dataset scan time + fusion params, global mask I/O, Edit mask…, intrinsics (session). **`SplitView`** ~50/50 with `PointCloudScene` showing active dataset’s ready cloud.
+- Shared **dataset tabs** + **Add…** / Remove. **Add…** opens **`AddDatasetDialog.qml`**: three hinted rows (camera image, LiDAR scans as directory or single `.pcd`, session intrinsics YAML), browse per row, OK/Cancel. Active dataset: show baked paths (read-only), fuse, per-dataset scan time + fusion params, global mask I/O, Edit mask…, intrinsics (session). **`SplitView`** ~50/50 with `PointCloudScene` showing active dataset’s ready cloud.
+
+**Add calibration dataset dialog (v1)**
+
+- `Dialog` or small `Window` centered on the main window; width ~520px.
+- Rows (label + hint + path + Browse):
+  - **Camera image** — “Still photo taken with the lidar camera for this capture.”
+  - **LiDAR scans** — “Folder of structured `.pcd` sweeps, or one `.pcd` for a single scan.”
+  - **Camera intrinsics (session)** — “OpenCV YAML (`FileStorage`); shared by all calibration datasets.”
+- OK calls `AppController` add API with the three paths; Cancel clears dialog-local state only.
+- **Development defaults:** On first open (debug / local dev builds), pre-fill path fields with the team’s sample data so **Add** can be exercised without re-browsing:
+  - Image: `/Users/rasmus/Downloads/pbb-muc-255-1-fasssauna-high-freq-approach/sequence1/2026-10-01T18_42_13_624Z.png`
+  - LiDAR: `/Users/rasmus/Downloads/pbb-muc-255-1-fasssauna-high-freq-approach/sequence1.pcd`
+  - Intrinsics: `/Users/rasmus/Documents/Projects/autocrane-core/config/pbb/muc/shared/calibration/cam_bridge_narrow_rotated_upright.yml`
+  - Production builds SHOULD ship with empty defaults (or gate prepopulate behind `#ifdef` / `CLC_DEV_DEFAULT_PATHS` CMake option).
 
 **Initial alignment tab**
 
@@ -256,6 +272,12 @@ Use Qt Quick `ToolTip` (or `ToolTip.visible` on hover) on labeled controls in `c
 | Image path | Path to the camera image for this dataset (projection and NID alignment). |
 | PCD directory | Folder of structured `.pcd` scans to fuse (calibration or inspection). |
 | Load intrinsics | OpenCV camera intrinsics YAML (`FileStorage`); used for projection and NID. |
+| Add… (Datasets) | Open the add-dataset dialog: pick camera image, LiDAR folder or single PCD, and session intrinsics before creating the dataset. |
+| Add dialog — Camera image | One image file for this dataset (projection, range-image preview, NID). |
+| Add dialog — LiDAR scans | Directory of `.pcd` files (multi-scan) or one `.pcd` file (single scan). |
+| Add dialog — Intrinsics | Session-wide camera YAML; loaded on OK if changed. |
+| Scan time (single PCD) | Disabled when the active dataset has one scan — deskew settings apply only to multi-scan fusion. |
+| Fusion threads / max corr. (single PCD) | Disabled when the active dataset has one scan — passthrough uses voxel downsampling only. |
 
 ### Fusion streaming preview
 

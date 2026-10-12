@@ -27,11 +27,16 @@ struct PointCorrespondence {
 };
 
 struct DatasetEntry {
+  std::string id;
   std::string image_path;
   std::string cloud_directory;
   std::string fused_cloud_path;
   std::vector<std::string> pcd_paths;
   std::vector<PointCorrespondence> correspondences;
+  glim_cloud_fusion::FusionParams fusion_params{};
+  glim_cloud_fusion::ScanTimeParams scan_time{};
+  bool fusion_complete = false;
+  bool geometry_error = false;
 };
 
 struct GlobalMaskMeta {

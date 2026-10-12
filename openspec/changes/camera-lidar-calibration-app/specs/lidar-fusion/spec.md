@@ -1,6 +1,6 @@
 ## Purpose
 
-Fuses multiple masked structured lidar scans into a deskewed dense cloud with user-controlled output resolution and live preview during processing.
+Fuses multiple masked structured lidar scans into a deskewed, merged dense cloud with user-controlled output resolution and live preview during processing. A single scan uses the same output resolution via downsampling only (no multi-scan SLAM or deskew).
 
 ## ADDED Requirements
 
@@ -15,16 +15,21 @@ Fusion SHALL accept multiple structured scans after per-scan application of the 
 
 ### Requirement: Single-scan passthrough
 
-When exactly one scan is provided, fusion SHALL still produce an output cloud (deskew + voxel merge) without requiring multi-scan SLAM.
+When exactly one scan is provided, fusion SHALL still produce an output cloud without running multi-scan CT-GICP SLAM. The path SHALL apply the global mask and downsample to `FusionParams.voxel_resolution` (same voxel grid as multi-scan output). It SHALL NOT perform motion deskew or merge across scans.
 
 #### Scenario: One scan
 
 - **WHEN** the user runs fusion with a single masked PCD
-- **THEN** the system returns a voxel-merged cloud without error
+- **THEN** the system returns a downsampled cloud at the configured voxel resolution without error
+
+#### Scenario: Single-scan UI on Datasets tab
+
+- **WHEN** the active dataset has exactly one PCD in its catalog
+- **THEN** scan-time and multi-scan fusion parameters are disabled in the UI; voxel resolution and **Run fusion** remain available for passthrough
 
 ### Requirement: User output voxel size
 
-The user SHALL set output voxel resolution (e.g. 1 cm, 2 cm) via `FusionParams.voxel_resolution`. This resolution is applied in post-merge `voxel_merge()` and is independent of internal GLIM iVox settings.
+The user SHALL set output voxel resolution (e.g. 1 cm, 2 cm) via `FusionParams.voxel_resolution`. For multi-scan fusion this resolution is applied in post-SLAM `voxel_merge()`; for single-scan passthrough the same step downsamples the masked scan only. It is independent of internal GLIM iVox settings.
 
 #### Scenario: 1 cm output
 

@@ -11,6 +11,7 @@
 #include <clc_core/fusion_service.hpp>
 #include <clc_core/range_image.hpp>
 #include <clc_core/scan_geometry.hpp>
+#include <clc_core/dataset_util.hpp>
 #include <clc_core/session.hpp>
 
 namespace {
@@ -30,6 +31,27 @@ void test_mask_rasterize() {
   assert(mask.size() == 400);
   assert(mask[0] == 255);
   assert(mask[19 * 20 + 19] == 255);
+}
+
+void test_dataset_pickable_without_fusion() {
+  clc::DatasetEntry ds;
+  ds.image_path = "/tmp/img.png";
+  ds.cloud_directory = "/tmp/pcds";
+  ds.pcd_paths = {"/tmp/pcds/a.pcd"};
+  assert(clc::dataset_pickable(ds));
+  assert(!clc::dataset_ready(ds));
+}
+
+void test_prune_placeholder_calibration_datasets() {
+  clc::SessionData session;
+  session.calibration_datasets.emplace_back();
+  auto& real = session.calibration_datasets.emplace_back();
+  real.image_path = "/tmp/real.png";
+  real.cloud_directory = "/tmp/pcds";
+  assert(session.calibration_datasets.size() == 2);
+  clc::prune_placeholder_calibration_datasets(session);
+  assert(session.calibration_datasets.size() == 1);
+  assert(session.calibration_datasets.front().image_path == real.image_path);
 }
 
 void test_session_round_trip() {
@@ -83,6 +105,8 @@ void test_fusion_single_scan_passthrough() {
 int main() {
   test_colormap_jet();
   test_mask_rasterize();
+  test_dataset_pickable_without_fusion();
+  test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
   test_scan_geometry_empty_directory();
   test_fusion_single_scan_passthrough();

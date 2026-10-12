@@ -49,6 +49,31 @@ The user SHALL add or remove calibration datasets only on the **Datasets** tab. 
 - **WHEN** the user is on Initial alignment
 - **THEN** there is no Add dataset action; only the shared selector and alignment tools
 
+### Requirement: Add calibration dataset dialog
+
+**Add…** on the Datasets tab SHALL open a small modal dialog (not a chain of native file pickers). The dialog SHALL list exactly what must be chosen before the dataset is created:
+
+1. **Camera image** — one image file (PNG/JPEG/etc.) paired with this dataset.
+2. **LiDAR scans** — either a **directory** of structured `.pcd` files (multi-scan fusion) or a **single** `.pcd` file (single-scan / passthrough).
+3. **Camera intrinsics** — session-global OpenCV `FileStorage` YAML; required before NID but MAY be set here when adding a dataset (or left unchanged if the session already has intrinsics).
+
+Each row SHALL have a short hint label, a read-only path field, and a **Browse…** button scoped to the correct picker (image file, PCD file or directory, intrinsics YAML). **OK** SHALL validate all required paths, run geometry / duplicate-id checks, then create the dataset and close the dialog. **Cancel** SHALL discard pending paths. The main window SHALL NOT open an image file picker immediately when the user clicks **Add…**.
+
+#### Scenario: Clear add flow
+
+- **WHEN** the user clicks **Add…** on Datasets
+- **THEN** they see the three rows with hints and can browse each input before confirming
+
+#### Scenario: Intrinsics on add
+
+- **WHEN** the user confirms Add with a valid intrinsics YAML selected
+- **THEN** the session `intrinsics_path` and loaded camera model are updated (same as **Load intrinsics** on Datasets)
+
+#### Scenario: Cancel add
+
+- **WHEN** the user closes the dialog with Cancel
+- **THEN** no new calibration dataset is added and the dataset list is unchanged
+
 ### Requirement: Datasets tab content
 
 The **Datasets** tab SHALL provide per-dataset configuration for the **active** dataset: image path and PCD directory (set when the dataset is created), per-dataset scan-time and fusion parameters (new datasets copy values from the first calibration dataset), fuse action, global mask file shortcuts, and **Edit mask…**. Intrinsics SHALL remain session-global on this tab. After a dataset is added, its image and PCD paths SHALL NOT be editable; the user SHALL delete the dataset and add a new one to change paths (path editing may be added later).
@@ -57,6 +82,20 @@ The **Datasets** tab SHALL provide per-dataset configuration for the **active** 
 
 - **WHEN** a calibration dataset already exists with baked paths
 - **THEN** the UI does not offer path text fields for that dataset; delete is required to replace inputs
+
+### Requirement: Single-scan fusion and scan-time UI
+
+On the **Datasets** tab, when the **active** calibration dataset has exactly **one** structured PCD in its catalog (single `.pcd` file at add time, or a directory that resolved to one scan), the UI SHALL **disable and visually grey out** the **Scan time** controls and the multi-scan **Fusion** controls (`num_threads`, `max_correspondence_distance`). Scan-time fields SHALL NOT apply to single-scan passthrough (no cross-scan deskew). **`voxel_resolution`** and **Run fusion** SHALL remain enabled so the user can run single-scan passthrough / downsampling per `lidar-fusion`. Disabled groups SHALL show a tooltip explaining that only output voxel size and **Run fusion** apply for a single cloud.
+
+#### Scenario: One PCD selected
+
+- **WHEN** the active dataset’s catalog contains one PCD
+- **THEN** time unit, time origin, scan duration, fusion threads, and max correspondence are greyed out and non-interactive
+
+#### Scenario: Multi-scan directory
+
+- **WHEN** the active dataset’s catalog contains two or more PCDs
+- **THEN** fusion and scan-time controls are enabled (subject to geometry validation and worker busy state)
 
 ### Requirement: Initial alignment tri-pane layout
 

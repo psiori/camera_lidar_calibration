@@ -60,8 +60,27 @@ class AppController : public QObject {
   Q_PROPERTY(int fusionNumThreads READ fusionNumThreads WRITE setFusionNumThreads NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionMaxCorrespondence READ fusionMaxCorrespondence WRITE setFusionMaxCorrespondence NOTIFY fusionParamsChanged)
   Q_PROPERTY(bool inspectionMode READ inspectionMode WRITE setInspectionMode NOTIFY inspectionModeChanged)
+  Q_PROPERTY(int mainWorkTab READ mainWorkTab WRITE setMainWorkTab NOTIFY mainWorkTabChanged)
+  Q_PROPERTY(int activeCalibrationDatasetIndex READ activeCalibrationDatasetIndex WRITE setActiveCalibrationDatasetIndex
+                 NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(QStringList calibrationDatasetIds READ calibrationDatasetIds NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(bool activeDatasetReady READ activeDatasetReady NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(bool canPickCorrespondences READ canPickCorrespondences NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(bool activeDatasetIsSingleScan READ activeDatasetIsSingleScan NOTIFY pcdCatalogChanged)
+  Q_PROPERTY(QString addDatasetDefaultImagePath READ addDatasetDefaultImagePath CONSTANT)
+  Q_PROPERTY(QString addDatasetDefaultLidarPath READ addDatasetDefaultLidarPath CONSTANT)
+  Q_PROPERTY(QString addDatasetDefaultIntrinsicsPath READ addDatasetDefaultIntrinsicsPath CONSTANT)
   Q_PROPERTY(int correspondenceCount READ correspondenceCount NOTIFY correspondencesChanged)
   Q_PROPERTY(bool pendingCorrespondence3d READ pendingCorrespondence3d NOTIFY correspondencesChanged)
+  Q_PROPERTY(bool pendingCorrespondence2d READ pendingCorrespondence2d NOTIFY correspondencesChanged)
+  Q_PROPERTY(int selectedCorrespondenceRow READ selectedCorrespondenceRow WRITE setSelectedCorrespondenceRow
+                 NOTIFY correspondencesChanged)
+  Q_PROPERTY(QVariantList correspondenceTable READ correspondenceTable NOTIFY correspondencesChanged)
+  Q_PROPERTY(bool canComputeInitialAlignment READ canComputeInitialAlignment NOTIFY correspondencesChanged)
+  Q_PROPERTY(bool manualInitialGuessSupportsMultiDataset READ manualInitialGuessSupportsMultiDataset CONSTANT)
+  Q_PROPERTY(int initialAlignmentMethod READ initialAlignmentMethod WRITE setInitialAlignmentMethod
+                 NOTIFY initialAlignmentMethodChanged)
+  Q_PROPERTY(bool pickingAllowed READ pickingAllowed NOTIFY busyWorkingChanged)
   Q_PROPERTY(QImage cameraPreviewImage READ cameraPreviewImage NOTIFY cameraPreviewChanged)
 
 public:
@@ -98,12 +117,28 @@ public:
   double rangeDataMin() const { return range_data_min_; }
   double rangeDataMax() const { return range_data_max_; }
   int viewerScalarChannel() const { return viewer_scalar_channel_; }
-  double fusionVoxelResolution() const { return session_.fusion_params.voxel_resolution; }
-  int fusionNumThreads() const { return session_.fusion_params.num_threads; }
-  double fusionMaxCorrespondence() const { return session_.fusion_params.max_correspondence_distance; }
-  bool inspectionMode() const { return inspection_mode_; }
+  double fusionVoxelResolution() const;
+  int fusionNumThreads() const;
+  double fusionMaxCorrespondence() const;
+  bool inspectionMode() const { return main_work_tab_ == 3; }
+  int mainWorkTab() const { return main_work_tab_; }
+  int activeCalibrationDatasetIndex() const { return active_calibration_dataset_index_; }
+  QStringList calibrationDatasetIds() const;
+  bool activeDatasetReady() const;
+  bool canPickCorrespondences() const;
+  bool activeDatasetIsSingleScan() const;
+  QString addDatasetDefaultImagePath() const;
+  QString addDatasetDefaultLidarPath() const;
+  QString addDatasetDefaultIntrinsicsPath() const;
   int correspondenceCount() const;
   bool pendingCorrespondence3d() const { return pending_correspondence_3d_.has_value(); }
+  bool pendingCorrespondence2d() const { return pending_correspondence_2d_.has_value(); }
+  int selectedCorrespondenceRow() const { return selected_correspondence_row_; }
+  QVariantList correspondenceTable() const;
+  bool canComputeInitialAlignment() const;
+  bool manualInitialGuessSupportsMultiDataset() const;
+  int initialAlignmentMethod() const { return initial_alignment_method_; }
+  bool pickingAllowed() const { return !worker_running_; }
   QImage cameraPreviewImage() const { return camera_preview_; }
 
   void setScanDuration(double seconds);
@@ -147,6 +182,20 @@ public:
   Q_INVOKABLE bool loadMask();
   Q_INVOKABLE QString browseMaskFile();
   Q_INVOKABLE void setInspectionMode(bool inspection);
+  Q_INVOKABLE void setMainWorkTab(int tab);
+  Q_INVOKABLE void setActiveCalibrationDatasetIndex(int index);
+  Q_INVOKABLE bool addCalibrationDatasetFromPaths(const QString& image_path, const QString& lidar_path,
+                                                const QString& intrinsics_path);
+  Q_INVOKABLE QString pickAddDatasetImage(const QString& initial_dir);
+  Q_INVOKABLE QString pickAddDatasetLidar(const QString& initial_dir);
+  Q_INVOKABLE QString pickAddDatasetIntrinsics(const QString& initial_dir);
+  Q_INVOKABLE void removeActiveCalibrationDataset();
+  Q_INVOKABLE bool isCalibrationDatasetReady(int index) const;
+  Q_INVOKABLE QString calibrationDatasetTooltip(int index) const;
+  Q_INVOKABLE void setSelectedCorrespondenceRow(int global_row);
+  Q_INVOKABLE void deleteCorrespondenceRow(int global_row);
+  Q_INVOKABLE void setInitialAlignmentMethod(int method);
+  Q_INVOKABLE void setMaskPreviewDatasetIndex(int index);
   Q_INVOKABLE void runFusion();
   Q_INVOKABLE void runAlignment();
   Q_INVOKABLE void estimateInitialGuessFromCorrespondences();
@@ -174,6 +223,9 @@ signals:
   void fusionFinished(bool ok, const QString& message);
   void alignmentFinished(bool ok, const QString& message);
   void inspectionModeChanged();
+  void mainWorkTabChanged();
+  void calibrationDatasetsChanged();
+  void initialAlignmentMethodChanged();
   void correspondencesChanged();
   void cameraPreviewChanged();
 private slots:
@@ -194,6 +246,7 @@ private:
   void refreshCameraPreview();
   clc::DatasetEntry& activeDatasetEntry();
   const clc::DatasetEntry& activeDatasetEntry() const;
+  void ensureActiveCalibrationDataset();
   bool loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err);
   void maybeInferScanDurationFromScan(const clc::PointXYZITCloud& cloud);
   void rebuildMaskFromOps();
@@ -204,15 +257,21 @@ private:
   void refreshRangeImageDisplay();
   void applyViewerScalarRangeToItem();
   void applySessionToViewer();
+  void refreshViewerGizmoState();
+  void loadActiveDatasetCloudToViewer();
+  void syncActiveDatasetFusionToSession();
+  void syncSessionFusionToActiveDataset();
   void emitSessionUiState();
   void syncColorModelFromSession();
-  void refreshViewerRgb(float blend_weight);
+  void reprojectViewerCameraRgb();
   void syncCorrespondenceMarkers();
+  void finalizePendingCorrespondenceIfReady();
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);
   void joinWorker();
   void setWorkerRunning(bool running);
 
   clc::SessionData session_;
+  clc::DatasetEntry empty_calibration_dataset_scratch_;
   clc::PointColorModel color_model_;
   cv::Mat projection_image_;
   QVector<float> viewer_positions_;
@@ -244,8 +303,13 @@ private:
   QString session_directory_;
   int point_count_ = 0;
   bool fusion_blocked_ = false;
-  bool inspection_mode_ = false;
+  int main_work_tab_ = 0;
+  int active_calibration_dataset_index_ = 0;
+  int mask_preview_dataset_index_ = 0;
+  int initial_alignment_method_ = 0;
+  int selected_correspondence_row_ = -1;
   std::optional<Eigen::Vector3d> pending_correspondence_3d_;
+  std::optional<std::pair<double, double>> pending_correspondence_2d_;
   QImage camera_preview_;
   std::atomic<bool> worker_running_{false};
   std::unique_ptr<std::thread> worker_;

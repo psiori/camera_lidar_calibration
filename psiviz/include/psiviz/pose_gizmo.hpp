@@ -6,6 +6,11 @@ namespace psiviz {
 
 enum class GizmoMode { Translate, Rotate };
 
+struct GizmoHit {
+  int axis{-1};
+  GizmoMode mode{GizmoMode::Translate};
+};
+
 class PoseGizmo {
  public:
   void setEnabled(bool enabled) { enabled_ = enabled; }
@@ -17,8 +22,12 @@ class PoseGizmo {
   void setClipScale(float s) { clip_scale_ = s; }
   [[nodiscard]] float clipScale() const { return clip_scale_; }
 
-  /// Screen-space hit test; returns mode and axis index 0..2, or -1.
+  /// Screen-space hit test; returns axis index 0..2, or -1 (translate handles only).
   int hitTest(int x, int y, int width, int height, const Eigen::Matrix4f& view, const Eigen::Matrix4f& proj) const;
+
+  /// Hit test for translate axes and rotate rings (axis 0..2 for both modes).
+  GizmoHit hitTestDetailed(int x, int y, int width, int height, const Eigen::Matrix4f& view,
+                           const Eigen::Matrix4f& proj) const;
 
   void beginDrag(int axis, GizmoMode mode);
   void drag(int x, int y, int prev_x, int prev_y, int width, int height, const Eigen::Matrix4f& view,

@@ -28,6 +28,7 @@ class PointCloudItem : public QQuickRhiItem {
   Q_PROPERTY(double scalarMax READ scalarMax WRITE setScalarMax NOTIFY scalarRangeChanged)
   Q_PROPERTY(double pointSize READ pointSize WRITE setPointSize NOTIFY pointSizeChanged)
   Q_PROPERTY(bool gizmoEnabled READ gizmoEnabled WRITE setGizmoEnabled NOTIFY gizmoEnabledChanged)
+  Q_PROPERTY(bool gizmoManipulable READ gizmoManipulable WRITE setGizmoManipulable NOTIFY gizmoManipulableChanged)
   Q_PROPERTY(bool interactionEnabled READ interactionEnabled WRITE setInteractionEnabled NOTIFY interactionEnabledChanged)
   Q_PROPERTY(bool pickingEnabled READ pickingEnabled WRITE setPickingEnabled NOTIFY pickingEnabledChanged)
   Q_PROPERTY(double markerSphereRadius READ markerSphereRadius WRITE setMarkerSphereRadius NOTIFY markerSphereRadiusChanged)
@@ -45,6 +46,8 @@ class PointCloudItem : public QQuickRhiItem {
   void setPointSize(double s);
   bool gizmoEnabled() const { return gizmo_.enabled(); }
   void setGizmoEnabled(bool e);
+  bool gizmoManipulable() const { return gizmo_manipulable_; }
+  void setGizmoManipulable(bool m);
   bool interactionEnabled() const { return interaction_enabled_; }
   void setInteractionEnabled(bool e);
   bool pickingEnabled() const { return picking_enabled_; }
@@ -81,6 +84,7 @@ class PointCloudItem : public QQuickRhiItem {
   void scalarRangeChanged();
   void pointSizeChanged();
   void gizmoEnabledChanged();
+  void gizmoManipulableChanged();
   void interactionEnabledChanged();
   void pickingEnabledChanged();
   void markerSphereRadiusChanged();
@@ -127,6 +131,7 @@ class PointCloudItem : public QQuickRhiItem {
   double scalar_max_{1.};
   bool interaction_enabled_{true};
   bool picking_enabled_{true};
+  bool gizmo_manipulable_{true};
   double marker_sphere_radius_{0.05};
 };
 

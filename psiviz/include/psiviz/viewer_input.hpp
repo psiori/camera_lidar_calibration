@@ -40,12 +40,14 @@ class ViewerInputRouter {
 
   void setInteractionEnabled(bool enabled) { interaction_enabled_ = enabled; }
   void setPickingEnabled(bool enabled) { picking_enabled_ = enabled; }
+  void setGizmoManipulable(bool manipulable) { gizmo_manipulable_ = manipulable; }
 
  private:
   TrackballCamera& camera_;
   PoseGizmo& gizmo_;
   bool interaction_enabled_{true};
   bool picking_enabled_{true};
+  bool gizmo_manipulable_{true};
   bool dragging_{false};
   Qt::MouseButton drag_button_{Qt::NoButton};
   QPoint last_pos_;
