@@ -12,7 +12,10 @@ layout(std140, binding = 0) uniform buf {
     float scalarMax;
 };
 
+layout(location = 0) flat out uint vPointId;
+
 void main() {
     gl_Position = mvp * vec4(position, 1.0);
     gl_PointSize = pointSize;
+    vPointId = uint(gl_VertexIndex) + 1u;
 }

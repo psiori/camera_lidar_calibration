@@ -2,6 +2,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
 #include <Eigen/Core>
 
 #include "psiviz/point_cloud_buffers.hpp"
@@ -30,21 +34,32 @@ class PointCloudRenderer {
     scalar_min_ = min_v;
     scalar_max_ = max_v;
   }
-  void requestPick(int x, int y, float dpr);
-  /// True after the GPU has finished copying depth for the most recent pick request.
-  [[nodiscard]] bool tryConsumePickDepth(float& depth01);
+  /// Schedules a GPU pick; returns a request id to pass to tryConsumePickResult.
+  [[nodiscard]] std::uint64_t requestPick(int x, int y, float dpr, float point_size);
+  /// True when the GPU readback for `request_id` is ready. `point_id` is 1-based; 0 means miss.
+  [[nodiscard]] bool tryConsumePickResult(std::uint64_t request_id, std::uint32_t& point_id);
   void setSphereMarkers(const std::vector<SphereMarker>& markers);
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
-  private:
+ private:
+  struct PickRequest {
+    std::uint64_t request_id{0};
+    int x{0};
+    int y{0};
+    float dpr{1.f};
+    float point_size{1.f};
+  };
+
   void ensurePipeline(QRhiRenderTarget* rt);
   void ensureGizmoPipeline(QRhiRenderTarget* rt);
   void ensureShapePipeline(QRhiRenderTarget* rt);
   void ensurePickTarget(int width, int height);
   void uploadGizmo(const PoseGizmo& gizmo);
   void uploadSphereMarkers();
-  void renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h);
+  void renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h,
+                      const PickRequest& request);
   void pollPickReadback();
+  void schedulePickPassIfIdle();
   void releaseResources();
 
   QRhi* rhi_{nullptr};
@@ -55,15 +70,14 @@ class PointCloudRenderer {
   int height_{0};
   float blend_weight_{0.f};
   float scalar_min_{0.f};
-  float scalar_max_{1.f};
+  float scalar_max_{0.f};
   bool initialized_{false};
   bool pipeline_ready_{false};
-  bool pick_requested_{false};
-  int pick_x_{0};
-  int pick_y_{0};
-  float pick_dpr_{1.f};
-  float last_picked_depth_{1.f};
-  bool pick_depth_ready_{false};
+  bool pick_pass_scheduled_{false};
+  std::uint64_t next_request_id_{1};
+  std::optional<PickRequest> active_request_;
+  std::optional<PickRequest> queued_request_;
+  std::vector<std::pair<std::uint64_t, std::uint32_t>> completed_picks_;
   int gizmo_vertex_count_{0};
   int shape_vertex_count_{0};
   std::vector<SphereMarker> sphere_markers_;

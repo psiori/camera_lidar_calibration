@@ -162,10 +162,10 @@ Item {
                 anchors.fill: parent
                 radius: width / 2
                 color: modelData.pendingPick
-                    ? "#b326d9ff"
+                    ? "#26d9ff"
                     : (modelData.editable
-                        ? (modelData.selected ? "#ccffcc00" : "#b3ff6600")
-                        : "#8c8c8c8c")
+                        ? (modelData.selected ? "#ffcc00" : "#ff6600")
+                        : "#cccccc")
                 border.color: modelData.pendingPick
                     ? "#00e5ff"
                     : (modelData.selected ? "#ffcc00" : (modelData.editable ? "#ff5500" : "#666666"))

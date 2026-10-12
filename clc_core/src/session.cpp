@@ -283,9 +283,7 @@ bool load_session(const std::string& path, SessionData& session) {
     if (d.id.empty() && !d.pcd_paths.empty()) {
       d.id = dataset_id_from_first_scan(d.pcd_paths);
     }
-    if (d.fusion_complete || !d.fused_cloud_path.empty()) {
-      d.fusion_complete = true;
-    }
+    sync_dataset_fusion_status(d);
   }
   return true;
 }

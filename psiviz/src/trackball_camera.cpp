@@ -81,8 +81,8 @@ void TrackballCamera::fitToBounds(const Eigen::Vector3f& min, const Eigen::Vecto
   const float radius = (max - min).norm() * 0.5f;
   focal_ = center;
   const float distance = std::max(1.f, radius * 2.5f);
-  z_far_ = std::max(1000.f, distance * 8.f);
-  z_near_ = std::max(0.001f, distance * 1e-4f);
+  z_far_ = std::max(100.f, distance * 10.f);
+  z_near_ = std::max(0.001f, distance / 10.f);
   point_size_ = std::max(point_size_, 3.f);
   setOrbitFromForward(distance);
 }

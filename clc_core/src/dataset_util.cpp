@@ -19,6 +19,25 @@ bool dataset_pickable(const DatasetEntry& dataset) {
   return !dataset.pcd_paths.empty() || !dataset.cloud_directory.empty();
 }
 
+bool dataset_is_single_scan(const DatasetEntry& dataset) {
+  return dataset.pcd_paths.size() == 1;
+}
+
+void sync_dataset_fusion_status(DatasetEntry& dataset) {
+  if (dataset.geometry_error) {
+    return;
+  }
+  if (!dataset.fused_cloud_path.empty()) {
+    dataset.fusion_complete = true;
+    return;
+  }
+  if (dataset.pcd_paths.size() == 1) {
+    dataset.fusion_complete = true;
+  } else if (dataset.pcd_paths.size() > 1) {
+    dataset.fusion_complete = false;
+  }
+}
+
 bool dataset_ready(const DatasetEntry& dataset) {
   if (dataset.image_path.empty() || dataset.cloud_directory.empty()) {
     return false;

@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 4.4.0)
 project(camera_lidar_calibration VERSION 0.1.0 LANGUAGES CXX)
 
 enable_testing()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

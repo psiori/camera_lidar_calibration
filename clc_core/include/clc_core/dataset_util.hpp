@@ -9,6 +9,12 @@ namespace clc {
 /// Dataset id from the first PCD filename (lexicographic / chronological scan order).
 std::string dataset_id_from_first_scan(const std::vector<std::string>& sorted_pcd_paths);
 
+/// True when the catalog is exactly one PCD (fusion passthrough is implicit).
+bool dataset_is_single_scan(const DatasetEntry& dataset);
+
+/// Updates `fusion_complete` from fused path / scan count (single scan counts as fused).
+void sync_dataset_fusion_status(DatasetEntry& dataset);
+
 /// Whether a calibration dataset is ready for initial alignment and NID.
 bool dataset_ready(const DatasetEntry& dataset);
 

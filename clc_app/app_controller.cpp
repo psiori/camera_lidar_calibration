@@ -469,7 +469,7 @@ QString AppController::calibrationDatasetTooltip(int index) const {
   if (isCalibrationDatasetReady(index)) {
     return QStringLiteral("Ready for initial alignment and calibration");
   }
-  return QStringLiteral("Fuse scans (or complete single-scan passthrough) before labeling or NID");
+  return QStringLiteral("Load image and LiDAR; fuse multi-scan datasets before NID");
 }
 
 bool AppController::manualInitialGuessSupportsMultiDataset() const {
@@ -593,6 +593,7 @@ bool AppController::addCalibrationDatasetFromPaths(const QString& image_path, co
   entry.cloud_directory = normalizedPcdPath(lidar_path).toStdString();
   entry.pcd_paths = scan.paths;
   entry.geometry_error = false;
+  clc::sync_dataset_fusion_status(entry);
   if (!session_.calibration_datasets.empty()) {
     entry.fusion_params = session_.calibration_datasets.front().fusion_params;
     entry.scan_time = session_.calibration_datasets.front().scan_time;
@@ -840,6 +841,7 @@ void AppController::refreshPcdCatalog() {
   if (dataset.id.empty() && !dataset.pcd_paths.empty()) {
     dataset.id = clc::dataset_id_from_first_scan(dataset.pcd_paths);
   }
+  clc::sync_dataset_fusion_status(dataset);
   session_.reference_scan_width = scan.reference_width;
   session_.reference_scan_height = scan.reference_height;
   fused_cloud_ = {};
@@ -1137,6 +1139,19 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput& input, std::string&
     if (&ds == &activeDatasetEntry() && !fused_cloud_.points.empty()) {
       out = fused_cloud_;
       return true;
+    }
+    if (ds.pcd_paths.size() == 1) {
+      clc::PointXYZITCloud cloud;
+      std::string err;
+      if (clc::load_pcd_xyzit(ds.pcd_paths.front(), cloud, err)) {
+        out.points.clear();
+        out.intensities.clear();
+        for (const auto& p : cloud.scan.points) {
+          out.points.emplace_back(p.x(), p.y(), p.z());
+        }
+        out.intensities = cloud.scan.intensities;
+        return !out.points.empty();
+      }
     }
     return false;
   };
@@ -2292,7 +2307,7 @@ void AppController::runAlignment() {
     }
   }
   if (!any_ready) {
-    setStatus(QStringLiteral("Fuse at least one ready calibration dataset before alignment"));
+    setStatus(QStringLiteral("No ready calibration datasets (fuse multi-scan sets or complete initial alignment)"));
     return;
   }
   setWorkerRunning(true);

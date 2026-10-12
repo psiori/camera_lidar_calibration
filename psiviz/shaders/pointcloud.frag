@@ -22,6 +22,10 @@ vec3 jet(float t) {
 }
 
 void main() {
+    vec2 d = gl_PointCoord.xy - vec2(0.5);
+    if (dot(d, d) > 0.25) {
+        discard;
+    }
     float denom = max(scalarMax - scalarMin, 1e-6);
     float t = (vScalar - scalarMin) / denom;
     vec3 cmap = jet(t);

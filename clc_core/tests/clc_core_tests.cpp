@@ -40,6 +40,20 @@ void test_dataset_pickable_without_fusion() {
   ds.pcd_paths = {"/tmp/pcds/a.pcd"};
   assert(clc::dataset_pickable(ds));
   assert(!clc::dataset_ready(ds));
+  clc::sync_dataset_fusion_status(ds);
+  assert(clc::dataset_is_single_scan(ds));
+  assert(clc::dataset_ready(ds));
+}
+
+void test_multi_scan_not_ready_until_fused() {
+  clc::DatasetEntry ds;
+  ds.image_path = "/tmp/img.png";
+  ds.cloud_directory = "/tmp/pcds";
+  ds.pcd_paths = {"/tmp/pcds/a.pcd", "/tmp/pcds/b.pcd"};
+  clc::sync_dataset_fusion_status(ds);
+  assert(!clc::dataset_ready(ds));
+  ds.fusion_complete = true;
+  assert(clc::dataset_ready(ds));
 }
 
 void test_prune_placeholder_calibration_datasets() {
@@ -106,6 +120,7 @@ int main() {
   test_colormap_jet();
   test_mask_rasterize();
   test_dataset_pickable_without_fusion();
+  test_multi_scan_not_ready_until_fused();
   test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
   test_scan_geometry_empty_directory();

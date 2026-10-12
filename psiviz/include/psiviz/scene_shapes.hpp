@@ -17,7 +17,7 @@ struct SphereMarker {
   float radius{0.05f};
   /// Bright orange (sRGB-ish linear).
   Eigen::Vector3f color{1.f, 0.45f, 0.f};
-  float alpha{0.5f};
+  float alpha{1.f};
 };
 
 /// Append a UV-sphere as triangle list (world-space vertices).

@@ -15,23 +15,12 @@
 #include <QWheelEvent>
 #include <rhi/qrhi.h>
 
-#include "psiviz/depth_picker.hpp"
 #include "psiviz/point_cloud_renderer.hpp"
 
 namespace psiviz {
 
 namespace {
 Q_LOGGING_CATEGORY(psivizPickLog, "psiviz.pick")
-
-Eigen::Matrix4f clipViewProjection(QRhi* rhi, const TrackballCamera& camera) {
-  Eigen::Matrix4f clip_corr = Eigen::Matrix4f::Identity();
-  if (rhi) {
-    const QMatrix4x4 qt_corr = rhi->clipSpaceCorrMatrix();
-    std::memcpy(clip_corr.data(), qt_corr.constData(), sizeof(float) * 16);
-  }
-  return clip_corr * camera.projectionMatrix() * camera.viewMatrix();
-}
-
 }  // namespace
 
 class PointCloudRendererItem : public QQuickRhiItemRenderer {
@@ -123,7 +112,8 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       last_uploaded_revision_ = pending_upload_revision_;
     }
     if (do_pick_) {
-      renderer_->requestPick(pick_x_, pick_y_, static_cast<float>(dpr_));
+      pick_resolve_request_id_ =
+          renderer_->requestPick(pick_x_, pick_y_, static_cast<float>(dpr_), camera_.pointSize());
       pick_pending_resolve_ = true;
       pick_resolve_x_ = pick_x_;
       pick_resolve_y_ = pick_y_;
@@ -138,12 +128,14 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     renderer_->render(cb, camera_, gizmo_, renderTarget());
 
     if (pick_pending_resolve_) {
-      if (rhi()) {
+      std::uint32_t point_id = 0;
+      bool consumed = renderer_->tryConsumePickResult(pick_resolve_request_id_, point_id);
+      if (!consumed && rhi()) {
         rhi()->finish();
+        consumed = renderer_->tryConsumePickResult(pick_resolve_request_id_, point_id);
       }
-      float gpu_depth = 1.f;
-      if (renderer_->tryConsumePickDepth(gpu_depth)) {
-        resolvePendingPick(gpu_depth);
+      if (consumed) {
+        resolvePendingPick(point_id);
       }
     }
     render_camera_ = camera_;
@@ -153,31 +145,26 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     requestItemUpdate();
   }
 
-  void resolvePendingPick(float gpu_depth) {
+  void resolvePendingPick(std::uint32_t point_id) {
     pick_pending_resolve_ = false;
-    last_depth_ = gpu_depth;
+    last_picked_point_id_ = point_id;
     pick_ready_ = true;
     last_pick_x_ = pick_resolve_x_;
     last_pick_y_ = pick_resolve_y_;
-    const float dpr = static_cast<float>(dpr_);
-    const Eigen::Matrix4f clip_vp = clipViewProjection(rhi(), camera_);
-    const float pick_radius = std::max(16.f, camera_.pointSize() * 3.f) * dpr;
-    picked_point_ =
-        DepthPicker::unproject(last_depth_, pick_resolve_x_, pick_resolve_y_, width_, height_, dpr, clip_vp);
-    pick_used_cpu_ = false;
-    if (!picked_point_ && pending_.point_count > 0) {
-      picked_point_ = DepthPicker::pickNearestOnScreen(pending_.positions.data(), pending_.point_count, pick_resolve_x_,
-                                                       pick_resolve_y_, width_, height_, dpr, clip_vp, pick_radius);
-      pick_used_cpu_ = picked_point_.has_value();
+    picked_point_.reset();
+    if (point_id > 0 && point_id <= pending_.point_count) {
+      const std::uint64_t i = point_id - 1;
+      picked_point_ = Eigen::Vector3f(pending_.positions[i * 3 + 0], pending_.positions[i * 3 + 1],
+                                      pending_.positions[i * 3 + 2]);
     }
     if (picked_point_) {
       if (pick_resolve_fly_to_) {
         camera_.flyTo(*picked_point_);
         qCInfo(psivizPickLog) << "fly-to focal ->" << picked_point_->x() << picked_point_->y() << picked_point_->z()
-                              << "at pixel" << pick_resolve_x_ << pick_resolve_y_ << "depth01" << last_depth_;
+                              << "at pixel" << pick_resolve_x_ << pick_resolve_y_ << "pointId" << point_id;
       }
     } else {
-      qCInfo(psivizPickLog) << "pick missed at pixel" << pick_resolve_x_ << pick_resolve_y_ << "depth01" << last_depth_
+      qCInfo(psivizPickLog) << "pick missed at pixel" << pick_resolve_x_ << pick_resolve_y_ << "pointId" << point_id
                             << "points" << static_cast<qulonglong>(pending_.point_count);
     }
     pick_resolve_fly_to_ = false;
@@ -200,22 +187,21 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     if (picked_point_) {
       const auto& p = *picked_point_;
       qCInfo(psivizPickLog).noquote()
-          << QStringLiteral("picked xyz=(%1,%2,%3) pixel=(%4,%5) depth01=%6 cpu=%7")
+          << QStringLiteral("picked xyz=(%1,%2,%3) pixel=(%4,%5) pointId=%6")
                  .arg(p.x(), 0, 'f', 4)
                  .arg(p.y(), 0, 'f', 4)
                  .arg(p.z(), 0, 'f', 4)
                  .arg(last_pick_x_)
                  .arg(last_pick_y_)
-                 .arg(last_depth_, 0, 'f', 4)
-                 .arg(pick_used_cpu_);
+                 .arg(last_picked_point_id_);
       if (pick_resolve_emit_signal_) {
         emit item->pointPicked(static_cast<double>(p.x()), static_cast<double>(p.y()), static_cast<double>(p.z()));
       }
     } else {
-      qCInfo(psivizPickLog).noquote() << QStringLiteral("pick failed pixel=(%1,%2) depth01=%3")
+      qCInfo(psivizPickLog).noquote() << QStringLiteral("pick failed pixel=(%1,%2) pointId=%3")
                                             .arg(last_pick_x_)
                                             .arg(last_pick_y_)
-                                            .arg(last_depth_, 0, 'f', 4);
+                                            .arg(last_picked_point_id_);
     }
     pick_resolve_emit_signal_ = false;
   }
@@ -237,14 +223,14 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
   int pick_y_{0};
   bool do_pick_{false};
   bool pick_ready_{false};
-  float last_depth_{1.f};
+  std::uint32_t last_picked_point_id_{0};
   std::optional<Eigen::Vector3f> picked_point_;
   bool fly_to_{false};
   bool pick_emit_signal_{false};
-  bool pick_used_cpu_{false};
   int last_pick_x_{0};
   int last_pick_y_{0};
   bool pick_pending_resolve_{false};
+  std::uint64_t pick_resolve_request_id_{0};
   int pick_resolve_x_{0};
   int pick_resolve_y_{0};
   bool pick_resolve_fly_to_{false};
@@ -324,7 +310,7 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
                                     static_cast<float>(marker_positions_xyz_[i * 3 + 2]));
     marker.radius = radius;
     marker.color = Eigen::Vector3f(1.f, 0.45f, 0.f);
-    marker.alpha = 0.5f;
+    marker.alpha = 1.f;
     sphere_markers_.push_back(marker);
   }
   if (pending_marker_) {
@@ -332,7 +318,7 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
     marker.center = *pending_marker_;
     marker.radius = radius * 1.35f;
     marker.color = Eigen::Vector3f(0.15f, 0.95f, 1.f);
-    marker.alpha = 0.85f;
+    marker.alpha = 1.f;
     sphere_markers_.push_back(marker);
   }
 }

@@ -1,39 +1,100 @@
 #include "psiviz/depth_picker.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
-
-#include <Eigen/LU>
+#include <vector>
 
 namespace psiviz {
 
 namespace {
-constexpr float kDepthMiss = 0.9995f;
-// CPU fallback scans every point; no hard cap (large clouds may take noticeable time).
+
+struct Offset {
+  int dx;
+  int dy;
+  int dist_sq;
+};
+
 }  // namespace
 
-std::optional<Eigen::Vector3f> DepthPicker::unproject(float depth01, int x, int y, int width, int height,
-                                                      float device_pixel_ratio,
-                                                      const Eigen::Matrix4f& clip_view_projection) {
-  if (depth01 <= 0.f || depth01 >= kDepthMiss || width <= 0 || height <= 0) {
-    return std::nullopt;
-  }
-  const float px =
-      (static_cast<float>(x) * device_pixel_ratio + 0.5f) / (static_cast<float>(width) * device_pixel_ratio);
-  const float py = (static_cast<float>(height) - static_cast<float>(y) * device_pixel_ratio - 0.5f) /
-                   (static_cast<float>(height) * device_pixel_ratio);
-  const float ndc_x = px * 2.f - 1.f;
-  const float ndc_y = py * 2.f - 1.f;
-  const float ndc_z = depth01 * 2.f - 1.f;
+namespace {
 
-  const Eigen::Matrix4f inv_vp = clip_view_projection.inverse();
-  Eigen::Vector4f clip(ndc_x, ndc_y, ndc_z, 1.f);
-  Eigen::Vector4f world = inv_vp * clip;
-  if (std::fabs(world.w()) < 1e-8f) {
-    return std::nullopt;
+std::uint32_t decodePickIdBytes(const unsigned char* rgba) {
+  return static_cast<std::uint32_t>(rgba[0]) | (static_cast<std::uint32_t>(rgba[1]) << 8) |
+         (static_cast<std::uint32_t>(rgba[2]) << 16) | (static_cast<std::uint32_t>(rgba[3]) << 24);
+}
+
+}  // namespace
+
+std::uint32_t DepthPicker::selectPointIdFromPatch(const std::uint32_t* pixels, int patch_w, int patch_h, int center_x,
+                                                  int center_y, bool flip_framebuffer_y) {
+  if (!pixels || patch_w <= 0 || patch_h <= 0) {
+    return 0;
   }
-  world /= world.w();
-  return world.head<3>();
+  const int max_r = std::max(patch_w, patch_h);
+  std::vector<Offset> offsets;
+  offsets.reserve(static_cast<std::size_t>((2 * max_r + 1) * (2 * max_r + 1)));
+  for (int dy = -max_r; dy <= max_r; ++dy) {
+    for (int dx = -max_r; dx <= max_r; ++dx) {
+      const int cx = center_x + dx;
+      const int cy = center_y + dy;
+      if (cx < 0 || cy < 0 || cx >= patch_w || cy >= patch_h) {
+        continue;
+      }
+      offsets.push_back({dx, dy, dx * dx + dy * dy});
+    }
+  }
+  std::sort(offsets.begin(), offsets.end(),
+            [](const Offset& a, const Offset& b) { return a.dist_sq < b.dist_sq; });
+
+  for (const Offset& off : offsets) {
+    int sx = center_x + off.dx;
+    int sy = center_y + off.dy;
+    if (flip_framebuffer_y) {
+      sy = patch_h - 1 - sy;
+    }
+    const std::uint32_t id = pixels[sy * patch_w + sx];
+    if (id != 0) {
+      return id;
+    }
+  }
+  return 0;
+}
+
+std::uint32_t DepthPicker::selectPointIdFromRgbaPatch(const unsigned char* pixels, int patch_w, int patch_h,
+                                                      int center_x, int center_y, bool flip_framebuffer_y) {
+  if (!pixels || patch_w <= 0 || patch_h <= 0) {
+    return 0;
+  }
+  const int max_r = std::max(patch_w, patch_h);
+  std::vector<Offset> offsets;
+  offsets.reserve(static_cast<std::size_t>((2 * max_r + 1) * (2 * max_r + 1)));
+  for (int dy = -max_r; dy <= max_r; ++dy) {
+    for (int dx = -max_r; dx <= max_r; ++dx) {
+      const int cx = center_x + dx;
+      const int cy = center_y + dy;
+      if (cx < 0 || cy < 0 || cx >= patch_w || cy >= patch_h) {
+        continue;
+      }
+      offsets.push_back({dx, dy, dx * dx + dy * dy});
+    }
+  }
+  std::sort(offsets.begin(), offsets.end(),
+            [](const Offset& a, const Offset& b) { return a.dist_sq < b.dist_sq; });
+
+  for (const Offset& off : offsets) {
+    int sx = center_x + off.dx;
+    int sy = center_y + off.dy;
+    if (flip_framebuffer_y) {
+      sy = patch_h - 1 - sy;
+    }
+    const int idx = (sy * patch_w + sx) * 4;
+    const std::uint32_t id = decodePickIdBytes(pixels + idx);
+    if (id != 0) {
+      return id;
+    }
+  }
+  return 0;
 }
 
 std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,

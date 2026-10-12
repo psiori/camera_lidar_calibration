@@ -65,7 +65,7 @@ class PointCloudItem : public QQuickRhiItem {
   /// Navigation keys (`f`, `+`, `-`, `r`, `h`) for QML forwarding when the pointer is over the viewport.
   Q_INVOKABLE bool handleNavigationKey(int key, int modifiers);
   Q_INVOKABLE void bumpPointSize(double delta);
-  /// Depth pick at last pointer position (or viewport center) and animate focal point there (`f`).
+  /// Point-index pick at last pointer position (or viewport center) and animate focal point there (`f`).
   Q_INVOKABLE void flyToUnderCursor();
   Q_INVOKABLE void setPointerPosition(double x, double y);
   /// Replace pick markers with spheres at each (x,y,z) triple in `positions_xyz` (length must be a multiple of 3).

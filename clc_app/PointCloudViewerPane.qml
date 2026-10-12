@@ -48,6 +48,8 @@ FocusScope {
     PointCloudScene {
         id: cloudView
         anchors.fill: parent
+        // psiviz::TrackballCamera::point_size_ default
+        pointSize: 8
         focus: viewerHover.hovered
         activeFocusOnTab: true
         Keys.onPressed: (event) => {

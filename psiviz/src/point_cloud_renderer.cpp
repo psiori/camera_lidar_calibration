@@ -1,5 +1,6 @@
 #include "psiviz/point_cloud_renderer.hpp"
 
+#include "psiviz/depth_picker.hpp"
 #include "psiviz/scene_shapes.hpp"
 
 #include <algorithm>
@@ -11,6 +12,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QMatrix4x4>
+#include <QRect>
 #include <rhi/qrhi.h>
 #include <rhi/qshader.h>
 
@@ -119,10 +121,12 @@ struct PointCloudRenderer::RhiResources {
     QRhiReadbackResult result;
     bool in_flight{false};
     bool completed{false};
-    float depth01{1.f};
-    int read_x{0};
-    int read_y{0};
-    int read_stride{0};
+    std::uint64_t request_id{0};
+    int patch_center_x{0};
+    int patch_center_y{0};
+    int patch_w{0};
+    int patch_h{0};
+    bool flip_framebuffer_y{false};
   };
   PickReadback pick_readback;
 };
@@ -169,12 +173,22 @@ void PointCloudRenderer::resize(int width, int height) {
   height_ = height;
 }
 
-void PointCloudRenderer::requestPick(int x, int y, float dpr) {
-  pick_requested_ = true;
-  pick_x_ = x;
-  pick_y_ = y;
-  pick_dpr_ = dpr;
-  pick_depth_ready_ = false;
+std::uint64_t PointCloudRenderer::requestPick(int x, int y, float dpr, float point_size) {
+  PickRequest req;
+  req.request_id = next_request_id_++;
+  req.x = x;
+  req.y = y;
+  req.dpr = dpr;
+  req.point_size = point_size;
+
+  auto& rb = rhi_resources_->pick_readback;
+  if (rb.in_flight) {
+    queued_request_ = req;
+  } else {
+    active_request_ = req;
+    pick_pass_scheduled_ = true;
+  }
+  return req.request_id;
 }
 
 void PointCloudRenderer::pollPickReadback() {
@@ -185,20 +199,42 @@ void PointCloudRenderer::pollPickReadback() {
   if (!rb.in_flight || !rb.completed) {
     return;
   }
-  last_picked_depth_ = rb.depth01;
-  pick_depth_ready_ = true;
+  std::uint32_t point_id = 0;
+  if (!rb.result.data.isEmpty() && rb.patch_w > 0 && rb.patch_h > 0) {
+    const auto* pixels = reinterpret_cast<const unsigned char*>(rb.result.data.constData());
+    point_id = DepthPicker::selectPointIdFromRgbaPatch(pixels, rb.patch_w, rb.patch_h, rb.patch_center_x,
+                                                       rb.patch_center_y, rb.flip_framebuffer_y);
+  }
+  completed_picks_.push_back({rb.request_id, point_id});
+
   rb.in_flight = false;
   rb.completed = false;
+  active_request_.reset();
+  schedulePickPassIfIdle();
 }
 
-bool PointCloudRenderer::tryConsumePickDepth(float& depth01) {
+bool PointCloudRenderer::tryConsumePickResult(std::uint64_t request_id, std::uint32_t& point_id) {
   pollPickReadback();
-  if (!pick_depth_ready_) {
+  const auto it = std::find_if(completed_picks_.begin(), completed_picks_.end(),
+                               [request_id](const auto& entry) { return entry.first == request_id; });
+  if (it == completed_picks_.end()) {
     return false;
   }
-  depth01 = last_picked_depth_;
-  pick_depth_ready_ = false;
+  point_id = it->second;
+  completed_picks_.erase(it);
   return true;
+}
+
+void PointCloudRenderer::schedulePickPassIfIdle() {
+  if (!rhi_resources_ || rhi_resources_->pick_readback.in_flight || pick_pass_scheduled_) {
+    return;
+  }
+  if (!queued_request_) {
+    return;
+  }
+  active_request_ = queued_request_;
+  queued_request_.reset();
+  pick_pass_scheduled_ = true;
 }
 
 void PointCloudRenderer::ensurePipeline(QRhiRenderTarget* rt) {
@@ -249,8 +285,9 @@ void PointCloudRenderer::ensurePipeline(QRhiRenderTarget* rt) {
     res.pipeline->setVertexInputLayout(input);
     res.pipeline->setShaderResourceBindings(res.srb.get());
     res.pipeline->setTopology(QRhiGraphicsPipeline::Points);
-    res.pipeline->setDepthTest(false);
-    res.pipeline->setDepthWrite(false);
+    res.pipeline->setDepthTest(true);
+    res.pipeline->setDepthWrite(true);
+    res.pipeline->setDepthOp(QRhiGraphicsPipeline::Less);
   }
   if (rt && res.pipeline) {
     QRhiRenderPassDescriptor* const pass = rt->renderPassDescriptor();
@@ -419,7 +456,8 @@ void PointCloudRenderer::ensurePickTarget(int width, int height) {
   res.pick_depth.reset();
   res.pick_color.reset();
 
-  res.pick_color.reset(rhi_->newTexture(QRhiTexture::RGBA8, size, 1, QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+  res.pick_color.reset(
+      rhi_->newTexture(QRhiTexture::RGBA8, size, 1, QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
   res.pick_color->create();
   res.pick_depth.reset(rhi_->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size));
   res.pick_depth->create();
@@ -451,9 +489,9 @@ void PointCloudRenderer::ensurePickTarget(int width, int height) {
   res.pick_pipeline->setVertexInputLayout(input);
   res.pick_pipeline->setShaderResourceBindings(res.srb.get());
   res.pick_pipeline->setTopology(QRhiGraphicsPipeline::Points);
-  // Match the main point pass (no depth test) so pick coverage equals what you see.
-  res.pick_pipeline->setDepthTest(false);
-  res.pick_pipeline->setDepthWrite(false);
+  res.pick_pipeline->setDepthTest(true);
+  res.pick_pipeline->setDepthWrite(true);
+  res.pick_pipeline->setDepthOp(QRhiGraphicsPipeline::Less);
   res.pick_pipeline->setRenderPassDescriptor(res.pick_rp.get());
   res.pick_pipeline->create();
 }
@@ -528,10 +566,12 @@ void PointCloudRenderer::uploadPointCloud(const PointCloudData& data, QRhiRender
   point_count_ = static_cast<int>(data.point_count);
 }
 
-void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h) {
+void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h,
+                                        const PickRequest& request) {
   auto& res = *rhi_resources_;
   if (!res.pick_rt || !res.pick_pipeline || point_count_ <= 0) {
-    last_picked_depth_ = 1.f;
+    completed_picks_.push_back({request.request_id, 0});
+    active_request_.reset();
     return;
   }
 
@@ -543,7 +583,7 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   }
   const Eigen::Matrix4f mvp = clip_corr * camera.projectionMatrix() * camera.viewMatrix();
   std::memcpy(ub.mvp, mvp.data(), sizeof(ub.mvp));
-  ub.pointSize = camera.pointSize();
+  ub.pointSize = request.point_size;
   ub.blendWeight = blend_weight_;
   ub.scalarMin = scalar_min_;
   ub.scalarMax = scalar_max_;
@@ -555,7 +595,7 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
     }
   }
 
-  cb->beginPass(res.pick_rt.get(), QColor::fromRgbF(0.f, 0.f, 0.f, 0.f), {1.f, 0}, nullptr);
+  cb->beginPass(res.pick_rt.get(), QColor(Qt::black), {1.f, 0}, nullptr);
   cb->setGraphicsPipeline(res.pick_pipeline.get());
   cb->setViewport({0, 0, static_cast<float>(fb_w), static_cast<float>(fb_h)});
   cb->setShaderResources();
@@ -563,35 +603,33 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   cb->setVertexInput(0, 1, &vbuf);
   cb->draw(point_count_);
 
-  const int px = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_x_) * pick_dpr_)), 0, fb_w - 1);
-  const int py_qt = std::clamp(static_cast<int>(std::lround(static_cast<float>(pick_y_) * pick_dpr_)), 0, fb_h - 1);
+  const int px =
+      std::clamp(static_cast<int>(std::lround(static_cast<float>(request.x) * request.dpr)), 0, fb_w - 1);
+  const int py =
+      std::clamp(static_cast<int>(std::lround(static_cast<float>(request.y) * request.dpr)), 0, fb_h - 1);
+  const int radius =
+      std::max(2, static_cast<int>(std::ceil(request.point_size * request.dpr * 0.5f)) + 1);
+  QRect read_rect(px - radius, py - radius, 2 * radius + 1, 2 * radius + 1);
+  read_rect = read_rect.intersected(QRect(0, 0, fb_w, fb_h));
 
   auto& pick_rb = res.pick_readback;
   pick_rb.completed = false;
-  pick_rb.depth01 = 1.f;
+  pick_rb.request_id = request.request_id;
+  pick_rb.patch_center_x = px - read_rect.x();
+  pick_rb.patch_center_y = py - read_rect.y();
+  pick_rb.patch_w = read_rect.width();
+  pick_rb.patch_h = read_rect.height();
+  pick_rb.flip_framebuffer_y = rhi_ && rhi_->isYUpInFramebuffer();
   pick_rb.result = QRhiReadbackResult();
-  const int py = fb_h - 1 - py_qt;
-  pick_rb.read_x = px;
-  pick_rb.read_y = py;
-  pick_rb.read_stride = fb_w;
   pick_rb.result.completed = [this]() {
     if (!rhi_resources_) {
       return;
     }
-    auto& rb = rhi_resources_->pick_readback;
-    rb.completed = true;
-    if (rb.result.data.isEmpty()) {
-      return;
-    }
-    const int row = rb.result.pixelSize.width() > 0 ? rb.result.pixelSize.width() : rb.read_stride;
-    const int idx = (rb.read_y * row + rb.read_x) * 4;
-    if (idx >= 0 && idx + 3 < rb.result.data.size()) {
-      const auto* bytes = reinterpret_cast<const unsigned char*>(rb.result.data.constData());
-      rb.depth01 = static_cast<float>(bytes[idx]) / 255.f;
-    }
+    rhi_resources_->pick_readback.completed = true;
   };
 
   QRhiReadbackDescription read_desc(res.pick_color.get());
+  read_desc.setRect(read_rect);
   QRhiResourceUpdateBatch* batch = rhi_->nextResourceUpdateBatch();
   batch->readBackTexture(read_desc, &pick_rb.result);
   cb->endPass(batch);
@@ -676,10 +714,11 @@ void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& ca
   }
   cb->endPass();
 
-  if (pick_requested_ && !res.pick_readback.in_flight) {
+  schedulePickPassIfIdle();
+  if (pick_pass_scheduled_ && !res.pick_readback.in_flight && active_request_) {
     ensurePickTarget(fb_w, fb_h);
-    renderPickPass(cb, camera, fb_w, fb_h);
-    pick_requested_ = false;
+    renderPickPass(cb, camera, fb_w, fb_h, *active_request_);
+    pick_pass_scheduled_ = false;
   }
   pollPickReadback();
 }
