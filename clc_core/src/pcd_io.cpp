@@ -1,48 +1,17 @@
 #include <clc_core/pcd_io.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <cctype>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 
 #define PCL_NO_PRECOMPILE
+#include <pcl/PCLPointCloud2.h>
+#include <pcl/common/io.h>
 #include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-
-
-/** @brief  Smaller point type with 64bit timestamp and just 8 bit intensity
- */
-struct _PointXYZIT {
-  PCL_ADD_POINT4D;
-  PCL_ADD_INTENSITY_8U;
-  std::uint16_t ambient;
-  std::uint64_t time;
-  PCL_MAKE_ALIGNED_OPERATOR_NEW;
-};
-
-struct PointXYZIT : public _PointXYZIT {
-  inline constexpr PointXYZIT(const _PointXYZIT& p) :
-      PointXYZIT(p.x, p.y, p.z, p.intensity, p.ambient, p.time) {
-  }
-
-  inline constexpr PointXYZIT() : PointXYZIT(0.f, 0.f, 0.f, 0, 0, 0) {
-  }
-
-  inline constexpr PointXYZIT(float _x,
-                              float _y,
-                              float _z,
-                              std::uint8_t _intensity,
-                              std::uint16_t _ambient,
-                              std::uint64_t _time) :
-      _PointXYZIT({{{_x, _y, _z, 1.f}}, {_intensity}, _ambient, _time}) {
-  }
-};
-POINT_CLOUD_REGISTER_POINT_STRUCT(
-  PointXYZIT,
-  (float, x, x)(float, y, y)(float, z, z)(std::uint8_t, intensity, intensity)(
-      std::uint16_t, ambient, ambient)(std::uint64_t, time, time))
-
-
-
 
 namespace clc {
 
@@ -56,6 +25,182 @@ bool path_has_pcd_extension(const std::filesystem::path& path) {
   return ext == ".pcd";
 }
 
+const pcl::PCLPointField* field_by_index(const pcl::PCLPointCloud2& cloud, int index) {
+  if (index < 0 || static_cast<std::size_t>(index) >= cloud.fields.size()) {
+    return nullptr;
+  }
+  return &cloud.fields[static_cast<std::size_t>(index)];
+}
+
+bool read_field_as_float(const std::uint8_t* point_data, const pcl::PCLPointField& field, float& out) {
+  switch (field.datatype) {
+    case pcl::PCLPointField::FLOAT32:
+      std::memcpy(&out, point_data + field.offset, sizeof(float));
+      return true;
+    case pcl::PCLPointField::FLOAT64: {
+      double v = 0.0;
+      std::memcpy(&v, point_data + field.offset, sizeof(double));
+      out = static_cast<float>(v);
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+bool read_field_as_double(const std::uint8_t* point_data, const pcl::PCLPointField& field, double& out) {
+  switch (field.datatype) {
+    case pcl::PCLPointField::FLOAT32: {
+      float v = 0.f;
+      std::memcpy(&v, point_data + field.offset, sizeof(float));
+      out = static_cast<double>(v);
+      return true;
+    }
+    case pcl::PCLPointField::FLOAT64:
+      std::memcpy(&out, point_data + field.offset, sizeof(double));
+      return true;
+    case pcl::PCLPointField::UINT64: {
+      std::uint64_t v = 0;
+      std::memcpy(&v, point_data + field.offset, sizeof(std::uint64_t));
+      out = static_cast<double>(v);
+      return true;
+    }
+    case pcl::PCLPointField::INT64: {
+      std::int64_t v = 0;
+      std::memcpy(&v, point_data + field.offset, sizeof(std::int64_t));
+      out = static_cast<double>(v);
+      return true;
+    }
+    case pcl::PCLPointField::UINT32: {
+      std::uint32_t v = 0;
+      std::memcpy(&v, point_data + field.offset, sizeof(std::uint32_t));
+      out = static_cast<double>(v);
+      return true;
+    }
+    case pcl::PCLPointField::INT32: {
+      std::int32_t v = 0;
+      std::memcpy(&v, point_data + field.offset, sizeof(std::int32_t));
+      out = static_cast<double>(v);
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+std::uint8_t float_intensity_unit_to_uint8(float value) {
+  const int scaled = static_cast<int>(std::lround(value * 255.f));
+  return static_cast<std::uint8_t>(std::clamp(scaled, 0, 255));
+}
+
+std::uint8_t float_intensity_byte_to_uint8(float value) {
+  const int scaled = static_cast<int>(std::lround(value));
+  return static_cast<std::uint8_t>(std::clamp(scaled, 0, 255));
+}
+
+enum class IntensityDecode { None, Uint8, Float };
+
+enum class FloatIntensityRange { Unit01, Byte0255 };
+
+struct IntensityField {
+  IntensityDecode decode = IntensityDecode::None;
+  FloatIntensityRange float_range = FloatIntensityRange::Unit01;
+  const pcl::PCLPointField* field = nullptr;
+};
+
+constexpr std::size_t k_intensity_range_probe_stride = 100;
+
+bool float_intensity_sampled_values_in_unit_range(const pcl::PCLPointCloud2& cloud,
+                                                  const pcl::PCLPointField& field,
+                                                  std::size_t num_points) {
+  for (std::size_t i = 0; i < num_points; i += k_intensity_range_probe_stride) {
+    const std::uint8_t* point_data = cloud.data.data() + i * cloud.point_step;
+    float value = 0.f;
+    if (!read_field_as_float(point_data, field, value) || !std::isfinite(value)) {
+      return false;
+    }
+    if (value < 0.f || value > 1.f) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void resolve_float_intensity_range(const pcl::PCLPointCloud2& cloud,
+                                   IntensityField& intensity,
+                                   std::size_t num_points) {
+  if (intensity.decode != IntensityDecode::Float || intensity.field == nullptr) {
+    return;
+  }
+  intensity.float_range = float_intensity_sampled_values_in_unit_range(cloud, *intensity.field, num_points)
+                            ? FloatIntensityRange::Unit01
+                            : FloatIntensityRange::Byte0255;
+}
+
+IntensityField resolve_intensity_field(const pcl::PCLPointCloud2& cloud, std::string& error) {
+  IntensityField result;
+  const int intensity_idx = pcl::getFieldIndex(cloud, "intensity");
+  const int reflectivity_idx = pcl::getFieldIndex(cloud, "reflectivity");
+  const int field_idx = intensity_idx >= 0 ? intensity_idx : reflectivity_idx;
+  if (field_idx < 0) {
+    return result;
+  }
+  result.field = field_by_index(cloud, field_idx);
+  if (result.field == nullptr) {
+    error = "PCD intensity field index is invalid";
+    return result;
+  }
+  switch (result.field->datatype) {
+    case pcl::PCLPointField::UINT8:
+      result.decode = IntensityDecode::Uint8;
+      break;
+    case pcl::PCLPointField::FLOAT32:
+    case pcl::PCLPointField::FLOAT64:
+      result.decode = IntensityDecode::Float;
+      break;
+    default:
+      error = "unsupported intensity field type in PCD (expected uint8 or float)";
+      result.field = nullptr;
+      break;
+  }
+  return result;
+}
+
+std::uint8_t read_intensity_uint8(const std::uint8_t* point_data, const IntensityField& intensity) {
+  if (intensity.decode == IntensityDecode::None || intensity.field == nullptr) {
+    return 0;
+  }
+  switch (intensity.decode) {
+    case IntensityDecode::Uint8: {
+      std::uint8_t value = 0;
+      std::memcpy(&value, point_data + intensity.field->offset, sizeof(std::uint8_t));
+      return value;
+    }
+    case IntensityDecode::Float: {
+      float value = 0.f;
+      if (!read_field_as_float(point_data, *intensity.field, value)) {
+        return 0;
+      }
+      if (intensity.float_range == FloatIntensityRange::Unit01) {
+        return float_intensity_unit_to_uint8(value);
+      }
+      return float_intensity_byte_to_uint8(value);
+    }
+    default:
+      return 0;
+  }
+}
+
+const pcl::PCLPointField* resolve_time_field(const pcl::PCLPointCloud2& cloud) {
+  for (const char* name : {"time", "timestamp", "t"}) {
+    const int idx = pcl::getFieldIndex(cloud, name);
+    if (idx >= 0) {
+      return field_by_index(cloud, idx);
+    }
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string& error) {
@@ -63,29 +208,76 @@ bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string
     error = "not a PCD file: " + path;
     return false;
   }
-  pcl::PointCloud<PointXYZIT>::Ptr pcl_cloud(new pcl::PointCloud<PointXYZIT>);
-  if (pcl::io::loadPCDFile<PointXYZIT>(path, *pcl_cloud) != 0) {
+
+  pcl::PCLPointCloud2 pcl_cloud;
+  if (pcl::io::loadPCDFile(path, pcl_cloud) != 0) {
     error = "failed to load PCD: " + path;
     return false;
   }
-  cloud.width = static_cast<int>(pcl_cloud->width);
-  cloud.height = static_cast<int>(pcl_cloud->height);
+
+  const int x_idx = pcl::getFieldIndex(pcl_cloud, "x");
+  const int y_idx = pcl::getFieldIndex(pcl_cloud, "y");
+  const int z_idx = pcl::getFieldIndex(pcl_cloud, "z");
+  const auto* x_field = field_by_index(pcl_cloud, x_idx);
+  const auto* y_field = field_by_index(pcl_cloud, y_idx);
+  const auto* z_field = field_by_index(pcl_cloud, z_idx);
+  if (x_field == nullptr || y_field == nullptr || z_field == nullptr) {
+    error = "PCD is missing x/y/z fields: " + path;
+    return false;
+  }
+
+  IntensityField intensity = resolve_intensity_field(pcl_cloud, error);
+  if (!error.empty()) {
+    return false;
+  }
+  const pcl::PCLPointField* time_field = resolve_time_field(pcl_cloud);
+
+  const std::size_t num_points =
+    static_cast<std::size_t>(pcl_cloud.width) * static_cast<std::size_t>(pcl_cloud.height);
+  if (num_points == 0 || pcl_cloud.point_step == 0) {
+    error = "PCD contains no points";
+    return false;
+  }
+
+  resolve_float_intensity_range(pcl_cloud, intensity, num_points);
+
+  cloud.width = static_cast<int>(pcl_cloud.width);
+  cloud.height = static_cast<int>(pcl_cloud.height);
   cloud.scan.points.clear();
   cloud.scan.times.clear();
   cloud.scan.intensities.clear();
   cloud.scan.keep.clear();
   cloud.scan.width = cloud.width;
   cloud.scan.height = cloud.height;
-  cloud.scan.points.reserve(pcl_cloud->size());
+  cloud.scan.points.reserve(num_points);
+
   bool any_valid = false;
-  for (const auto& p : *pcl_cloud) {
-    const bool valid = std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
-    cloud.scan.points.emplace_back(p.x, p.y, p.z, 1.0);
-    cloud.scan.times.push_back(static_cast<double>(p.time));
-    cloud.scan.intensities.push_back(p.intensity);
+  for (std::size_t i = 0; i < num_points; ++i) {
+    const std::uint8_t* point_data = pcl_cloud.data.data() + i * pcl_cloud.point_step;
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    if (!read_field_as_float(point_data, *x_field, x) || !read_field_as_float(point_data, *y_field, y) ||
+        !read_field_as_float(point_data, *z_field, z)) {
+      error = "PCD x/y/z fields are not floating point: " + path;
+      return false;
+    }
+
+    double time = 0.0;
+    if (time_field != nullptr && !read_field_as_double(point_data, *time_field, time)) {
+      error = "PCD time field has unsupported type: " + path;
+      return false;
+    }
+
+    const bool valid = std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+    const std::uint8_t intensity_u8 = read_intensity_uint8(point_data, intensity);
+    cloud.scan.points.emplace_back(x, y, z, 1.0);
+    cloud.scan.times.push_back(time);
+    cloud.scan.intensities.push_back(static_cast<double>(intensity_u8));
     cloud.scan.keep.push_back(valid);
     any_valid = any_valid || valid;
   }
+
   if (!any_valid) {
     error = "PCD contains no valid points";
     return false;

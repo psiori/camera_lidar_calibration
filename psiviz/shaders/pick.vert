@@ -3,9 +3,6 @@
 layout(location = 0) in vec3 position;
 layout(location = 1) in float scalar;
 layout(location = 2) in vec3 rgb;
-layout(location = 3) in float pickIndex;
-
-layout(location = 0) flat out uint vPickId;
 
 layout(std140, binding = 0) uniform buf {
     mat4 mvp;
@@ -18,5 +15,4 @@ layout(std140, binding = 0) uniform buf {
 void main() {
     gl_Position = mvp * vec4(position, 1.0);
     gl_PointSize = pointSize;
-    vPickId = uint(pickIndex);
 }

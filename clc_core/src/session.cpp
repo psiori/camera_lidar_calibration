@@ -112,54 +112,19 @@ void SessionData::ensurePrimaryInspection() {
   }
 }
 
-void SessionData::syncPrimaryFromLegacy() {
-  ensurePrimaryCalibration();
-  auto& d = calibration_datasets.front();
-  d.image_path = image_path;
-  d.cloud_directory = cloud_directory;
-  d.pcd_paths = pcd_paths;
-}
-
-void SessionData::syncLegacyFromPrimary() {
-  ensurePrimaryCalibration();
-  const auto& d = calibration_datasets.front();
-  image_path = d.image_path;
-  cloud_directory = d.cloud_directory;
-  pcd_paths = d.pcd_paths;
-}
-
-void SessionData::syncInspectionPrimaryFromLegacy() {
-  ensurePrimaryInspection();
-  auto& d = inspection_datasets.front();
-  d.image_path = image_path;
-  d.cloud_directory = cloud_directory;
-  d.pcd_paths = pcd_paths;
-}
-
-void SessionData::syncLegacyFromInspectionPrimary() {
-  ensurePrimaryInspection();
-  const auto& d = inspection_datasets.front();
-  image_path = d.image_path;
-  cloud_directory = d.cloud_directory;
-  pcd_paths = d.pcd_paths;
-}
-
 bool save_session(const std::string& path, const SessionData& session_in) {
   SessionData session = session_in;
-  session.syncPrimaryFromLegacy();
+  session.ensurePrimaryCalibration();
 
   nlohmann::json j;
   j["camera"]["model"] = session.camera.model;
   j["camera"]["intrinsics"] = session.camera.intrinsics;
   j["camera"]["distortion_coeffs"] = session.camera.distortion_coeffs;
-  j["cloud_directory"] = session.cloud_directory;
-  j["image_path"] = session.image_path;
   j["intrinsics_path"] = session.intrinsics_path;
   if (session.reference_scan_width > 0 && session.reference_scan_height > 0) {
     j["reference_scan"]["width"] = session.reference_scan_width;
     j["reference_scan"]["height"] = session.reference_scan_height;
   }
-  j["pcd_paths"] = session.pcd_paths;
   j["global_mask"]["path"] = session.global_mask.path;
   j["global_mask"]["width"] = session.global_mask.width;
   j["global_mask"]["height"] = session.global_mask.height;
@@ -200,8 +165,6 @@ bool load_session(const std::string& path, SessionData& session) {
   session.camera.model = j["camera"]["model"];
   session.camera.intrinsics = j["camera"]["intrinsics"].get<std::vector<double>>();
   session.camera.distortion_coeffs = j["camera"]["distortion_coeffs"].get<std::vector<double>>();
-  session.cloud_directory = j.value("cloud_directory", "");
-  session.image_path = j.value("image_path", "");
   session.intrinsics_path = j.value("intrinsics_path", "");
   if (j.contains("reference_scan")) {
     session.reference_scan_width = j["reference_scan"].value("width", 0);
@@ -210,7 +173,6 @@ bool load_session(const std::string& path, SessionData& session) {
     session.reference_scan_width = 0;
     session.reference_scan_height = 0;
   }
-  session.pcd_paths = j.value("pcd_paths", std::vector<std::string>{});
   if (j.contains("global_mask")) {
     session.global_mask.path = j["global_mask"].value("path", "");
     session.global_mask.width = j["global_mask"].value("width", 0);
@@ -232,9 +194,7 @@ bool load_session(const std::string& path, SessionData& session) {
     }
   }
   if (session.calibration_datasets.empty()) {
-    session.syncPrimaryFromLegacy();
-  } else {
-    session.syncLegacyFromPrimary();
+    session.ensurePrimaryCalibration();
   }
   session.fusion_params.voxel_resolution = j["fusion"].value("voxel_resolution", 0.05);
   session.fusion_params.num_threads = j["fusion"].value("num_threads", default_fusion_num_threads());

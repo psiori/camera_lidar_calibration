@@ -9,7 +9,7 @@ namespace psiviz {
 
 namespace {
 constexpr float kDepthMiss = 0.9995f;
-constexpr std::uint64_t kCpuPickMaxPoints = 2'000'000;
+// CPU fallback scans every point; no hard cap (large clouds may take noticeable time).
 }  // namespace
 
 std::optional<Eigen::Vector3f> DepthPicker::unproject(float depth01, int x, int y, int width, int height,
@@ -36,27 +36,14 @@ std::optional<Eigen::Vector3f> DepthPicker::unproject(float depth01, int x, int 
   return world.head<3>();
 }
 
-std::optional<std::uint64_t> DepthPicker::decodePickIndexFromRgba(unsigned char r, unsigned char g, unsigned char b) {
-  const std::uint32_t enc = (static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
-                            static_cast<std::uint32_t>(b);
-  if (enc == 0) {
-    return std::nullopt;
-  }
-  return static_cast<std::uint64_t>(enc - 1u);
-}
-
-std::optional<std::uint64_t> DepthPicker::pickNearestIndexOnScreen(const float* positions, std::uint64_t point_count,
-                                                                   int x, int y, int width, int height,
-                                                                   float device_pixel_ratio,
-                                                                   const Eigen::Matrix4f& clip_view_projection,
-                                                                   float max_pixel_radius) {
+std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,
+                                                                int x, int y, int width, int height,
+                                                                float device_pixel_ratio,
+                                                                const Eigen::Matrix4f& clip_view_projection,
+                                                                float max_pixel_radius) {
   if (!positions || point_count == 0 || width <= 0 || height <= 0 || max_pixel_radius <= 0.f) {
     return std::nullopt;
   }
-  if (point_count > kCpuPickMaxPoints) {
-    return std::nullopt;
-  }
-
   const float target_x = static_cast<float>(x) * device_pixel_ratio;
   const float target_y = static_cast<float>(y) * device_pixel_ratio;
   const float radius_sq = max_pixel_radius * max_pixel_radius;
@@ -98,21 +85,8 @@ std::optional<std::uint64_t> DepthPicker::pickNearestIndexOnScreen(const float* 
   if (!found) {
     return std::nullopt;
   }
-  return best_index;
-}
-
-std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,
-                                                                int x, int y, int width, int height,
-                                                                float device_pixel_ratio,
-                                                                const Eigen::Matrix4f& clip_view_projection,
-                                                                float max_pixel_radius) {
-  const auto index = pickNearestIndexOnScreen(positions, point_count, x, y, width, height, device_pixel_ratio,
-                                              clip_view_projection, max_pixel_radius);
-  if (!index) {
-    return std::nullopt;
-  }
-  const std::uint64_t i = *index;
-  return Eigen::Vector3f(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2]);
+  return Eigen::Vector3f(positions[best_index * 3 + 0], positions[best_index * 3 + 1],
+                         positions[best_index * 3 + 2]);
 }
 
 }  // namespace psiviz

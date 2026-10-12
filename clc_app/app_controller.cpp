@@ -132,6 +132,23 @@ QString normalizedDirectoryPath(const QString& path) {
   return info.absolutePath();
 }
 
+QString normalizedPcdPath(const QString& path) {
+  if (path.isEmpty()) {
+    return path;
+  }
+  const QFileInfo info(path);
+  if (info.isFile()) {
+    return info.absoluteFilePath();
+  }
+  if (info.isDir()) {
+    return info.absoluteFilePath();
+  }
+  if (path.endsWith(QStringLiteral(".pcd"), Qt::CaseInsensitive)) {
+    return info.absoluteFilePath();
+  }
+  return info.absoluteFilePath();
+}
+
 }  // namespace
 
 AppController::AppController(QObject* parent) : QObject(parent) {
@@ -228,20 +245,8 @@ const clc::DatasetEntry& AppController::activeDatasetEntry() const {
   return session_.calibration_datasets.front();
 }
 
-void AppController::syncActiveDatasetFromLegacy() {
-  if (inspection_mode_) {
-    session_.syncInspectionPrimaryFromLegacy();
-  } else {
-    session_.syncPrimaryFromLegacy();
-  }
-}
-
-void AppController::syncLegacyFromActiveDataset() {
-  if (inspection_mode_) {
-    session_.syncLegacyFromInspectionPrimary();
-  } else {
-    session_.syncLegacyFromPrimary();
-  }
+int AppController::pcdFileCount() const {
+  return static_cast<int>(activeDatasetEntry().pcd_paths.size());
 }
 
 int AppController::correspondenceCount() const {
@@ -252,12 +257,11 @@ int AppController::correspondenceCount() const {
 }
 
 QString AppController::imagePath() const {
-  return QString::fromStdString(activeDatasetEntry().image_path.empty() ? session_.image_path : activeDatasetEntry().image_path);
+  return QString::fromStdString(activeDatasetEntry().image_path);
 }
 
 QString AppController::pcdDirectory() const {
-  const auto& d = activeDatasetEntry();
-  return QString::fromStdString(d.cloud_directory.empty() ? session_.cloud_directory : d.cloud_directory);
+  return QString::fromStdString(activeDatasetEntry().cloud_directory);
 }
 
 QString AppController::intrinsicsPath() const {
@@ -278,20 +282,18 @@ void AppController::setImagePath(const QString& path) {
   if (imagePath() == normalized) {
     return;
   }
-  session_.image_path = normalized.toStdString();
-  syncActiveDatasetFromLegacy();
+  activeDatasetEntry().image_path = normalized.toStdString();
   projection_image_.release();
   refreshCameraPreview();
   emit sessionPathsChanged();
 }
 
 void AppController::setPcdDirectory(const QString& path) {
-  const QString normalized = normalizedDirectoryPath(path);
+  const QString normalized = normalizedPcdPath(path);
   if (pcdDirectory() == normalized) {
     return;
   }
-  session_.cloud_directory = normalized.toStdString();
-  syncActiveDatasetFromLegacy();
+  activeDatasetEntry().cloud_directory = normalized.toStdString();
   refreshPcdCatalog();
   emit sessionPathsChanged();
 }
@@ -300,14 +302,12 @@ void AppController::setInspectionMode(bool inspection) {
   if (inspection_mode_ == inspection) {
     return;
   }
-  syncActiveDatasetFromLegacy();
   inspection_mode_ = inspection;
-  syncLegacyFromActiveDataset();
   pending_correspondence_3d_.reset();
   emit inspectionModeChanged();
   emit correspondencesChanged();
   emit sessionPathsChanged();
-  if (!session_.cloud_directory.empty()) {
+  if (!activeDatasetEntry().cloud_directory.empty()) {
     refreshPcdCatalog();
   } else {
     refreshCameraPreview();
@@ -347,29 +347,29 @@ void AppController::setIntrinsicsPath(const QString& path) {
 
 void AppController::refreshPcdCatalog() {
   fusion_blocked_ = false;
-  if (session_.cloud_directory.empty()) {
-    session_.pcd_paths.clear();
+  auto& dataset = activeDatasetEntry();
+  if (dataset.cloud_directory.empty()) {
+    dataset.pcd_paths.clear();
     emit pcdCatalogChanged();
     return;
   }
 
-  const auto scan = clc::scan_pcd_directory(
-    session_.cloud_directory, session_.reference_scan_width, session_.reference_scan_height);
+  const auto scan = clc::scan_pcd_source(
+    dataset.cloud_directory, session_.reference_scan_width, session_.reference_scan_height);
   if (!scan.error.empty()) {
-    session_.pcd_paths.clear();
+    dataset.pcd_paths.clear();
     fusion_blocked_ = true;
     setStatus(QString::fromStdString(scan.error));
     emit pcdCatalogChanged();
     return;
   }
 
-  session_.pcd_paths = scan.paths;
+  dataset.pcd_paths = scan.paths;
   session_.reference_scan_width = scan.reference_width;
   session_.reference_scan_height = scan.reference_height;
   fused_cloud_ = {};
-  syncActiveDatasetFromLegacy();
   setStatus(QStringLiteral("Found %1 PCD files (%2×%3)")
-              .arg(static_cast<int>(session_.pcd_paths.size()))
+              .arg(static_cast<int>(dataset.pcd_paths.size()))
               .arg(session_.reference_scan_width)
               .arg(session_.reference_scan_height));
   emit pcdCatalogChanged();
@@ -567,11 +567,12 @@ void AppController::refreshViewerColors() {
 }
 
 void AppController::syncColorModelFromSession() {
-  if (session_.camera.intrinsics.empty() || session_.image_path.empty() || viewer_positions_.isEmpty()) {
+  const std::string image_path = activeDatasetEntry().image_path;
+  if (session_.camera.intrinsics.empty() || image_path.empty() || viewer_positions_.isEmpty()) {
     return;
   }
   if (projection_image_.empty()) {
-    projection_image_ = cv::imread(session_.image_path, cv::IMREAD_COLOR);
+    projection_image_ = cv::imread(image_path, cv::IMREAD_COLOR);
   }
   if (projection_image_.empty()) {
     return;
@@ -634,7 +635,8 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput& input, std::string&
     error = "fused cloud required";
     return false;
   }
-  projection_image_ = cv::imread(session_.image_path, cv::IMREAD_COLOR);
+  const std::string image_path = activeDatasetEntry().image_path;
+  projection_image_ = cv::imread(image_path, cv::IMREAD_COLOR);
   if (projection_image_.empty()) {
     error = "failed to load image";
     return false;
@@ -962,7 +964,7 @@ void AppController::maybeInferScanDurationFromScan(const clc::PointXYZITCloud& c
 }
 
 bool AppController::loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err) {
-  for (const auto& path : session_.pcd_paths) {
+  for (const auto& path : activeDatasetEntry().pcd_paths) {
     if (clc::load_pcd_xyzit(path, cloud, err)) {
       maybeInferScanDurationFromScan(cloud);
       return true;
@@ -979,7 +981,7 @@ void AppController::refreshRangeImage() {
   const int previous_height = range_image_.height;
   range_image_ = {};
   range_image_display_ = {};
-  if (session_.pcd_paths.empty() || fusion_blocked_) {
+  if (activeDatasetEntry().pcd_paths.empty() || fusion_blocked_) {
     emit rangeImageChanged();
     return;
   }
@@ -1036,7 +1038,7 @@ void AppController::emitSessionUiState() {
   emit pcdCatalogChanged();
   emit sessionLoaded();
   applySessionToViewer();
-  if (!session_.pcd_paths.empty() && !fusion_blocked_) {
+  if (!activeDatasetEntry().pcd_paths.empty() && !fusion_blocked_) {
     refreshRangeImage();
     if (fused_cloud_.points.empty()) {
       uploadPreviewScanToViewer();
@@ -1057,9 +1059,9 @@ bool AppController::loadSession(const QString& directory) {
   }
   session_.fusion_params.scan_time = session_.scan_time;
   setSessionDirectory(dir);
-  if (!session_.cloud_directory.empty()) {
+  if (!activeDatasetEntry().cloud_directory.empty()) {
     refreshPcdCatalog();
-  } else if (!session_.pcd_paths.empty()) {
+  } else if (!activeDatasetEntry().pcd_paths.empty()) {
     emit pcdCatalogChanged();
   }
   if (!session_.intrinsics_path.empty()) {
@@ -1091,7 +1093,6 @@ bool AppController::saveSession(const QString& directory) {
   }
   setSessionDirectory(dir);
   session_.fusion_params.scan_time = session_.scan_time;
-  syncActiveDatasetFromLegacy();
   if (!global_mask_pixels_.empty() && session_.reference_scan_width > 0 && session_.reference_scan_height > 0 &&
       global_mask_pixels_.size() == static_cast<std::size_t>(session_.reference_scan_width * session_.reference_scan_height)) {
     const QString mask_path = dir + QStringLiteral("/global_mask.png");
@@ -1119,9 +1120,13 @@ QString AppController::browseSessionDirectory() {
 }
 
 QString AppController::browsePcdDirectory() {
-  const QString dir = "/Users/rasmus/Downloads/pbb-muc-255-1-fasssauna-high-freq-approach/sequence1";//FileDialog::getExistingDirectory(nullptr, QStringLiteral("PCD directory"), pcdDirectory());
-  if (!dir.isEmpty()) {
-    setPcdDirectory(dir);
+  QString path = QFileDialog::getExistingDirectory(nullptr, QStringLiteral("PCD directory"), pcdDirectory());
+  if (path.isEmpty()) {
+    path = QFileDialog::getOpenFileName(
+      nullptr, QStringLiteral("PCD file"), pcdDirectory(), QStringLiteral("PCD files (*.pcd);;All files (*)"));
+  }
+  if (!path.isEmpty()) {
+    setPcdDirectory(path);
   }
   return pcdDirectory();
 }
@@ -1187,7 +1192,7 @@ void AppController::setViewer(QObject* viewer) {
   syncCorrespondenceMarkers();
   if (!fused_cloud_.points.empty()) {
     uploadFusedCloudToViewer();
-  } else if (preview_upload_pending_ || !session_.pcd_paths.empty()) {
+  } else if (preview_upload_pending_ || !activeDatasetEntry().pcd_paths.empty()) {
     uploadPreviewScanToViewer();
   }
 }
@@ -1291,7 +1296,7 @@ void AppController::uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, b
 }
 
 void AppController::uploadPreviewScanToViewer(bool preserve_view_state) {
-  if (fusion_blocked_ || session_.pcd_paths.empty()) {
+  if (fusion_blocked_ || activeDatasetEntry().pcd_paths.empty()) {
     preview_upload_pending_ = false;
     return;
   }
@@ -1422,41 +1427,8 @@ void AppController::syncCorrespondenceMarkers() {
   }
 }
 
-void AppController::mutateViewerPointAtIndex(qint64 point_index) {
-  auto* item = qobject_cast<psiviz::PointCloudItem*>(viewer_);
-  if (!item || point_index < 0 || viewer_positions_.isEmpty()) {
-    return;
-  }
-  const int n = viewer_positions_.size() / 3;
-  if (point_index >= n) {
-    return;
-  }
-  if (viewer_scalars_.size() < n) {
-    viewer_scalars_.resize(n, 0.f);
-  }
-  if (viewer_rgb_.size() < n * 3) {
-    viewer_rgb_.resize(n * 3, 0.5f);
-  }
-  viewer_scalars_[static_cast<int>(point_index)] = static_cast<float>(viewer_colormap_max_);
-  viewer_rgb_[static_cast<int>(point_index) * 3 + 0] = 1.f;
-  viewer_rgb_[static_cast<int>(point_index) * 3 + 1] = 0.f;
-  viewer_rgb_[static_cast<int>(point_index) * 3 + 2] = 0.f;
-  item->setScalarMin(viewer_colormap_min_);
-  item->setScalarMax(viewer_colormap_max_);
-  item->updatePointCloudScalarsAndColors(viewer_scalars_, viewer_rgb_);
-  qInfo().noquote() << QStringLiteral("Mutated viewer point index %1").arg(point_index);
-}
-
-void AppController::onPointPicked(qint64 point_index) {
-  mutateViewerPointAtIndex(point_index);
-  if (point_index < 0 || point_index * 3 + 2 >= viewer_positions_.size()) {
-    return;
-  }
-  const double x = viewer_positions_[static_cast<int>(point_index) * 3 + 0];
-  const double y = viewer_positions_[static_cast<int>(point_index) * 3 + 1];
-  const double z = viewer_positions_[static_cast<int>(point_index) * 3 + 2];
-  qInfo().noquote() << QStringLiteral("3D correspondence pick: index=%1 x=%2 y=%3 z=%4")
-                           .arg(point_index)
+void AppController::onPointPicked(double x, double y, double z) {
+  qInfo().noquote() << QStringLiteral("3D correspondence pick: x=%1 y=%2 z=%3")
                            .arg(x, 0, 'f', 4)
                            .arg(y, 0, 'f', 4)
                            .arg(z, 0, 'f', 4);
@@ -1549,20 +1521,23 @@ void AppController::runFusion() {
     setStatus(QStringLiteral("Fusion blocked: fix PCD scan geometry"));
     return;
   }
-  if (session_.pcd_paths.empty()) {
+  const auto& catalog = activeDatasetEntry().pcd_paths;
+  if (catalog.empty()) {
     setStatus(QStringLiteral("No PCD files loaded"));
     return;
   }
   setWorkerRunning(true);
   setStatus(QStringLiteral("Fusion running..."));
   joinWorker();
-  worker_ = std::make_unique<std::thread>([this]() {
+  const int ref_w = session_.reference_scan_width;
+  const int ref_h = session_.reference_scan_height;
+  worker_ = std::make_unique<std::thread>([this, catalog, ref_w, ref_h]() {
     auto params = session_.fusion_params;
     params.scan_time = session_.scan_time;
-    const int total_scans = static_cast<int>(session_.pcd_paths.size());
+    const int total_scans = static_cast<int>(catalog.size());
 
     std::vector<glim_cloud_fusion::LidarScan> scans;
-    for (const auto& path : session_.pcd_paths) {
+    for (const auto& path : catalog) {
       clc::PointXYZITCloud cloud;
       std::string err;
       if (!clc::load_pcd_xyzit(path, cloud, err)) {
@@ -1580,8 +1555,7 @@ void AppController::runFusion() {
           }
         }
       }
-      if (session_.reference_scan_width > 0 &&
-          (cloud.width != session_.reference_scan_width || cloud.height != session_.reference_scan_height)) {
+      if (ref_w > 0 && (cloud.width != ref_w || cloud.height != ref_h)) {
         const std::string dim_err = "scan dimension mismatch in " + path;
         QMetaObject::invokeMethod(this, [this, dim_err]() {
           setWorkerRunning(false);
@@ -1627,7 +1601,7 @@ void AppController::runAlignment() {
   if (worker_running_) {
     return;
   }
-  if (session_.image_path.empty() || fused_cloud_.points.empty()) {
+  if (activeDatasetEntry().image_path.empty() || fused_cloud_.points.empty()) {
     setStatus(QStringLiteral("Need image and fused cloud before alignment"));
     return;
   }

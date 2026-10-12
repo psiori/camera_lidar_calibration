@@ -48,23 +48,15 @@ struct SessionData {
   glim_cloud_fusion::ScanTimeParams scan_time;
   Eigen::Isometry3d T_camera_lidar = Eigen::Isometry3d::Identity();
   Eigen::Isometry3d T_camera_lidar_initial = Eigen::Isometry3d::Identity();
-  /// Legacy / UI aliases of calibration_datasets[0].
-  std::string cloud_directory;
-  std::string image_path;
   std::string intrinsics_path;
   int reference_scan_width = 0;
   int reference_scan_height = 0;
-  std::vector<std::string> pcd_paths;
   GlobalMaskMeta global_mask;
   std::vector<DatasetEntry> calibration_datasets;
   std::vector<DatasetEntry> inspection_datasets;
 
   void ensurePrimaryCalibration();
   void ensurePrimaryInspection();
-  void syncPrimaryFromLegacy();
-  void syncLegacyFromPrimary();
-  void syncInspectionPrimaryFromLegacy();
-  void syncLegacyFromInspectionPrimary();
 };
 
 bool save_session(const std::string& path, const SessionData& session);

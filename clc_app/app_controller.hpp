@@ -78,7 +78,7 @@ public:
   QString imagePath() const;
   QString pcdDirectory() const;
   QString intrinsicsPath() const;
-  int pcdFileCount() const { return static_cast<int>(session_.pcd_paths.size()); }
+  int pcdFileCount() const;
   bool fusionBlocked() const { return fusion_blocked_; }
   QImage rangeImage() const { return range_image_display_; }
   QByteArray maskPreview() const;
@@ -177,7 +177,7 @@ signals:
   void correspondencesChanged();
   void cameraPreviewChanged();
 private slots:
-  void onPointPicked(qint64 point_index);
+  void onPointPicked(double x, double y, double z);
   void onViewerPoseChanged();
   void onViewerColormapDebounce();
   void onRangeColormapDebounce();
@@ -192,8 +192,6 @@ private:
   void uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, bool preserve_view_state = false);
   void refreshPreviewCloudFromMask(bool preserve_view_state = true);
   void refreshCameraPreview();
-  void syncActiveDatasetFromLegacy();
-  void syncLegacyFromActiveDataset();
   clc::DatasetEntry& activeDatasetEntry();
   const clc::DatasetEntry& activeDatasetEntry() const;
   bool loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err);
@@ -210,7 +208,6 @@ private:
   void syncColorModelFromSession();
   void refreshViewerRgb(float blend_weight);
   void syncCorrespondenceMarkers();
-  void mutateViewerPointAtIndex(qint64 point_index);
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);
   void joinWorker();
   void setWorkerRunning(bool running);

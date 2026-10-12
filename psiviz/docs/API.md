@@ -16,7 +16,10 @@ View navigation with PCL-style bindings. Methods: `rotate`, `pan`, `dolly`, `spi
 
 ## `psiviz::DepthPicker`
 
-`unproject(depth, x, y, width, height, dpr, view, proj)` → optional world position.
+Static helpers for pick resolution (used by `PointCloudRenderer` / `PointCloudItem`):
+
+- `unproject(depth01, x, y, width, height, device_pixel_ratio, clip_view_projection)` — NDC depth from the pick pass (alpha) back to world space; `clip_view_projection` must match the point shader MVP (`clip_corr * projection * view`).
+- `pickNearestOnScreen(positions, point_count, x, y, width, height, device_pixel_ratio, clip_view_projection, max_pixel_radius)` — CPU fallback when GPU depth pick misses; returns the nearest cloud point in screen space within `max_pixel_radius`.
 
 ## `psiviz::PoseGizmo`
 
@@ -34,11 +37,12 @@ Priority: gizmo drag > Shift+left-drag pan / Shift+click pick > camera. Returns 
 | `scalarMin`, `scalarMax` | JET range |
 | `pointSize` | Screen-space point diameter |
 | `gizmoEnabled` | Enable pose manipulation |
-| `interactionEnabled` | Master switch (e.g. off during optimization) |
+| `interactionEnabled` | Camera/gizmo navigation |
+| `pickingEnabled` | Shift+click point pick (when interaction is enabled) |
 
 | Signal | Description |
 |--------|-------------|
-| `pointPicked(point_index)` | Shift+click pick; index into the uploaded point cloud |
+| `pointPicked(x, y, z)` | Shift+click pick; world-space coordinates (depth pick + optional CPU fallback) |
 
 ### Scene shapes (non-pickable)
 

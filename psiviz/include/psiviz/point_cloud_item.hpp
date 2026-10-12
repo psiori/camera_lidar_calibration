@@ -29,6 +29,7 @@ class PointCloudItem : public QQuickRhiItem {
   Q_PROPERTY(double pointSize READ pointSize WRITE setPointSize NOTIFY pointSizeChanged)
   Q_PROPERTY(bool gizmoEnabled READ gizmoEnabled WRITE setGizmoEnabled NOTIFY gizmoEnabledChanged)
   Q_PROPERTY(bool interactionEnabled READ interactionEnabled WRITE setInteractionEnabled NOTIFY interactionEnabledChanged)
+  Q_PROPERTY(bool pickingEnabled READ pickingEnabled WRITE setPickingEnabled NOTIFY pickingEnabledChanged)
   Q_PROPERTY(double markerSphereRadius READ markerSphereRadius WRITE setMarkerSphereRadius NOTIFY markerSphereRadiusChanged)
 
  public:
@@ -46,6 +47,8 @@ class PointCloudItem : public QQuickRhiItem {
   void setGizmoEnabled(bool e);
   bool interactionEnabled() const { return interaction_enabled_; }
   void setInteractionEnabled(bool e);
+  bool pickingEnabled() const { return picking_enabled_; }
+  void setPickingEnabled(bool e);
   [[nodiscard]] bool hasPointCloudContent() const;
   [[nodiscard]] std::uint64_t pointCloudPointCount() const;
 
@@ -69,8 +72,6 @@ class PointCloudItem : public QQuickRhiItem {
   Q_INVOKABLE void clearSphereMarkers();
   /// Same pick path as Shift+click at viewport pixel (x, y); emits `pointPicked` when complete.
   Q_INVOKABLE void requestPickAt(int x, int y);
-  /// Force one point to bright red (scalar max + RGB) and upload to the GPU.
-  Q_INVOKABLE void highlightPointIndex(qint64 index);
 
   double markerSphereRadius() const { return marker_sphere_radius_; }
   void setMarkerSphereRadius(double radius);
@@ -81,8 +82,9 @@ class PointCloudItem : public QQuickRhiItem {
   void pointSizeChanged();
   void gizmoEnabledChanged();
   void interactionEnabledChanged();
+  void pickingEnabledChanged();
   void markerSphereRadiusChanged();
-  void pointPicked(qint64 point_index);
+  void pointPicked(double x, double y, double z);
   void poseChanged();
 
  protected:
@@ -124,6 +126,7 @@ class PointCloudItem : public QQuickRhiItem {
   double scalar_min_{0.};
   double scalar_max_{1.};
   bool interaction_enabled_{true};
+  bool picking_enabled_{true};
   double marker_sphere_radius_{0.05};
 };
 

@@ -177,9 +177,9 @@ ApplicationWindow {
                                     TextField {
                                         Layout.fillWidth: true
                                         text: controller.pcdDirectory
-                                        placeholderText: "PCD directory"
+                                        placeholderText: "PCD directory or file"
                                         onEditingFinished: controller.pcdDirectory = text
-                                        ToolTip.text: "Directory containing structured PCD scans to fuse."
+                                        ToolTip.text: "Directory of structured PCD scans, or a single .pcd file."
                                         ToolTip.delay: root.tooltipDelayMs
                                     }
                                     Button {
@@ -427,7 +427,7 @@ ApplicationWindow {
                                 TextField {
                                     Layout.fillWidth: true
                                     text: controller.pcdDirectory
-                                    placeholderText: "PCD directory"
+                                    placeholderText: "PCD directory or file"
                                     onEditingFinished: controller.pcdDirectory = text
                                 }
                                 Button { text: "…"; onClicked: controller.browsePcdDirectory() }

@@ -2,8 +2,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
-
 #include <Eigen/Core>
 
 #include "psiviz/point_cloud_buffers.hpp"
@@ -33,13 +31,12 @@ class PointCloudRenderer {
     scalar_max_ = max_v;
   }
   void requestPick(int x, int y, float dpr);
+  /// True after the GPU has finished copying depth for the most recent pick request.
+  [[nodiscard]] bool tryConsumePickDepth(float& depth01);
   void setSphereMarkers(const std::vector<SphereMarker>& markers);
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
-  [[nodiscard]] float lastPickedDepth() const { return last_picked_depth_; }
-  [[nodiscard]] std::optional<std::uint64_t> lastPickedPointIndex() const { return last_picked_point_index_; }
-
- private:
+  private:
   void ensurePipeline(QRhiRenderTarget* rt);
   void ensureGizmoPipeline(QRhiRenderTarget* rt);
   void ensureShapePipeline(QRhiRenderTarget* rt);
@@ -47,6 +44,7 @@ class PointCloudRenderer {
   void uploadGizmo(const PoseGizmo& gizmo);
   void uploadSphereMarkers();
   void renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h);
+  void pollPickReadback();
   void releaseResources();
 
   QRhi* rhi_{nullptr};
@@ -65,7 +63,7 @@ class PointCloudRenderer {
   int pick_y_{0};
   float pick_dpr_{1.f};
   float last_picked_depth_{1.f};
-  std::optional<std::uint64_t> last_picked_point_index_;
+  bool pick_depth_ready_{false};
   int gizmo_vertex_count_{0};
   int shape_vertex_count_{0};
   std::vector<SphereMarker> sphere_markers_;

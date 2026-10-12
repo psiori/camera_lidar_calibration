@@ -40,7 +40,7 @@ class TrackballCamera {
   Eigen::Vector3f position_{0.f, -2.96f, -9.55f};
   Eigen::Vector3f focal_{0.f, 0.f, 0.f};
   Eigen::Vector3f view_up_{0.f, 1.f, 0.f};
-  float point_size_{2.f};
+  float point_size_{4.f};
   int width_{1};
   int height_{1};
   float dpr_{1.f};

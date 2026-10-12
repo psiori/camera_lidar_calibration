@@ -6,7 +6,6 @@ qt_add_library(psiviz STATIC)
 qt_add_qml_module(psiviz
   URI Psiviz
   VERSION 1.0
-  QML_FILES qml/PointCloudView.qml
   SOURCES
     src/colormap.cpp
     src/trackball_camera.cpp

@@ -34,12 +34,13 @@ void test_mask_rasterize() {
 
 void test_session_round_trip() {
   clc::SessionData session;
-  session.image_path = "/tmp/test_image.png";
-  session.cloud_directory = "/tmp/pcds";
   session.reference_scan_width = 64;
   session.reference_scan_height = 32;
   session.ensurePrimaryCalibration();
-  session.calibration_datasets.front().correspondences.push_back(
+  auto& ds = session.calibration_datasets.front();
+  ds.image_path = "/tmp/test_image.png";
+  ds.cloud_directory = "/tmp/pcds";
+  ds.correspondences.push_back(
     clc::PointCorrespondence{1.0, 2.0, 3.0, 4.0, 5.0});
   session.T_camera_lidar.translation() = Eigen::Vector3d(1, 2, 3);
 
@@ -47,7 +48,8 @@ void test_session_round_trip() {
   assert(clc::save_session(path.string(), session));
   clc::SessionData loaded;
   assert(clc::load_session(path.string(), loaded));
-  assert(loaded.image_path == session.image_path);
+  assert(loaded.calibration_datasets.front().image_path == ds.image_path);
+  assert(loaded.calibration_datasets.front().cloud_directory == ds.cloud_directory);
   assert(loaded.reference_scan_width == 64);
   assert(!loaded.calibration_datasets.empty());
   assert(loaded.calibration_datasets.front().correspondences.size() == 1);

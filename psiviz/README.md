@@ -25,7 +25,7 @@ import Psiviz 1.0
 
 PointCloudScene {
     anchors.fill: parent
-    onPointPicked: (index) => console.log(index)
+    onPointPicked: (x, y, z) => console.log(x, y, z)
 }
 ```
 
