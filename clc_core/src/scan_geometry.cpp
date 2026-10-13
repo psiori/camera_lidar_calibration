@@ -103,6 +103,11 @@ PcdDirectoryScan scan_pcd_source(const std::string& path, int reference_width, i
       result.error = "not a PCD file: " + path;
       return result;
     }
+    double stamp_seconds = 0.0;
+    if (!parse_pcd_filename_stamp(fs_path.filename().string(), stamp_seconds)) {
+      result.error = "PCD filename does not match UTC timestamp pattern: " + path;
+      return result;
+    }
     int w = 0;
     int h = 0;
     std::string err;

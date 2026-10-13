@@ -1,10 +1,13 @@
 #include <clc_core/pcd_io.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 
@@ -14,6 +17,38 @@
 #include <pcl/io/pcd_io.h>
 
 namespace clc {
+
+bool parse_pcd_filename_stamp(const std::string& filename, double& stamp_seconds) {
+  int y = 0;
+  unsigned m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
+  if (std::sscanf(filename.c_str(), "%d-%u-%uT%u_%u_%u_%3uZ.pcd", &y, &m, &d, &h, &mi, &s, &ms) != 7) {
+    return false;
+  }
+  if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59 || ms > 999) {
+    return false;
+  }
+  std::tm calendar_time{};
+  calendar_time.tm_sec = static_cast<int>(s);
+  calendar_time.tm_min = static_cast<int>(mi);
+  calendar_time.tm_hour = static_cast<int>(h);
+  calendar_time.tm_mday = static_cast<int>(d);
+  calendar_time.tm_mon = static_cast<int>(m) - 1;
+  calendar_time.tm_year = y - 1900;
+  calendar_time.tm_isdst = 0;
+#if defined(_WIN32)
+  const std::time_t utc_time = _mkgmtime(&calendar_time);
+#else
+  const std::time_t utc_time = timegm(&calendar_time);
+#endif
+  if (utc_time == static_cast<std::time_t>(-1)) {
+    return false;
+  }
+  const auto ms_tp =
+    std::chrono::milliseconds(ms) + std::chrono::system_clock::from_time_t(utc_time);
+  stamp_seconds =
+    std::chrono::duration_cast<std::chrono::duration<double>>(ms_tp.time_since_epoch()).count();
+  return true;
+}
 
 namespace {
 
@@ -203,9 +238,88 @@ const pcl::PCLPointField* resolve_time_field(const pcl::PCLPointCloud2& cloud) {
 
 }  // namespace
 
+bool load_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud& cloud, std::string& error) {
+  if (!path_has_pcd_extension(std::filesystem::path(path))) {
+    error = "not a PCD file: " + path;
+    return false;
+  }
+
+  pcl::PCLPointCloud2 pcl_cloud;
+  if (pcl::io::loadPCDFile(path, pcl_cloud) != 0) {
+    error = "failed to load PCD: " + path;
+    return false;
+  }
+
+  const int x_idx = pcl::getFieldIndex(pcl_cloud, "x");
+  const int y_idx = pcl::getFieldIndex(pcl_cloud, "y");
+  const int z_idx = pcl::getFieldIndex(pcl_cloud, "z");
+  const auto* x_field = field_by_index(pcl_cloud, x_idx);
+  const auto* y_field = field_by_index(pcl_cloud, y_idx);
+  const auto* z_field = field_by_index(pcl_cloud, z_idx);
+  if (x_field == nullptr || y_field == nullptr || z_field == nullptr) {
+    error = "PCD is missing x/y/z fields: " + path;
+    return false;
+  }
+
+  std::string intensity_error;
+  IntensityField intensity = resolve_intensity_field(pcl_cloud, intensity_error);
+  if (!intensity_error.empty()) {
+    error = intensity_error;
+    return false;
+  }
+
+  const std::size_t num_points =
+    static_cast<std::size_t>(pcl_cloud.width) * static_cast<std::size_t>(pcl_cloud.height);
+  if (num_points == 0 || pcl_cloud.point_step == 0) {
+    error = "PCD contains no points: " + path;
+    return false;
+  }
+
+  cloud.points.clear();
+  cloud.intensities.clear();
+  cloud.points.reserve(num_points);
+  cloud.intensities.reserve(num_points);
+
+  for (std::size_t i = 0; i < num_points; ++i) {
+    const std::uint8_t* point_data = pcl_cloud.data.data() + i * pcl_cloud.point_step;
+    float x = 0.f;
+    float y = 0.f;
+    float z = 0.f;
+    if (!read_field_as_float(point_data, *x_field, x) || !read_field_as_float(point_data, *y_field, y) ||
+        !read_field_as_float(point_data, *z_field, z)) {
+      error = "PCD x/y/z fields are not floating point: " + path;
+      return false;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+      continue;
+    }
+    cloud.points.emplace_back(x, y, z);
+    double intensity_value = 0.0;
+    if (intensity.decode == IntensityDecode::Float && intensity.field != nullptr) {
+      read_field_as_double(point_data, *intensity.field, intensity_value);
+    } else if (intensity.decode == IntensityDecode::Uint8 && intensity.field != nullptr) {
+      intensity_value = static_cast<double>(read_intensity_uint8(point_data, intensity));
+    }
+    cloud.intensities.push_back(intensity_value);
+  }
+
+  if (cloud.points.empty()) {
+    error = "PCD contains no finite points: " + path;
+    return false;
+  }
+  return true;
+}
+
 bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string& error) {
   if (!path_has_pcd_extension(path)) {
     error = "not a PCD file: " + path;
+    return false;
+  }
+
+  const auto basename = std::filesystem::path(path).filename().string();
+  double stamp_seconds = 0.0;
+  if (!parse_pcd_filename_stamp(basename, stamp_seconds)) {
+    error = "PCD filename does not match UTC timestamp pattern (YYYY-MM-DDTHH_MM_SS_mmmZ.pcd): " + path;
     return false;
   }
 
@@ -282,6 +396,8 @@ bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string
     error = "PCD contains no valid points";
     return false;
   }
+
+  cloud.stamp = stamp_seconds;
   return true;
 }
 
@@ -304,9 +420,14 @@ std::vector<std::string> list_pcd_files(const std::string& directory) {
     if (!name.empty() && name.front() == '.') {
       continue;
     }
-    if (path_has_pcd_extension(path)) {
-      files.push_back(path.string());
+    if (!path_has_pcd_extension(path)) {
+      continue;
     }
+    double stamp_seconds = 0.0;
+    if (!parse_pcd_filename_stamp(name, stamp_seconds)) {
+      continue;
+    }
+    files.push_back(path.string());
   }
   std::sort(files.begin(), files.end());
   return files;

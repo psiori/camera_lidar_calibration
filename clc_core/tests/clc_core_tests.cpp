@@ -9,6 +9,7 @@
 
 #include <clc_core/colormap.hpp>
 #include <clc_core/fusion_service.hpp>
+#include <clc_core/pcd_io.hpp>
 #include <clc_core/range_image.hpp>
 #include <clc_core/scan_geometry.hpp>
 #include <clc_core/dataset_util.hpp>
@@ -81,6 +82,9 @@ void test_session_round_trip() {
   ds.correspondences.push_back(
     clc::PointCorrespondence{1.0, 2.0, 3.0, 4.0, 5.0});
   session.T_camera_lidar.translation() = Eigen::Vector3d(1, 2, 3);
+  session.scan_time.scan_duration = 0.1;
+  session.fusion_params.scan_time = session.scan_time;
+  ds.fusion_params.scan_time = session.scan_time;
 
   const auto path = std::filesystem::temp_directory_path() / "clc_session_test.json";
   assert(clc::save_session(path.string(), session));
@@ -114,6 +118,9 @@ void test_calibration_params_defaults_and_round_trip() {
   session.calibration_params.registration_type = vlcal::RegistrationType::NID_NELDER_MEAD;
   session.fusion_params.voxel_resolution = 0.01;
   session.fusion_params.k_neighbors = 32;
+  session.scan_time.scan_duration = 0.1;
+  session.fusion_params.scan_time = session.scan_time;
+  session.calibration_datasets.front().fusion_params.scan_time = session.scan_time;
 
   const auto path = std::filesystem::temp_directory_path() / "clc_session_nid_params.json";
   assert(clc::save_session(path.string(), session));
@@ -131,7 +138,15 @@ void test_calibration_params_defaults_and_round_trip() {
 void test_fusion_k_neighbors_default() {
   glim_cloud_fusion::FusionParams params;
   clc::apply_default_fusion_params(params);
-  assert(params.k_neighbors == 40);
+  assert(params.k_neighbors == 20);
+  assert(params.backend == glim_cloud_fusion::FusionBackend::CtIntegrator);
+  assert(std::abs(params.min_distance - 1.0) < 1e-12);
+  assert(params.target_num_points == 10000);
+  assert(std::abs(params.voxel_resolution - 0.05) < 1e-12);
+  assert(params.num_threads == 16);
+  assert(std::abs(params.integrator_ivox_resolution - 1.0) < 1e-12);
+  assert(std::abs(params.integrator_ivox_min_points_dist - 0.05) < 1e-12);
+  assert(std::abs(params.max_correspondence_distance - 1.0) < 1e-12);
 }
 
 void test_scan_geometry_empty_directory() {
@@ -156,6 +171,30 @@ void test_fusion_single_scan_passthrough() {
   assert(!result.cloud.points.empty());
 }
 
+void test_dense_pcd_round_trip_non_timestamp_name() {
+  const std::filesystem::path path =
+    std::filesystem::temp_directory_path() / "clc_fused_test_dataset.pcd";
+  glim_cloud_fusion::DensePointCloud written;
+  written.points = {Eigen::Vector3d(1.0, 2.0, 3.0), Eigen::Vector3d(4.0, 5.0, 6.0)};
+  written.intensities = {10.0, 20.0};
+  std::string save_err;
+  assert(clc::save_dense_pcd(path.string(), written, save_err));
+
+  glim_cloud_fusion::DensePointCloud loaded;
+  std::string load_err;
+  assert(clc::load_dense_pcd(path.string(), loaded, load_err));
+  assert(loaded.points.size() == 2);
+  assert(loaded.intensities.size() == 2);
+  assert(std::abs(loaded.points[0].x() - 1.0) < 1e-5);
+  assert(std::abs(loaded.intensities[1] - 20.0) < 1e-5);
+
+  clc::PointXYZITCloud scan_cloud;
+  assert(!clc::load_pcd_xyzit(path.string(), scan_cloud, load_err));
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
 }  // namespace
 
 int main() {
@@ -169,6 +208,7 @@ int main() {
   test_fusion_k_neighbors_default();
   test_scan_geometry_empty_directory();
   test_fusion_single_scan_passthrough();
+  test_dense_pcd_round_trip_non_timestamp_name();
   std::puts("clc_core_tests: ok");
   return 0;
 }

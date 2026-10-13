@@ -101,7 +101,10 @@ bool load_mask_png(const std::string& path, int width, int height, std::vector<s
 
 glim_cloud_fusion::LidarScan to_lidar_scan(const PointXYZITCloud& cloud, double stamp) {
   glim_cloud_fusion::LidarScan scan;
-  scan.stamp = stamp;
+  scan.stamp = cloud.stamp;
+  if (stamp != 0.0) {
+    scan.stamp = stamp;
+  }
   scan.width = cloud.width;
   scan.height = cloud.height;
   scan.points = cloud.scan.points;
