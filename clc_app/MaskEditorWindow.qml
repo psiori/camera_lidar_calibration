@@ -14,6 +14,17 @@ Window {
 
     readonly property int tooltipDelayMs: 1000
 
+    function resetPendingPolygonIfNeeded() {
+        if (controller.maskPolygonPending)
+            controller.discardPendingMaskPolygon()
+        rangeView.clearPendingPolygon()
+    }
+
+    onVisibleChanged: {
+        if (!visible)
+            resetPendingPolygonIfNeeded()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 10
@@ -87,7 +98,7 @@ Window {
                 enabled: controller.maskPolygonPending
                 onClicked: {
                     controller.applyPendingMaskKeep()
-                    rangeView.clearClosedPolygon()
+                    rangeView.clearPendingPolygon()
                 }
                 ToolTip.text: qsTr("Keep points inside the closed polygon (restore or include region).")
                 ToolTip.delay: maskWindow.tooltipDelayMs
@@ -97,7 +108,7 @@ Window {
                 enabled: controller.maskPolygonPending
                 onClicked: {
                     controller.applyPendingMaskRemove()
-                    rangeView.clearClosedPolygon()
+                    rangeView.clearPendingPolygon()
                 }
                 ToolTip.text: qsTr("Remove points inside the closed polygon (exclude region).")
                 ToolTip.delay: maskWindow.tooltipDelayMs
@@ -107,13 +118,14 @@ Window {
                 enabled: controller.maskPolygonPending
                 onClicked: {
                     controller.discardPendingMaskPolygon()
-                    rangeView.clearClosedPolygon()
+                    rangeView.clearPendingPolygon()
                 }
             }
         }
 
         RangeImageItem {
             id: rangeView
+            objectName: "maskRangeView"
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 120
@@ -122,6 +134,8 @@ Window {
             maskData: controller.maskPreview
             maskWidth: controller.maskWidth
             maskHeight: controller.maskHeight
+            rangeNativeWidth: controller.rangeImageNativeWidth
+            rangeNativeHeight: controller.rangeImageNativeHeight
             maskController: controller
         }
 

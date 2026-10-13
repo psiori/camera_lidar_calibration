@@ -39,6 +39,8 @@ class AppController : public QObject {
   Q_PROPERTY(int pcdFileCount READ pcdFileCount NOTIFY pcdCatalogChanged)
   Q_PROPERTY(bool fusionBlocked READ fusionBlocked NOTIFY pcdCatalogChanged)
   Q_PROPERTY(QImage rangeImage READ rangeImage NOTIFY rangeImageChanged)
+  Q_PROPERTY(int rangeImageNativeWidth READ rangeImageNativeWidth NOTIFY rangeImageChanged)
+  Q_PROPERTY(int rangeImageNativeHeight READ rangeImageNativeHeight NOTIFY rangeImageChanged)
   Q_PROPERTY(QByteArray maskPreview READ maskPreview NOTIFY maskChanged)
   Q_PROPERTY(int maskWidth READ maskWidth NOTIFY maskChanged)
   Q_PROPERTY(int maskHeight READ maskHeight NOTIFY maskChanged)
@@ -60,6 +62,16 @@ class AppController : public QObject {
   Q_PROPERTY(int fusionNumThreads READ fusionNumThreads WRITE setFusionNumThreads NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionMaxCorrespondence READ fusionMaxCorrespondence WRITE setFusionMaxCorrespondence NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionKNeighbors READ fusionKNeighbors WRITE setFusionKNeighbors NOTIFY fusionParamsChanged)
+  Q_PROPERTY(int fusionBackend READ fusionBackend WRITE setFusionBackend NOTIFY fusionParamsChanged)
+  Q_PROPERTY(bool fusionBackendIsIntegrator READ fusionBackendIsIntegrator NOTIFY fusionParamsChanged)
+  Q_PROPERTY(int fusionTargetNumPoints READ fusionTargetNumPoints WRITE setFusionTargetNumPoints NOTIFY fusionParamsChanged)
+  Q_PROPERTY(double fusionMinDistance READ fusionMinDistance WRITE setFusionMinDistance NOTIFY fusionParamsChanged)
+  Q_PROPERTY(double fusionIntegratorIvoxResolution READ fusionIntegratorIvoxResolution WRITE setFusionIntegratorIvoxResolution
+               NOTIFY fusionParamsChanged)
+  Q_PROPERTY(double fusionIntegratorIvoxMinPointsDist READ fusionIntegratorIvoxMinPointsDist
+               WRITE setFusionIntegratorIvoxMinPointsDist NOTIFY fusionParamsChanged)
+  Q_PROPERTY(double fusionIvoxResolution READ fusionIvoxResolution WRITE setFusionIvoxResolution NOTIFY fusionParamsChanged)
+  Q_PROPERTY(int fusionLmMaxIterations READ fusionLmMaxIterations WRITE setFusionLmMaxIterations NOTIFY fusionParamsChanged)
   Q_PROPERTY(int calibrationMaxOuterIterations READ calibrationMaxOuterIterations WRITE setCalibrationMaxOuterIterations
                  NOTIFY calibrationParamsChanged)
   Q_PROPERTY(int calibrationMaxInnerIterations READ calibrationMaxInnerIterations WRITE setCalibrationMaxInnerIterations
@@ -118,6 +130,8 @@ public:
   int pcdFileCount() const;
   bool fusionBlocked() const { return fusion_blocked_; }
   QImage rangeImage() const { return range_image_display_; }
+  int rangeImageNativeWidth() const { return range_image_.width; }
+  int rangeImageNativeHeight() const { return range_image_.height; }
   QByteArray maskPreview() const;
   int maskWidth() const;
   int maskHeight() const;
@@ -127,6 +141,7 @@ public:
   double rangeYStretch() const { return range_y_stretch_; }
   bool maskPolygonPending() const { return mask_polygon_pending_; }
   QVariantList pendingMaskPolygonVertices() const;
+  std::vector<QPointF> pendingMaskPolygonNativePoints() const;
   QString maskPath() const { return QString::fromStdString(session_.global_mask.path); }
   double viewerColormapMin() const { return viewer_colormap_min_; }
   double viewerColormapMax() const { return viewer_colormap_max_; }
@@ -139,6 +154,14 @@ public:
   int fusionNumThreads() const;
   double fusionMaxCorrespondence() const;
   int fusionKNeighbors() const;
+  int fusionBackend() const;
+  bool fusionBackendIsIntegrator() const;
+  int fusionTargetNumPoints() const;
+  double fusionMinDistance() const;
+  double fusionIntegratorIvoxResolution() const;
+  double fusionIntegratorIvoxMinPointsDist() const;
+  double fusionIvoxResolution() const;
+  int fusionLmMaxIterations() const;
   int calibrationMaxOuterIterations() const;
   int calibrationMaxInnerIterations() const;
   int calibrationNumThreads() const;
@@ -195,6 +218,13 @@ public:
   Q_INVOKABLE void setFusionNumThreads(int n);
   Q_INVOKABLE void setFusionMaxCorrespondence(double v);
   void setFusionKNeighbors(int n);
+  void setFusionBackend(int backend);
+  void setFusionTargetNumPoints(int n);
+  void setFusionMinDistance(double v);
+  void setFusionIntegratorIvoxResolution(double v);
+  void setFusionIntegratorIvoxMinPointsDist(double v);
+  void setFusionIvoxResolution(double v);
+  void setFusionLmMaxIterations(int n);
   void setCalibrationMaxOuterIterations(int v);
   void setCalibrationMaxInnerIterations(int v);
   void setCalibrationNumThreads(int v);
@@ -216,6 +246,10 @@ public:
   Q_INVOKABLE void applyPendingMaskKeep();
   Q_INVOKABLE void applyPendingMaskRemove();
   Q_INVOKABLE void discardPendingMaskPolygon();
+#ifdef CLC_APP_TESTING
+  Q_INVOKABLE void installSyntheticMaskEditorScan(int native_width, int native_height, double y_stretch);
+  Q_INVOKABLE void setReferenceScanSizeForTest(int width, int height);
+#endif
   Q_INVOKABLE void clearMask();
   Q_INVOKABLE bool saveMask();
   Q_INVOKABLE bool loadMask();
@@ -278,6 +312,8 @@ private:
   void setStatus(const QString& message);
   void setPointCount(int count);
   void refreshPcdCatalog();
+  /// Re-scan cloud_directory when the in-memory catalog was cleared (e.g. after fusion).
+  bool repopulateActiveDatasetPcdCatalogIfEmpty();
   void refreshRangeImage();
   void uploadPreviewScanToViewer(bool preserve_view_state = false);
   void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud, bool preserve_view_state = false);
@@ -288,7 +324,6 @@ private:
   const clc::DatasetEntry& activeDatasetEntry() const;
   void ensureActiveCalibrationDataset();
   bool loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err);
-  void maybeInferScanDurationFromScan(const clc::PointXYZITCloud& cloud);
   void rebuildMaskFromOps();
   int maskRasterWidth() const;
   int maskRasterHeight() const;
@@ -305,6 +340,7 @@ private:
   void syncColorModelFromSession();
   bool ensureProjectionImageForActiveDataset();
   void invalidateProjectionImageCache();
+  void clearCalibrationDatasetVisuals();
   void refreshActiveDatasetVisuals();
   void reprojectViewerCameraRgb();
   void syncCorrespondenceMarkers();

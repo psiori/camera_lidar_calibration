@@ -8,6 +8,11 @@
 #include <QMouseEvent>
 #include <QtMath>
 
+#ifdef CLC_APP_TESTING
+#include <QEventLoop>
+#include <QQuickItemGrabResult>
+#endif
+
 namespace {
 
 constexpr qreal kEdgeClickMargin = 48.0;
@@ -135,6 +140,7 @@ void RangeImageItem::setMaskWidth(int w) {
     return;
   }
   mask_width_ = w;
+  update();
   emit maskDataChanged();
 }
 
@@ -143,7 +149,26 @@ void RangeImageItem::setMaskHeight(int h) {
     return;
   }
   mask_height_ = h;
+  update();
   emit maskDataChanged();
+}
+
+void RangeImageItem::setRangeNativeWidth(int w) {
+  if (range_native_width_ == w) {
+    return;
+  }
+  range_native_width_ = w;
+  update();
+  emit rangeNativeSizeChanged();
+}
+
+void RangeImageItem::setRangeNativeHeight(int h) {
+  if (range_native_height_ == h) {
+    return;
+  }
+  range_native_height_ = h;
+  update();
+  emit rangeNativeSizeChanged();
 }
 
 void RangeImageItem::setDrawing(bool drawing) {
@@ -177,7 +202,14 @@ void RangeImageItem::setMaskController(QObject* controller) {
   if (mask_controller_ == controller) {
     return;
   }
+  if (mask_controller_) {
+    disconnect(mask_controller_, nullptr, this, nullptr);
+  }
   mask_controller_ = controller;
+  if (auto* app = qobject_cast<AppController*>(mask_controller_)) {
+    connect(app, &AppController::maskPolygonPendingChanged, this, [this] { update(); });
+    connect(app, &AppController::maskChanged, this, [this] { update(); });
+  }
   emit maskControllerChanged();
 }
 
@@ -219,19 +251,35 @@ void RangeImageItem::updateImplicitHeight() {
 }
 
 int RangeImageItem::nativeWidth() const {
-  return mask_width_ > 0 ? mask_width_ : image_.width();
+  if (range_native_width_ > 0) {
+    return range_native_width_;
+  }
+  if (!image_.isNull() && image_.width() > 0) {
+    return image_.width();
+  }
+  return mask_width_ > 0 ? mask_width_ : 0;
 }
 
 int RangeImageItem::nativeHeight() const {
-  return mask_height_ > 0 ? mask_height_ : image_.height();
+  if (range_native_height_ > 0) {
+    return range_native_height_;
+  }
+  if (!image_.isNull() && image_.width() > 0 && image_.height() > 0) {
+    const qreal y_scale = displayYScale();
+    if (y_scale > 0) {
+      return std::max(1, static_cast<int>(std::lround(static_cast<qreal>(image_.height()) / y_scale)));
+    }
+  }
+  return mask_height_ > 0 ? mask_height_ : 0;
 }
 
 qreal RangeImageItem::displayYScale() const {
-  const int native_h = nativeHeight();
-  if (native_h <= 0 || image_.height() <= 0) {
+  const int unstretched_h = range_native_height_ > 0 ? range_native_height_
+                                                     : (mask_height_ > 0 ? mask_height_ : 0);
+  if (unstretched_h <= 0 || image_.height() <= 0) {
     return 1.0;
   }
-  return static_cast<qreal>(image_.height()) / static_cast<qreal>(native_h);
+  return static_cast<qreal>(image_.height()) / static_cast<qreal>(unstretched_h);
 }
 
 qreal RangeImageItem::displayScale() const {
@@ -350,13 +398,12 @@ void RangeImageItem::closePolygon() {
   }
   pending_closed_native_vertices_ = current_native_vertices_;
   current_native_vertices_.clear();
-  setClosedPolygonOverlay(verts);
   setDrawing(false);
   has_hover_ = false;
+  update();
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
     controller->commitMaskPolygonNative(pending_closed_native_vertices_);
   }
-  update();
   emit polygonCommitted(verts);
 }
 
@@ -368,10 +415,6 @@ void RangeImageItem::cancelPolygon() {
 }
 
 void RangeImageItem::clearPendingPolygon() {
-  clearClosedPolygon();
-}
-
-void RangeImageItem::clearClosedPolygon() {
   if (pending_closed_native_vertices_.empty() && closed_polygon_overlay_.empty()) {
     return;
   }
@@ -380,11 +423,50 @@ void RangeImageItem::clearClosedPolygon() {
   update();
 }
 
+bool RangeImageItem::hasClosedPolygonAwaitingDecision() const {
+  if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
+    if (controller->maskPolygonPending()) {
+      return true;
+    }
+  }
+  return !pending_closed_native_vertices_.empty();
+}
+
+QPointF RangeImageItem::maskNativeToRangeNative(const QPointF& p) const {
+  const int rw = nativeWidth();
+  const int rh = nativeHeight();
+  const int mw = mask_width_;
+  const int mh = mask_height_;
+  if (rw <= 0 || rh <= 0 || mw <= 0 || mh <= 0 || (mw == rw && mh == rh)) {
+    return p;
+  }
+  return {p.x() * static_cast<qreal>(rw) / static_cast<qreal>(mw),
+          p.y() * static_cast<qreal>(rh) / static_cast<qreal>(mh)};
+}
+
+std::vector<QPointF> RangeImageItem::closedPolygonNativeVertices() const {
+  if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
+    const std::vector<QPointF> from_controller = controller->pendingMaskPolygonNativePoints();
+    if (!from_controller.empty()) {
+      std::vector<QPointF> range_space;
+      range_space.reserve(from_controller.size());
+      for (const QPointF& p : from_controller) {
+        range_space.push_back(maskNativeToRangeNative(p));
+      }
+      return range_space;
+    }
+  }
+  if (!pending_closed_native_vertices_.empty()) {
+    return pending_closed_native_vertices_;
+  }
+  return {};
+}
+
 void RangeImageItem::addVertexAtDisplay(const QPointF& display) {
   if (image_.isNull() || !interactionRectContains(display)) {
     return;
   }
-  if (!pending_closed_native_vertices_.empty() || !closed_polygon_overlay_.empty()) {
+  if (hasClosedPolygonAwaitingDecision()) {
     return;
   }
   const QPointF first_display = current_native_vertices_.empty()
@@ -474,25 +556,7 @@ void RangeImageItem::paint(QPainter* painter) {
     }
   };
 
-  auto variantListToNative = [](const QVariantList& list) {
-    std::vector<QPointF> out;
-    out.reserve(static_cast<std::size_t>(list.size()));
-    for (const QVariant& v : list) {
-      if (v.canConvert<QPointF>()) {
-        out.push_back(v.toPointF());
-        continue;
-      }
-      const QVariantMap map = v.toMap();
-      if (map.contains(QLatin1String("x")) && map.contains(QLatin1String("y"))) {
-        out.emplace_back(map.value(QLatin1String("x")).toDouble(), map.value(QLatin1String("y")).toDouble());
-      }
-    }
-    return out;
-  };
-
-  const std::vector<QPointF> overlay_from_property = variantListToNative(closed_polygon_overlay_);
-  const std::vector<QPointF>& closed_native =
-      !pending_closed_native_vertices_.empty() ? pending_closed_native_vertices_ : overlay_from_property;
+  const std::vector<QPointF> closed_native = closedPolygonNativeVertices();
   if (!closed_native.empty()) {
     draw_polygon_overlay(closed_native, true);
   }
@@ -535,3 +599,52 @@ void RangeImageItem::hoverMoveEvent(QHoverEvent* event) {
   updateHover(event->position());
   event->accept();
 }
+
+#ifdef CLC_APP_TESTING
+void RangeImageItem::clickAtDisplayPosition(qreal x, qreal y) {
+  addVertexAtDisplay(QPointF(x, y));
+}
+
+int RangeImageItem::closedPolygonVertexCount() const {
+  return static_cast<int>(closedPolygonNativeVertices().size());
+}
+
+bool RangeImageItem::containsPolygonOutlinePixels() const {
+  auto* self = const_cast<RangeImageItem*>(this);
+  const QSharedPointer<QQuickItemGrabResult> grab = self->grabToImage();
+  if (!grab) {
+    return false;
+  }
+  QEventLoop loop;
+  QObject::connect(grab.data(), &QQuickItemGrabResult::ready, &loop, &QEventLoop::quit);
+  loop.exec();
+  const QImage image = grab->image();
+  if (image.isNull()) {
+    return false;
+  }
+  constexpr int kTol = 48;
+  for (int y = 0; y < image.height(); ++y) {
+    for (int x = 0; x < image.width(); ++x) {
+      const QRgb px = image.pixel(x, y);
+      const int r = qRed(px);
+      const int g = qGreen(px);
+      const int b = qBlue(px);
+      if (std::abs(r - 255) <= kTol && std::abs(g - 220) <= kTol && std::abs(b - 0) <= kTol) {
+        return true;
+      }
+      if (std::abs(r - 80) <= kTol && std::abs(g - 255) <= kTol && std::abs(b - 120) <= kTol) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+QRectF RangeImageItem::imageDestinationRectForTest() const {
+  return imageDestRect();
+}
+
+QRectF RangeImageItem::interactionMarginRectForTest() const {
+  return interactionMarginRect();
+}
+#endif

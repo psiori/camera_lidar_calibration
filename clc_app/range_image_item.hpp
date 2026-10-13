@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QPointF>
+#include <QRectF>
 #include <QVariant>
 #include <QQuickPaintedItem>
 #include <QtQml/qqmlregistration.h>
@@ -14,6 +15,8 @@ class RangeImageItem : public QQuickPaintedItem {
   Q_PROPERTY(QByteArray maskData READ maskData WRITE setMaskData NOTIFY maskDataChanged)
   Q_PROPERTY(int maskWidth READ maskWidth WRITE setMaskWidth NOTIFY maskDataChanged)
   Q_PROPERTY(int maskHeight READ maskHeight WRITE setMaskHeight NOTIFY maskDataChanged)
+  Q_PROPERTY(int rangeNativeWidth READ rangeNativeWidth WRITE setRangeNativeWidth NOTIFY rangeNativeSizeChanged)
+  Q_PROPERTY(int rangeNativeHeight READ rangeNativeHeight WRITE setRangeNativeHeight NOTIFY rangeNativeSizeChanged)
   Q_PROPERTY(bool drawing READ drawing NOTIFY drawingChanged)
   Q_PROPERTY(bool fillBounds READ fillBounds WRITE setFillBounds NOTIFY fillBoundsChanged)
   Q_PROPERTY(QVariantList closedPolygonOverlay READ closedPolygonOverlay WRITE setClosedPolygonOverlay
@@ -31,6 +34,10 @@ class RangeImageItem : public QQuickPaintedItem {
   void setMaskWidth(int w);
   int maskHeight() const { return mask_height_; }
   void setMaskHeight(int h);
+  int rangeNativeWidth() const { return range_native_width_; }
+  void setRangeNativeWidth(int w);
+  int rangeNativeHeight() const { return range_native_height_; }
+  void setRangeNativeHeight(int h);
   bool drawing() const { return drawing_; }
   bool fillBounds() const { return fill_bounds_; }
   void setFillBounds(bool fill);
@@ -43,11 +50,19 @@ class RangeImageItem : public QQuickPaintedItem {
   Q_INVOKABLE void closePolygon();
   Q_INVOKABLE void cancelPolygon();
   Q_INVOKABLE void clearPendingPolygon();
-  Q_INVOKABLE void clearClosedPolygon();
+
+#ifdef CLC_APP_TESTING
+  Q_INVOKABLE void clickAtDisplayPosition(qreal x, qreal y);
+  Q_INVOKABLE int closedPolygonVertexCount() const;
+  Q_INVOKABLE bool containsPolygonOutlinePixels() const;
+  Q_INVOKABLE QRectF imageDestinationRectForTest() const;
+  Q_INVOKABLE QRectF interactionMarginRectForTest() const;
+#endif
 
  signals:
   void imageChanged();
   void maskDataChanged();
+  void rangeNativeSizeChanged();
   void drawingChanged();
   void fillBoundsChanged();
   void closedPolygonOverlayChanged();
@@ -76,11 +91,16 @@ class RangeImageItem : public QQuickPaintedItem {
   void addVertexAtDisplay(const QPointF& display);
   void setDrawing(bool drawing);
   void updateImplicitHeight();
+  bool hasClosedPolygonAwaitingDecision() const;
+  std::vector<QPointF> closedPolygonNativeVertices() const;
+  QPointF maskNativeToRangeNative(const QPointF& p) const;
 
   QImage image_;
   QByteArray mask_data_;
   int mask_width_ = 0;
   int mask_height_ = 0;
+  int range_native_width_ = 0;
+  int range_native_height_ = 0;
   bool drawing_ = false;
   bool fill_bounds_ = false;
   std::vector<QPointF> current_native_vertices_;

@@ -172,7 +172,21 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             ColumnLayout {
                                 TipRow {
-                                    tip: "Output voxel size in meters (default 0.01). Downsampling after fusion or single-scan passthrough."
+                                    tip: "CT integrator: sequential deskew and accumulate (default). CT-GICP SLAM: fixed-lag odometry merge."
+                                    Label {
+                                        text: "Fusion method"
+                                        opacity: controller.activeDatasetIsSingleScan ? 0.45 : 1
+                                    }
+                                    ComboBox {
+                                        Layout.fillWidth: true
+                                        enabled: !controller.activeDatasetIsSingleScan
+                                        model: ["CT integrator", "CT-GICP SLAM"]
+                                        currentIndex: controller.fusionBackend
+                                        onActivated: controller.fusionBackend = currentIndex
+                                    }
+                                }
+                                TipRow {
+                                    tip: "Output voxel size in meters (default 0.05, vlcal integrator). Downsampling after fusion or single-scan passthrough."
                                     Label { text: "Voxel (m)" }
                                     TextField {
                                         text: String(controller.fusionVoxelResolution)
@@ -180,42 +194,127 @@ ApplicationWindow {
                                     }
                                 }
                                 TipRow {
-                                    tip: "OpenMP threads for multi-scan CT-GICP fusion (default 15)."
-                                    Label {
-                                        text: "Threads"
-                                        opacity: controller.activeDatasetIsSingleScan ? 0.45 : 1
-                                    }
-                                    SpinBox {
-                                        editable: true
-                                        from: 1; to: 64
-                                        value: controller.fusionNumThreads
-                                        enabled: !controller.activeDatasetIsSingleScan
-                                        opacity: enabled ? 1 : 0.45
-                                        onValueModified: controller.fusionNumThreads = value
-                                    }
-                                }
-                                TipRow {
-                                    tip: "Max correspondence distance in meters for fusion (default 0.5)."
-                                    Label {
-                                        text: "Max corr. (m)"
-                                        opacity: controller.activeDatasetIsSingleScan ? 0.45 : 1
-                                    }
-                                    TextField {
-                                        Layout.fillWidth: true
-                                        text: String(controller.fusionMaxCorrespondence)
-                                        enabled: !controller.activeDatasetIsSingleScan
-                                        opacity: enabled ? 1 : 0.45
-                                        onEditingFinished: controller.fusionMaxCorrespondence = parseFloat(text)
-                                    }
-                                }
-                                TipRow {
-                                    tip: "Neighbors per point for covariance estimation during fusion preprocessing (default 40; applies to single-scan passthrough and multi-scan CT-GICP)."
+                                    tip: "Neighbors per point for covariance estimation (default 20, vlcal integrator)."
                                     Label { text: "K neighbors" }
                                     SpinBox {
                                         editable: true
                                         from: 2; to: 128
                                         value: controller.fusionKNeighbors
                                         onValueModified: controller.fusionKNeighbors = value
+                                    }
+                                }
+                                GroupBox {
+                                    title: "CT integrator"
+                                    Layout.fillWidth: true
+                                    visible: !controller.activeDatasetIsSingleScan && controller.fusionBackendIsIntegrator
+                                    ColumnLayout {
+                                        TipRow {
+                                            tip: "OpenMP threads for integrator preprocessing and factors."
+                                            Label { text: "Threads" }
+                                            SpinBox {
+                                                editable: true
+                                                from: 1; to: 64
+                                                value: controller.fusionNumThreads
+                                                onValueModified: controller.fusionNumThreads = value
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Max correspondence distance in meters (default 1.0, vlcal CT-GICP factor)."
+                                            Label { text: "Max corr. (m)" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: String(controller.fusionMaxCorrespondence)
+                                                onEditingFinished: controller.fusionMaxCorrespondence = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Per-scan point cap after subsampling (default 10000)."
+                                            Label { text: "Target points" }
+                                            SpinBox {
+                                                editable: true
+                                                from: 500; to: 200000
+                                                value: controller.fusionTargetNumPoints
+                                                onValueModified: controller.fusionTargetNumPoints = value
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Minimum range when accumulating deskewed points into the output map (m, default 1.0). Not the iVox map spacing."
+                                            Label { text: "Min range (m)" }
+                                            TextField {
+                                                text: String(controller.fusionMinDistance)
+                                                onEditingFinished: controller.fusionMinDistance = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Scan-to-model iVox voxel leaf size (m, default 1.0). vlcal `iVox(1.0, …)`."
+                                            Label { text: "Map iVox leaf (m)" }
+                                            TextField {
+                                                text: String(controller.fusionIntegratorIvoxResolution)
+                                                onEditingFinished: controller.fusionIntegratorIvoxResolution = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Minimum spacing between points in the same integrator iVox cell (m, default 0.05). Distinct from min range filter."
+                                            Label { text: "Map iVox spacing (m)" }
+                                            TextField {
+                                                text: String(controller.fusionIntegratorIvoxMinPointsDist)
+                                                onEditingFinished: controller.fusionIntegratorIvoxMinPointsDist = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Levenberg–Marquardt iterations per outer loop per scan."
+                                            Label { text: "LM iterations" }
+                                            SpinBox {
+                                                editable: true
+                                                from: 1; to: 50
+                                                value: controller.fusionLmMaxIterations
+                                                onValueModified: controller.fusionLmMaxIterations = value
+                                            }
+                                        }
+                                    }
+                                }
+                                GroupBox {
+                                    title: "CT-GICP SLAM"
+                                    Layout.fillWidth: true
+                                    visible: !controller.activeDatasetIsSingleScan && !controller.fusionBackendIsIntegrator
+                                    ColumnLayout {
+                                        TipRow {
+                                            tip: "OpenMP threads for multi-scan CT-GICP fusion (default 15)."
+                                            Label { text: "Threads" }
+                                            SpinBox {
+                                                editable: true
+                                                from: 1; to: 64
+                                                value: controller.fusionNumThreads
+                                                onValueModified: controller.fusionNumThreads = value
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Max correspondence distance in meters for fusion (default 0.5)."
+                                            Label { text: "Max corr. (m)" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: String(controller.fusionMaxCorrespondence)
+                                                onEditingFinished: controller.fusionMaxCorrespondence = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Scan-to-model iVox resolution during odometry (m)."
+                                            Label { text: "iVox (m)" }
+                                            TextField {
+                                                text: String(controller.fusionIvoxResolution)
+                                                onEditingFinished: controller.fusionIvoxResolution = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "LM iterations per scan insertion."
+                                            Label { text: "LM iterations" }
+                                            SpinBox {
+                                                editable: true
+                                                from: 1; to: 50
+                                                value: controller.fusionLmMaxIterations
+                                                onValueModified: controller.fusionLmMaxIterations = value
+                                            }
+                                        }
                                     }
                                 }
                                 Button {
@@ -236,25 +335,37 @@ ApplicationWindow {
                             enabled: !controller.activeDatasetIsSingleScan
                             opacity: enabled ? 1 : 0.45
                             ColumnLayout {
-                                ComboBox {
-                                    id: timeUnit
-                                    Layout.fillWidth: true
-                                    model: ["Seconds", "Nanoseconds"]
-                                    currentIndex: controller.timeUnit
-                                    onActivated: controller.timeUnit = currentIndex
+                                TipRow {
+                                    tip: "Unit of per-point timestamps in the PCD (default nanoseconds for rotation-relative sweeps)."
+                                    Label { text: "Time unit" }
+                                    ComboBox {
+                                        id: timeUnit
+                                        Layout.fillWidth: true
+                                        model: ["Seconds", "Nanoseconds"]
+                                        currentIndex: controller.timeUnit
+                                        onActivated: controller.timeUnit = currentIndex
+                                    }
                                 }
-                                ComboBox {
-                                    id: timeOrigin
-                                    Layout.fillWidth: true
-                                    model: ["FirstPoint", "ScanStart"]
-                                    currentIndex: controller.timeOrigin
-                                    onActivated: controller.timeOrigin = currentIndex
+                                TipRow {
+                                    tip: "ScanStart: times count from rotation/sweep start (use when angular gaps omit points but timestamps stay valid). FirstPoint: re-zero at the first stored point."
+                                    Label { text: "Time origin" }
+                                    ComboBox {
+                                        id: timeOrigin
+                                        Layout.fillWidth: true
+                                        model: ["FirstPoint", "ScanStart"]
+                                        currentIndex: controller.timeOrigin
+                                        onActivated: controller.timeOrigin = currentIndex
+                                    }
                                 }
-                                TextField {
-                                    id: scanDuration
-                                    Layout.fillWidth: true
-                                    placeholderText: "Scan duration (s)"
-                                    onEditingFinished: controller.scanDuration = parseFloat(text)
+                                TipRow {
+                                    tip: "Full sweep period in seconds; required for ScanStart deskew (normalize ns timestamps into [0, duration])."
+                                    Label { text: "Duration (s)" }
+                                    TextField {
+                                        id: scanDuration
+                                        Layout.fillWidth: true
+                                        placeholderText: "e.g. 0.1"
+                                        onEditingFinished: controller.scanDuration = parseFloat(text)
+                                    }
                                 }
                             }
                         }
