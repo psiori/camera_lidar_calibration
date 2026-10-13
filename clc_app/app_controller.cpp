@@ -2680,7 +2680,11 @@ void AppController::runFusion() {
       scans.push_back(clc::to_lidar_scan_masked(cloud, mask_pixels));
     }
 
-    const auto result = clc::run_fusion(scans, params, [this](const glim_cloud_fusion::FusionProgress& p) {
+    const bool integrator_debug = params.integrator_debug;
+    const auto result = clc::run_fusion(scans, params, [this, integrator_debug](const glim_cloud_fusion::FusionProgress& p) {
+      if (integrator_debug && p.integrator.has_value()) {
+        glim_cloud_fusion::print_fusion_integrator_diagnostics(std::cerr, p.scan_index, *p.integrator);
+      }
       QMetaObject::invokeMethod(
         this,
         [this, p]() {

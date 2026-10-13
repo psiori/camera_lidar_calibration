@@ -65,7 +65,7 @@ class CameraLidarCalibrationConan(ConanFile):
 
     def requirements(self):
         self.requires("vlcal_align/0.1.0")
-        self.requires("glim/1.2.7")
+        self.requires("glim/1.2.9")
         self.requires("gtsam/4.3a1")
         self.requires("pcl/1.14.1")
         self.requires("ceres-solver/2.2.0")

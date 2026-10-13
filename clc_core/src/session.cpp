@@ -100,6 +100,7 @@ nlohmann::json fusion_params_to_json(const glim_cloud_fusion::FusionParams& para
   j["integrator_ivox_min_points_dist"] = params.integrator_ivox_min_points_dist;
   j["integrator_ivox_lru_thresh"] = params.integrator_ivox_lru_thresh;
   j["integrator_lm_outer_loops"] = params.integrator_lm_outer_loops;
+  j["integrator_debug"] = params.integrator_debug;
   j["scan_time"] = scan_time_to_json(params.scan_time);
   return j;
 }
@@ -141,6 +142,7 @@ bool fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionP
     j.value("integrator_ivox_min_points_dist", params.integrator_ivox_min_points_dist);
   params.integrator_ivox_lru_thresh = j.value("integrator_ivox_lru_thresh", params.integrator_ivox_lru_thresh);
   params.integrator_lm_outer_loops = j.value("integrator_lm_outer_loops", params.integrator_lm_outer_loops);
+  params.integrator_debug = j.value("integrator_debug", params.integrator_debug);
   return true;
 }
 
@@ -479,6 +481,7 @@ void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParam
       << "  integrator_ivox_min_points_dist: " << params.integrator_ivox_min_points_dist << "\n"
       << "  integrator_ivox_lru_thresh: " << params.integrator_ivox_lru_thresh << "\n"
       << "  integrator_lm_outer_loops: " << params.integrator_lm_outer_loops << "\n"
+      << "  integrator_debug: " << (params.integrator_debug ? "true" : "false") << "\n"
       << "  scan_time.time_unit: " << (st.time_unit == glim_cloud_fusion::TimeUnit::Nanoseconds ? "nanoseconds" : "seconds")
       << "\n"
       << "  scan_time.time_origin: "

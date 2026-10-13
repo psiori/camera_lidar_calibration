@@ -39,7 +39,7 @@ CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
 CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-true}"
 
 # Keep in sync with glim/conanfile.py and camera_lidar_calibration/conanfile.py
-GLIM_CONAN_VERSION="1.2.7"
+GLIM_CONAN_VERSION="1.2.9"
 VLCAL_CONAN_VERSION="0.1.0"
 
 export CONAN_HOME

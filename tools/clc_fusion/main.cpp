@@ -69,9 +69,10 @@ void print_usage(const char* prog) {
     << "  --fusion-backend integrator|slam   Fusion method (default: integrator)\n"
     << "  --max-correspondence-dist M Max correspondence (m, default: 1.0)\n"
     << "  --target-num-points N       Per-scan point cap after random-grid subsample (default: 10000)\n"
-    << "  --min-distance M            Min range when accumulating deskewed points (m, default: 1.0; not iVox spacing)\n"
+    << "  --min-distance M            Min range in scanner frame before transform (m, default: 1.0; not iVox spacing)\n"
     << "  --integrator-ivox-resolution M  Scan-to-model iVox leaf size (m, default: 1.0)\n"
     << "  --integrator-ivox-min-points-dist M  Min spacing in integrator iVox cells (m, default: 0.05)\n"
+    << "  --integrator-debug          Per-scan deskew/LM/pose stats (stderr)\n"
     << "  -h, --help                  Show this help\n";
 }
 
@@ -124,6 +125,7 @@ struct Options {
   std::string glim_config_dir;
   std::string params_json_path;
   bool print_params_only = false;
+  bool integrator_debug = false;
   glim_cloud_fusion::TimeUnit time_unit = glim_cloud_fusion::TimeUnit::Nanoseconds;
   glim_cloud_fusion::TimeOrigin time_origin = glim_cloud_fusion::TimeOrigin::ScanStart;
 };
@@ -201,6 +203,9 @@ void apply_cli_overrides(const Options& opt, glim_cloud_fusion::FusionParams& pa
   if (opt.integrator_ivox_min_points_dist.has_value()) {
     params.integrator_ivox_min_points_dist = *opt.integrator_ivox_min_points_dist;
   }
+  if (opt.integrator_debug) {
+    params.integrator_debug = true;
+  }
 }
 
 std::optional<Options> parse_args(int argc, char** argv) {
@@ -248,6 +253,10 @@ std::optional<Options> parse_args(int argc, char** argv) {
     }
     if (arg == "--integrator-ivox-min-points-dist" && i + 1 < argc) {
       opt.integrator_ivox_min_points_dist = std::stod(argv[++i]);
+      continue;
+    }
+    if (arg == "--integrator-debug") {
+      opt.integrator_debug = true;
       continue;
     }
     if (arg == "--threads" && i + 1 < argc) {
@@ -499,6 +508,9 @@ int main(int argc, char** argv) {
                   << "  eta=" << format_duration(remaining);
       }
       std::cout << "\n";
+      if (p.integrator.has_value()) {
+        glim_cloud_fusion::print_fusion_integrator_diagnostics(std::cout, p.scan_index, *p.integrator);
+      }
     });
 
     const double fuse_seconds = std::chrono::duration<double>(Clock::now() - fuse_start).count();
