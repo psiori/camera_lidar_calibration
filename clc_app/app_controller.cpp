@@ -32,17 +32,6 @@
 
 namespace {
 
-glim_cloud_fusion::LidarScan to_fusion_scan(const clc::PointXYZITCloud& cloud) {
-  glim_cloud_fusion::LidarScan scan;
-  scan.width = cloud.width;
-  scan.height = cloud.height;
-  scan.points = cloud.scan.points;
-  scan.times = cloud.scan.times;
-  scan.intensities = cloud.scan.intensities;
-  scan.keep = cloud.scan.keep;
-  return scan;
-}
-
 vlcal::FrameCPU::Ptr to_frame_cpu(const glim_cloud_fusion::DensePointCloud& cloud) {
   std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d>> points;
   std::vector<double> intensities;
@@ -150,11 +139,39 @@ QString normalizedPcdPath(const QString& path) {
   return info.absoluteFilePath();
 }
 
+QString pickPcdDirectoryOrFile(const QString& title, const QString& start_path) {
+  const QString dialog_dir = normalizedDirectoryPath(start_path);
+  const QFileInfo start_info(start_path);
+
+  const auto pick_file = [&]() {
+    return QFileDialog::getOpenFileName(nullptr, title, dialog_dir,
+                                        QStringLiteral("PCD files (*.pcd);;All files (*)"));
+  };
+  const auto pick_dir = [&]() {
+    return QFileDialog::getExistingDirectory(nullptr, title, dialog_dir);
+  };
+
+  if (!start_path.isEmpty() && start_info.isDir()) {
+    QString path = pick_dir();
+    if (!path.isEmpty()) {
+      return path;
+    }
+    return pick_file();
+  }
+
+  QString path = pick_file();
+  if (!path.isEmpty()) {
+    return path;
+  }
+  return pick_dir();
+}
+
 }  // namespace
 
 AppController::AppController(QObject* parent) : QObject(parent) {
   clc::apply_default_fusion_params(session_.fusion_params);
   clc::apply_default_scan_time_params(session_.scan_time);
+  clc::apply_default_calibration_params(session_.calibration_params);
   session_.fusion_params.scan_time = session_.scan_time;
   viewer_colormap_debounce_.setSingleShot(true);
   viewer_colormap_debounce_.setInterval(50);
@@ -331,6 +348,13 @@ double AppController::fusionMaxCorrespondence() const {
   return session_.fusion_params.max_correspondence_distance;
 }
 
+int AppController::fusionKNeighbors() const {
+  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+    return activeDatasetEntry().fusion_params.k_neighbors;
+  }
+  return session_.fusion_params.k_neighbors;
+}
+
 int AppController::correspondenceCount() const {
   if (main_work_tab_ == 3 || session_.calibration_datasets.empty()) {
     return 0;
@@ -370,8 +394,11 @@ void AppController::setImagePath(const QString& path) {
   }
   ensureActiveCalibrationDataset();
   activeDatasetEntry().image_path = normalized.toStdString();
-  projection_image_.release();
+  invalidateProjectionImageCache();
   refreshCameraPreview();
+  if (!viewer_positions_.isEmpty()) {
+    reprojectViewerCameraRgb();
+  }
   emit sessionPathsChanged();
 }
 
@@ -408,8 +435,10 @@ void AppController::setMainWorkTab(int tab) {
   emit sessionPathsChanged();
   emit scanTimeChanged();
   emit fusionParamsChanged();
-  if (main_work_tab_ == 1) {
-    refreshCameraPreview();
+  if (main_work_tab_ != 3) {
+    refreshActiveDatasetVisuals();
+  } else {
+    loadActiveDatasetCloudToViewer();
   }
   refreshViewerGizmoState();
   syncCorrespondenceMarkers();
@@ -432,8 +461,7 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   emit scanTimeChanged();
   emit fusionParamsChanged();
   emit pcdCatalogChanged();
-  refreshCameraPreview();
-  loadActiveDatasetCloudToViewer();
+  refreshActiveDatasetVisuals();
   refreshRangeImage();
   emit correspondencesChanged();
 }
@@ -542,13 +570,7 @@ QString AppController::pickAddDatasetLidar(const QString& initial_dir) {
   if (start.isEmpty()) {
     start = addDatasetDefaultLidarPath();
   }
-  QString path = QFileDialog::getExistingDirectory(nullptr, QStringLiteral("PCD directory for new dataset"), start);
-  if (path.isEmpty()) {
-    path = QFileDialog::getOpenFileName(
-      nullptr, QStringLiteral("PCD file for new dataset"), start,
-      QStringLiteral("PCD files (*.pcd);;All files (*)"));
-  }
-  return path;
+  return pickPcdDirectoryOrFile(QStringLiteral("LiDAR scans for new dataset (.pcd file or folder)"), start);
 }
 
 QString AppController::pickAddDatasetIntrinsics(const QString& initial_dir) {
@@ -620,12 +642,12 @@ bool AppController::addCalibrationDatasetFromPaths(const QString& image_path, co
   active_calibration_dataset_index_ = static_cast<int>(session_.calibration_datasets.size()) - 1;
   fusion_blocked_ = false;
   fused_cloud_ = {};
+  fused_cloud_dataset_index_.reset();
   emit calibrationDatasetsChanged();
   emit pcdCatalogChanged();
   emit sessionPathsChanged();
-  refreshCameraPreview();
   refreshRangeImage();
-  loadActiveDatasetCloudToViewer();
+  refreshActiveDatasetVisuals();
   setStatus(QStringLiteral("Added calibration dataset %1").arg(QString::fromStdString(id)));
   return true;
 }
@@ -640,10 +662,11 @@ void AppController::removeActiveCalibrationDataset() {
   active_calibration_dataset_index_ =
     std::min(active_calibration_dataset_index_, static_cast<int>(session_.calibration_datasets.size()) - 1);
   fused_cloud_ = {};
+  fused_cloud_dataset_index_.reset();
   emit calibrationDatasetsChanged();
   emit pcdCatalogChanged();
   emit sessionPathsChanged();
-  loadActiveDatasetCloudToViewer();
+  refreshActiveDatasetVisuals();
   emit correspondencesChanged();
 }
 
@@ -845,6 +868,7 @@ void AppController::refreshPcdCatalog() {
   session_.reference_scan_width = scan.reference_width;
   session_.reference_scan_height = scan.reference_height;
   fused_cloud_ = {};
+  fused_cloud_dataset_index_.reset();
   setStatus(QStringLiteral("Found %1 PCD files (%2×%3)")
               .arg(static_cast<int>(dataset.pcd_paths.size()))
               .arg(session_.reference_scan_width)
@@ -1049,8 +1073,186 @@ void AppController::setFusionMaxCorrespondence(double v) {
   emit fusionParamsChanged();
 }
 
+void AppController::setFusionKNeighbors(int n) {
+  const int clamped = std::max(2, n);
+  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+    auto& ds = activeDatasetEntry();
+    if (ds.fusion_params.k_neighbors == clamped) {
+      return;
+    }
+    ds.fusion_params.k_neighbors = clamped;
+    session_.fusion_params = ds.fusion_params;
+  } else if (session_.fusion_params.k_neighbors == clamped) {
+    return;
+  } else {
+    session_.fusion_params.k_neighbors = clamped;
+  }
+  emit fusionParamsChanged();
+}
+
+int AppController::calibrationMaxOuterIterations() const {
+  return session_.calibration_params.max_outer_iterations;
+}
+
+int AppController::calibrationMaxInnerIterations() const {
+  return session_.calibration_params.max_inner_iterations;
+}
+
+int AppController::calibrationNumThreads() const {
+  return session_.calibration_params.num_threads;
+}
+
+double AppController::calibrationDeltaTransThresh() const {
+  return session_.calibration_params.delta_trans_thresh;
+}
+
+double AppController::calibrationDeltaRotDeg() const {
+  return session_.calibration_params.delta_rot_thresh * 180.0 / M_PI;
+}
+
+bool AppController::calibrationDisableZBufferCulling() const {
+  return session_.calibration_params.disable_z_buffer_culling;
+}
+
+int AppController::calibrationNidBins() const {
+  return session_.calibration_params.nid_bins;
+}
+
+int AppController::calibrationRegistrationType() const {
+  return session_.calibration_params.registration_type == vlcal::RegistrationType::NID_NELDER_MEAD ? 1 : 0;
+}
+
+double AppController::calibrationNelderMeadInitStep() const {
+  return session_.calibration_params.nelder_mead_init_step;
+}
+
+double AppController::calibrationNelderMeadConvergence() const {
+  return session_.calibration_params.nelder_mead_convergence_criteria;
+}
+
+void AppController::setCalibrationMaxOuterIterations(int v) {
+  const int clamped = std::max(1, v);
+  if (session_.calibration_params.max_outer_iterations == clamped) {
+    return;
+  }
+  session_.calibration_params.max_outer_iterations = clamped;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationMaxInnerIterations(int v) {
+  const int clamped = std::max(1, v);
+  if (session_.calibration_params.max_inner_iterations == clamped) {
+    return;
+  }
+  session_.calibration_params.max_inner_iterations = clamped;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationNumThreads(int v) {
+  const int clamped = std::max(1, v);
+  if (session_.calibration_params.num_threads == clamped) {
+    return;
+  }
+  session_.calibration_params.num_threads = clamped;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationDeltaTransThresh(double v) {
+  if (qFuzzyCompare(session_.calibration_params.delta_trans_thresh, v)) {
+    return;
+  }
+  session_.calibration_params.delta_trans_thresh = v;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationDeltaRotDeg(double v) {
+  const double rad = v * M_PI / 180.0;
+  if (qFuzzyCompare(session_.calibration_params.delta_rot_thresh, rad)) {
+    return;
+  }
+  session_.calibration_params.delta_rot_thresh = rad;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationDisableZBufferCulling(bool v) {
+  if (session_.calibration_params.disable_z_buffer_culling == v) {
+    return;
+  }
+  session_.calibration_params.disable_z_buffer_culling = v;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationNidBins(int v) {
+  const int clamped = std::max(2, v);
+  if (session_.calibration_params.nid_bins == clamped) {
+    return;
+  }
+  session_.calibration_params.nid_bins = clamped;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationRegistrationType(int v) {
+  const auto reg = (v == 1) ? vlcal::RegistrationType::NID_NELDER_MEAD : vlcal::RegistrationType::NID_BFGS;
+  if (session_.calibration_params.registration_type == reg) {
+    return;
+  }
+  session_.calibration_params.registration_type = reg;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationNelderMeadInitStep(double v) {
+  if (qFuzzyCompare(session_.calibration_params.nelder_mead_init_step, v)) {
+    return;
+  }
+  session_.calibration_params.nelder_mead_init_step = v;
+  emit calibrationParamsChanged();
+}
+
+void AppController::setCalibrationNelderMeadConvergence(double v) {
+  if (qFuzzyCompare(session_.calibration_params.nelder_mead_convergence_criteria, v)) {
+    return;
+  }
+  session_.calibration_params.nelder_mead_convergence_criteria = v;
+  emit calibrationParamsChanged();
+}
+
 void AppController::refreshViewerColors() {
   applyViewerScalarRangeToItem();
+}
+
+void AppController::invalidateProjectionImageCache() {
+  projection_image_.release();
+  projection_image_path_.clear();
+}
+
+bool AppController::ensureProjectionImageForActiveDataset() {
+  if (session_.calibration_datasets.empty()) {
+    invalidateProjectionImageCache();
+    return false;
+  }
+  const std::string image_path = activeDatasetEntry().image_path;
+  if (image_path.empty()) {
+    invalidateProjectionImageCache();
+    return false;
+  }
+  if (projection_image_path_ == image_path && !projection_image_.empty()) {
+    return true;
+  }
+  projection_image_.release();
+  projection_image_ = cv::imread(image_path, cv::IMREAD_COLOR);
+  projection_image_path_ = image_path;
+  return !projection_image_.empty();
+}
+
+void AppController::refreshActiveDatasetVisuals() {
+  if (session_.calibration_datasets.empty() || main_work_tab_ == 3) {
+    return;
+  }
+  invalidateProjectionImageCache();
+  fused_cloud_ = {};
+  fused_cloud_dataset_index_.reset();
+  refreshCameraPreview();
+  loadActiveDatasetCloudToViewer();
 }
 
 void AppController::syncColorModelFromSession() {
@@ -1058,10 +1260,7 @@ void AppController::syncColorModelFromSession() {
   if (session_.camera.intrinsics.empty() || image_path.empty() || viewer_positions_.isEmpty()) {
     return;
   }
-  if (projection_image_.empty()) {
-    projection_image_ = cv::imread(image_path, cv::IMREAD_COLOR);
-  }
-  if (projection_image_.empty()) {
+  if (!ensureProjectionImageForActiveDataset()) {
     return;
   }
   const auto camera =
@@ -1136,7 +1335,8 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput& input, std::string&
         return !out.points.empty();
       }
     }
-    if (&ds == &activeDatasetEntry() && !fused_cloud_.points.empty()) {
+    if (&ds == &activeDatasetEntry() && !fused_cloud_.points.empty() && fused_cloud_dataset_index_.has_value() &&
+        *fused_cloud_dataset_index_ == active_calibration_dataset_index_) {
       out = fused_cloud_;
       return true;
     }
@@ -1180,7 +1380,6 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput& input, std::string&
     error = "no ready calibration datasets for alignment";
     return false;
   }
-  projection_image_ = input.images.front();
   return true;
 }
 
@@ -1312,9 +1511,7 @@ void AppController::commitMaskPolygonNative(const std::vector<QPointF>& nativeVe
   for (const QPointF& p : nativeVertices) {
     pending_mask_polygon_.vertices.emplace_back(static_cast<float>(p.x()), static_cast<float>(p.y()));
   }
-  mask_polygon_pending_ = true;
-  emit maskPolygonPendingChanged();
-  emit maskChanged();
+  setMaskPolygonPending(true);
   setStatus(QStringLiteral("Polygon closed — choose Keep or Remove to apply"));
 }
 
@@ -1323,9 +1520,7 @@ void AppController::commitMaskPolygon(const QVariantList& nativeVertices) {
   if (pending_mask_polygon_.vertices.size() < 3) {
     return;
   }
-  mask_polygon_pending_ = true;
-  emit maskPolygonPendingChanged();
-  emit maskChanged();
+  setMaskPolygonPending(true);
   setStatus(QStringLiteral("Polygon closed — choose Keep or Remove to apply"));
 }
 
@@ -1574,7 +1769,10 @@ void AppController::loadActiveDatasetCloudToViewer() {
     return;
   }
   auto& ds = activeDatasetEntry();
-  if (!fused_cloud_.points.empty() && ds.fusion_complete) {
+  const bool fused_cache_for_active = fused_cloud_dataset_index_.has_value() &&
+                                      *fused_cloud_dataset_index_ == active_calibration_dataset_index_ &&
+                                      !fused_cloud_.points.empty();
+  if (fused_cache_for_active && ds.fusion_complete) {
     uploadFusedCloudToViewer();
     reprojectViewerCameraRgb();
     return;
@@ -1591,6 +1789,7 @@ void AppController::loadActiveDatasetCloudToViewer() {
       }
       dense.intensities = cloud.scan.intensities;
       fused_cloud_ = dense;
+      fused_cloud_dataset_index_ = active_calibration_dataset_index_;
       setPointCount(static_cast<int>(dense.points.size()));
       uploadFusedCloudToViewer();
       return;
@@ -1609,6 +1808,8 @@ void AppController::loadActiveDatasetCloudToViewer() {
 
 void AppController::emitSessionUiState() {
   emit scanTimeChanged();
+  emit fusionParamsChanged();
+  emit calibrationParamsChanged();
   emit sessionPathsChanged();
   emit pcdCatalogChanged();
   emit sessionLoaded();
@@ -1633,6 +1834,9 @@ bool AppController::loadSession(const QString& directory) {
     return false;
   }
   clc::prune_placeholder_calibration_datasets(session_);
+  invalidateProjectionImageCache();
+  fused_cloud_ = {};
+  fused_cloud_dataset_index_.reset();
   if (session_.calibration_datasets.empty()) {
     active_calibration_dataset_index_ = 0;
   } else {
@@ -1668,7 +1872,7 @@ bool AppController::loadSession(const QString& directory) {
   emit correspondencesChanged();
   applySessionToViewer();
   refreshViewerGizmoState();
-  loadActiveDatasetCloudToViewer();
+  refreshActiveDatasetVisuals();
   return true;
 }
 
@@ -1708,11 +1912,8 @@ QString AppController::browseSessionDirectory() {
 }
 
 QString AppController::browsePcdDirectory() {
-  QString path = QFileDialog::getExistingDirectory(nullptr, QStringLiteral("PCD directory"), pcdDirectory());
-  if (path.isEmpty()) {
-    path = QFileDialog::getOpenFileName(
-      nullptr, QStringLiteral("PCD file"), pcdDirectory(), QStringLiteral("PCD files (*.pcd);;All files (*)"));
-  }
+  const QString path =
+    pickPcdDirectoryOrFile(QStringLiteral("LiDAR scans (.pcd file or folder)"), pcdDirectory());
   if (!path.isEmpty()) {
     setPcdDirectory(path);
   }
@@ -1729,18 +1930,6 @@ QString AppController::browseImageFile() {
     setImagePath(file);
   }
   return imagePath();
-}
-
-QString AppController::browseIntrinsicsFile() {
-  const QString file = QFileDialog::getOpenFileName(
-    nullptr,
-    QStringLiteral("Camera intrinsics"),
-    intrinsicsPath(),
-    QStringLiteral("YAML (*.yaml *.yml);;OpenCV (*.xml)"));
-  if (!file.isEmpty()) {
-    loadIntrinsicsFile(file);
-  }
-  return intrinsicsPath();
 }
 
 bool AppController::loadIntrinsicsFile(const QString& path) {
@@ -1903,12 +2092,7 @@ void AppController::uploadPreviewScanToViewer(bool preserve_view_state) {
     setPointCount(0);
     return;
   }
-  const std::size_t expected_mask = static_cast<std::size_t>(cloud.width) * static_cast<std::size_t>(cloud.height);
-  if (!global_mask_pixels_.empty() && global_mask_pixels_.size() == expected_mask) {
-    auto scan = to_fusion_scan(cloud);
-    clc::apply_mask_to_scan(scan, global_mask_pixels_);
-    cloud.scan = std::move(scan);
-  }
+  cloud.scan = clc::to_lidar_scan_masked(cloud, global_mask_pixels_);
   uploadLidarScanToViewer(cloud, preserve_view_state);
 }
 
@@ -2212,7 +2396,8 @@ void AppController::runFusion() {
   const int ref_h = session_.reference_scan_height;
   syncActiveDatasetFusionToSession();
   const auto fusion_params = activeDatasetEntry().fusion_params;
-  worker_ = std::make_unique<std::thread>([this, catalog, ref_w, ref_h, fusion_params]() {
+  const std::vector<std::uint8_t> mask_pixels = global_mask_pixels_;
+  worker_ = std::make_unique<std::thread>([this, catalog, ref_w, ref_h, fusion_params, mask_pixels]() {
     auto params = fusion_params;
     params.scan_time = fusion_params.scan_time;
     const int total_scans = static_cast<int>(catalog.size());
@@ -2245,7 +2430,7 @@ void AppController::runFusion() {
         }, Qt::QueuedConnection);
         return;
       }
-      scans.push_back(to_fusion_scan(cloud));
+      scans.push_back(clc::to_lidar_scan_masked(cloud, mask_pixels));
     }
 
     const auto result = clc::run_fusion(scans, params, [this](const glim_cloud_fusion::FusionProgress& p) {
@@ -2268,6 +2453,7 @@ void AppController::runFusion() {
         return;
       }
       fused_cloud_ = result.cloud;
+      fused_cloud_dataset_index_ = active_calibration_dataset_index_;
       auto& ds = activeDatasetEntry();
       ds.fusion_complete = true;
       if (!session_directory_.isEmpty() && !ds.id.empty()) {
@@ -2312,9 +2498,6 @@ void AppController::runAlignment() {
   }
   setWorkerRunning(true);
   setStatus(QStringLiteral("Alignment running..."));
-  if (auto* item = qobject_cast<psiviz::PointCloudItem*>(viewer_)) {
-    item->setInteractionEnabled(false);
-  }
   refreshViewerGizmoState();
   joinWorker();
   worker_ = std::make_unique<std::thread>([this]() {
@@ -2323,9 +2506,6 @@ void AppController::runAlignment() {
     if (!buildAlignmentInput(input, build_err)) {
       QMetaObject::invokeMethod(this, [this, build_err]() {
         setWorkerRunning(false);
-        if (auto* item = qobject_cast<psiviz::PointCloudItem*>(viewer_)) {
-          item->setInteractionEnabled(true);
-        }
         refreshViewerGizmoState();
         setStatus(QString::fromStdString(build_err));
         emit alignmentFinished(false, QString::fromStdString(build_err));
@@ -2347,9 +2527,6 @@ void AppController::runAlignment() {
 
     QMetaObject::invokeMethod(this, [this, result]() {
       setWorkerRunning(false);
-      if (auto* item = qobject_cast<psiviz::PointCloudItem*>(viewer_)) {
-        item->setInteractionEnabled(true);
-      }
       refreshViewerGizmoState();
       if (result.error != vlcal::CalibrationError::Ok) {
         setStatus(QString::fromStdString(result.message));

@@ -59,6 +59,24 @@ class AppController : public QObject {
   Q_PROPERTY(double fusionVoxelResolution READ fusionVoxelResolution WRITE setFusionVoxelResolution NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionNumThreads READ fusionNumThreads WRITE setFusionNumThreads NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionMaxCorrespondence READ fusionMaxCorrespondence WRITE setFusionMaxCorrespondence NOTIFY fusionParamsChanged)
+  Q_PROPERTY(int fusionKNeighbors READ fusionKNeighbors WRITE setFusionKNeighbors NOTIFY fusionParamsChanged)
+  Q_PROPERTY(int calibrationMaxOuterIterations READ calibrationMaxOuterIterations WRITE setCalibrationMaxOuterIterations
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(int calibrationMaxInnerIterations READ calibrationMaxInnerIterations WRITE setCalibrationMaxInnerIterations
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(int calibrationNumThreads READ calibrationNumThreads WRITE setCalibrationNumThreads NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(double calibrationDeltaTransThresh READ calibrationDeltaTransThresh WRITE setCalibrationDeltaTransThresh
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(double calibrationDeltaRotDeg READ calibrationDeltaRotDeg WRITE setCalibrationDeltaRotDeg NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(bool calibrationDisableZBufferCulling READ calibrationDisableZBufferCulling WRITE setCalibrationDisableZBufferCulling
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(int calibrationNidBins READ calibrationNidBins WRITE setCalibrationNidBins NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(int calibrationRegistrationType READ calibrationRegistrationType WRITE setCalibrationRegistrationType
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(double calibrationNelderMeadInitStep READ calibrationNelderMeadInitStep WRITE setCalibrationNelderMeadInitStep
+                 NOTIFY calibrationParamsChanged)
+  Q_PROPERTY(double calibrationNelderMeadConvergence READ calibrationNelderMeadConvergence WRITE setCalibrationNelderMeadConvergence
+                 NOTIFY calibrationParamsChanged)
   Q_PROPERTY(bool inspectionMode READ inspectionMode WRITE setInspectionMode NOTIFY inspectionModeChanged)
   Q_PROPERTY(int mainWorkTab READ mainWorkTab WRITE setMainWorkTab NOTIFY mainWorkTabChanged)
   Q_PROPERTY(int activeCalibrationDatasetIndex READ activeCalibrationDatasetIndex WRITE setActiveCalibrationDatasetIndex
@@ -120,6 +138,17 @@ public:
   double fusionVoxelResolution() const;
   int fusionNumThreads() const;
   double fusionMaxCorrespondence() const;
+  int fusionKNeighbors() const;
+  int calibrationMaxOuterIterations() const;
+  int calibrationMaxInnerIterations() const;
+  int calibrationNumThreads() const;
+  double calibrationDeltaTransThresh() const;
+  double calibrationDeltaRotDeg() const;
+  bool calibrationDisableZBufferCulling() const;
+  int calibrationNidBins() const;
+  int calibrationRegistrationType() const;
+  double calibrationNelderMeadInitStep() const;
+  double calibrationNelderMeadConvergence() const;
   bool inspectionMode() const { return main_work_tab_ == 3; }
   int mainWorkTab() const { return main_work_tab_; }
   int activeCalibrationDatasetIndex() const { return active_calibration_dataset_index_; }
@@ -155,7 +184,6 @@ public:
   Q_INVOKABLE QString browseSessionDirectory();
   Q_INVOKABLE QString browsePcdDirectory();
   Q_INVOKABLE QString browseImageFile();
-  Q_INVOKABLE QString browseIntrinsicsFile();
   Q_INVOKABLE void setRangeColormapMin(double v);
   Q_INVOKABLE void setRangeColormapMax(double v);
   Q_INVOKABLE void setRangeChannel(int channel);
@@ -166,6 +194,17 @@ public:
   Q_INVOKABLE void setFusionVoxelResolution(double v);
   Q_INVOKABLE void setFusionNumThreads(int n);
   Q_INVOKABLE void setFusionMaxCorrespondence(double v);
+  void setFusionKNeighbors(int n);
+  void setCalibrationMaxOuterIterations(int v);
+  void setCalibrationMaxInnerIterations(int v);
+  void setCalibrationNumThreads(int v);
+  void setCalibrationDeltaTransThresh(double v);
+  void setCalibrationDeltaRotDeg(double v);
+  void setCalibrationDisableZBufferCulling(bool v);
+  void setCalibrationNidBins(int v);
+  void setCalibrationRegistrationType(int v);
+  void setCalibrationNelderMeadInitStep(double v);
+  void setCalibrationNelderMeadConvergence(double v);
   Q_INVOKABLE void refreshViewerColors();
   Q_INVOKABLE void previewViewerColormapRange(double min_v, double max_v);
   Q_INVOKABLE void commitViewerColormapRange(double min_v, double max_v);
@@ -220,6 +259,7 @@ signals:
   void maskPolygonPendingChanged();
   void viewerColormapChanged();
   void fusionParamsChanged();
+  void calibrationParamsChanged();
   void fusionFinished(bool ok, const QString& message);
   void alignmentFinished(bool ok, const QString& message);
   void inspectionModeChanged();
@@ -263,6 +303,9 @@ private:
   void syncSessionFusionToActiveDataset();
   void emitSessionUiState();
   void syncColorModelFromSession();
+  bool ensureProjectionImageForActiveDataset();
+  void invalidateProjectionImageCache();
+  void refreshActiveDatasetVisuals();
   void reprojectViewerCameraRgb();
   void syncCorrespondenceMarkers();
   void finalizePendingCorrespondenceIfReady();
@@ -274,6 +317,8 @@ private:
   clc::DatasetEntry empty_calibration_dataset_scratch_;
   clc::PointColorModel color_model_;
   cv::Mat projection_image_;
+  std::string projection_image_path_;
+  std::optional<int> fused_cloud_dataset_index_;
   QVector<float> viewer_positions_;
   QVector<float> viewer_scalars_;
   QVector<float> viewer_rgb_;

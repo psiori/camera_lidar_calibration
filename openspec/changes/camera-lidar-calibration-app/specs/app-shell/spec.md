@@ -85,7 +85,7 @@ The **Datasets** tab SHALL provide per-dataset configuration for the **active** 
 
 ### Requirement: Single-scan fusion and scan-time UI
 
-On the **Datasets** tab, when the **active** calibration dataset has exactly **one** structured PCD in its catalog (single `.pcd` file at add time, or a directory that resolved to one scan), the UI SHALL **disable and visually grey out** the **Scan time** controls and the multi-scan **Fusion** controls (`num_threads`, `max_correspondence_distance`). Scan-time fields SHALL NOT apply to single-scan passthrough (no cross-scan deskew). **`voxel_resolution`** and **Run fusion** SHALL remain enabled so the user can run single-scan passthrough / downsampling per `lidar-fusion`. Disabled groups SHALL show a tooltip explaining that only output voxel size and **Run fusion** apply for a single cloud.
+On the **Datasets** tab, when the **active** calibration dataset has exactly **one** structured PCD in its catalog (single `.pcd` file at add time, or a directory that resolved to one scan), the UI SHALL **disable and visually grey out** the **Scan time** controls and the multi-scan **CT-GICP / GLIM** fusion controls (`num_threads`, `max_correspondence_distance`, iVox, smoother, etc.). **`k_neighbors`** SHALL remain enabled for single-scan passthrough because preprocessing still uses it; only output voxel and **Run fusion** are required for a single cloud, but neighbor count remains editable. Scan-time fields SHALL NOT apply to single-scan passthrough (no cross-scan deskew). **`voxel_resolution`** and **Run fusion** SHALL remain enabled so the user can run single-scan passthrough / downsampling per `lidar-fusion`. Disabled groups SHALL show a tooltip explaining that only output voxel size and **Run fusion** apply for a single cloud.
 
 #### Scenario: One PCD selected
 
@@ -108,7 +108,7 @@ The **Initial alignment** tab SHALL use a horizontal **SplitView** with three pa
 
 ### Requirement: Calibrate tab scope
 
-The **Calibrate** tab SHALL expose session-global NID / visual calibration parameters and **Run alignment** (automatic optimization). It SHALL show a 3D preview with viewer overlay and the **display-only** camera pose gizmo (see `pose-gizmo`), updated as `T_camera_lidar` changes during and after optimization. It SHALL NOT host the correspondence editor.
+The **Calibrate** tab SHALL expose the full session-global `VisualCameraCalibrationParams` surface (see `calibration-pipeline` NID parameters requirement): outer/inner iteration limits, convergence thresholds, NID histogram bins, registration type (BFGS vs Nelder–Mead), Nelder–Mead knobs when applicable, view-culling toggle, and OpenMP thread count for the Nelder–Mead path. It SHALL provide **Run alignment** (automatic optimization). It SHALL show a 3D preview with viewer overlay and the **display-only** camera pose gizmo (see `pose-gizmo`), updated as `T_camera_lidar` changes during and after optimization. It SHALL NOT host the correspondence editor.
 
 #### Scenario: Automatic calibration
 

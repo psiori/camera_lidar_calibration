@@ -18,6 +18,14 @@ ApplicationWindow {
 
     readonly property int tooltipDelayMs: 1000
 
+    component TipRow: RowLayout {
+        property string tip: ""
+        HoverHandler { id: tipHover }
+        ToolTip.visible: tipHover.hovered && tip.length > 0
+        ToolTip.text: tip
+        ToolTip.delay: root.tooltipDelayMs
+    }
+
     Connections {
         target: controller
         function onPcdCatalogChanged() { Qt.callLater(controller.refreshPreviewInViewer) }
@@ -130,9 +138,10 @@ ApplicationWindow {
 
                 // Datasets — controls only (3D view is shared on the right)
                 ScrollView {
+                    id: datasetsScroll
                     clip: true
                     ColumnLayout {
-                        width: parent.width
+                        width: datasetsScroll.availableWidth
                         spacing: 6
                         Label {
                             Layout.fillWidth: true
@@ -150,7 +159,6 @@ ApplicationWindow {
                                 text: controller.intrinsicsPath
                                 readOnly: true
                             }
-                            Button { text: "…"; onClicked: controller.browseIntrinsicsFile() }
                         }
                         Label {
                             Layout.fillWidth: true
@@ -163,17 +171,22 @@ ApplicationWindow {
                             title: "Fusion"
                             Layout.fillWidth: true
                             ColumnLayout {
-                                RowLayout {
+                                TipRow {
+                                    tip: "Output voxel size in meters (default 0.01). Downsampling after fusion or single-scan passthrough."
                                     Label { text: "Voxel (m)" }
                                     TextField {
                                         text: String(controller.fusionVoxelResolution)
                                         onEditingFinished: controller.fusionVoxelResolution = parseFloat(text)
                                     }
+                                }
+                                TipRow {
+                                    tip: "OpenMP threads for multi-scan CT-GICP fusion (default 15)."
                                     Label {
                                         text: "Threads"
                                         opacity: controller.activeDatasetIsSingleScan ? 0.45 : 1
                                     }
                                     SpinBox {
+                                        editable: true
                                         from: 1; to: 64
                                         value: controller.fusionNumThreads
                                         enabled: !controller.activeDatasetIsSingleScan
@@ -181,7 +194,8 @@ ApplicationWindow {
                                         onValueModified: controller.fusionNumThreads = value
                                     }
                                 }
-                                RowLayout {
+                                TipRow {
+                                    tip: "Max correspondence distance in meters for fusion (default 0.5)."
                                     Label {
                                         text: "Max corr. (m)"
                                         opacity: controller.activeDatasetIsSingleScan ? 0.45 : 1
@@ -194,10 +208,21 @@ ApplicationWindow {
                                         onEditingFinished: controller.fusionMaxCorrespondence = parseFloat(text)
                                     }
                                 }
+                                TipRow {
+                                    tip: "Neighbors per point for covariance estimation during fusion preprocessing (default 40; applies to single-scan passthrough and multi-scan CT-GICP)."
+                                    Label { text: "K neighbors" }
+                                    SpinBox {
+                                        editable: true
+                                        from: 2; to: 128
+                                        value: controller.fusionKNeighbors
+                                        onValueModified: controller.fusionKNeighbors = value
+                                    }
+                                }
                                 Button {
                                     text: "Run fusion"
                                     enabled: !controller.fusionBlocked && !controller.busyWorking
                                     onClicked: controller.runFusion()
+                                    ToolTip.visible: hovered
                                     ToolTip.text: controller.activeDatasetIsSingleScan
                                         ? "Downsample the single masked scan to the voxel size."
                                         : "Merge scans for the active dataset using the global mask and scan-time settings."
@@ -261,11 +286,12 @@ ApplicationWindow {
                         SplitView.preferredWidth: parent.width * 0.5
                     }
                     ScrollView {
+                        id: initialAlignScroll
                         SplitView.minimumWidth: 220
                         SplitView.fillWidth: true
                         clip: true
                         ColumnLayout {
-                            width: parent.width
+                            width: initialAlignScroll.availableWidth
                             spacing: 8
                             Label {
                                 wrapMode: Text.WordWrap
@@ -282,7 +308,8 @@ ApplicationWindow {
                                 text: "Compute initial alignment"
                                 enabled: controller.canComputeInitialAlignment && !controller.busyWorking
                                 onClicked: controller.estimateInitialGuessFromCorrespondences()
-                                ToolTip.text: "Estimate shared T_camera_lidar from all correspondence pairs (≥3 total) using the current pose seed."
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Estimate shared T_camera_lidar from all correspondence pairs (≥3 total across datasets)."
                                 ToolTip.delay: root.tooltipDelayMs
                             }
                             Button {
@@ -339,19 +366,129 @@ ApplicationWindow {
 
                 // Calibrate
                 ScrollView {
+                    id: calibrateScroll
                     clip: true
                     ColumnLayout {
-                        width: parent.width
+                        width: calibrateScroll.availableWidth
+                        spacing: 6
                         Label {
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: "Session-global NID optimization on all ready calibration datasets."
+                            text: "Session-global NID on all ready calibration datasets. Point density: Datasets tab, fusion voxel (default 1 cm)."
+                        }
+                        GroupBox {
+                            title: "NID optimization"
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 4
+                                ComboBox {
+                                    id: nidRegistration
+                                    Layout.fillWidth: true
+                                    model: ["BFGS (nid_bfgs)", "Nelder–Mead (nid_nelder_mead)"]
+                                    currentIndex: controller.calibrationRegistrationType
+                                    onActivated: controller.calibrationRegistrationType = currentIndex
+                                    HoverHandler { id: regTipHover }
+                                    ToolTip.visible: regTipHover.hovered
+                                    ToolTip.text: "BFGS (default) or Nelder–Mead optimizer for each outer NID iteration."
+                                    ToolTip.delay: root.tooltipDelayMs
+                                }
+                                TipRow {
+                                    tip: "Histogram bins for mutual information cost (vlcal nid_bins)."
+                                    Label { text: "NID bins" }
+                                    SpinBox {
+                                        editable: true
+                                        from: 2; to: 256
+                                        value: controller.calibrationNidBins
+                                        onValueModified: controller.calibrationNidBins = value
+                                    }
+                                }
+                                TipRow {
+                                    tip: "Outer: max refinement loops. Inner: solver steps per outer iteration (BFGS or Nelder–Mead)."
+                                    Label { text: "Outer iters" }
+                                    SpinBox {
+                                        editable: true
+                                        from: 1; to: 1000
+                                        value: controller.calibrationMaxOuterIterations
+                                        onValueModified: controller.calibrationMaxOuterIterations = value
+                                    }
+                                    Label { text: "Inner iters" }
+                                    SpinBox {
+                                        editable: true
+                                        from: 1; to: 10000
+                                        value: controller.calibrationMaxInnerIterations
+                                        onValueModified: controller.calibrationMaxInnerIterations = value
+                                    }
+                                }
+                                TipRow {
+                                    tip: "Stop outer loop when pose change between iterations is below these thresholds."
+                                    Label { text: "Δtrans (m)" }
+                                    TextField {
+                                        text: String(controller.calibrationDeltaTransThresh)
+                                        onEditingFinished: controller.calibrationDeltaTransThresh = parseFloat(text)
+                                    }
+                                    Label { text: "Δrot (°)" }
+                                    TextField {
+                                        text: String(controller.calibrationDeltaRotDeg)
+                                        onEditingFinished: controller.calibrationDeltaRotDeg = parseFloat(text)
+                                    }
+                                }
+                                CheckBox {
+                                    text: "Disable Z-buffer culling"
+                                    checked: controller.calibrationDisableZBufferCulling
+                                    onToggled: controller.calibrationDisableZBufferCulling = checked
+                                    HoverHandler { id: zCullTipHover }
+                                    ToolTip.visible: zCullTipHover.hovered
+                                    ToolTip.text: "Skip depth-buffer hidden-point removal before NID (more points, slower)."
+                                    ToolTip.delay: root.tooltipDelayMs
+                                }
+                                TipRow {
+                                    tip: "OpenMP threads for Nelder–Mead multi-dataset cost only; ignored by BFGS in current vlcal."
+                                    Label { text: "Threads" }
+                                    SpinBox {
+                                        editable: true
+                                        from: 1; to: 64
+                                        value: controller.calibrationNumThreads
+                                        enabled: controller.calibrationRegistrationType === 1
+                                        opacity: enabled ? 1 : 0.45
+                                        onValueModified: controller.calibrationNumThreads = value
+                                    }
+                                }
+                                GroupBox {
+                                    title: "Nelder–Mead"
+                                    Layout.fillWidth: true
+                                    enabled: controller.calibrationRegistrationType === 1
+                                    opacity: enabled ? 1 : 0.45
+                                    ColumnLayout {
+                                        width: parent.width
+                                        TipRow {
+                                            tip: "Initial simplex step size for Nelder–Mead (vlcal nelder_mead_init_step)."
+                                            Label { text: "Init step" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: String(controller.calibrationNelderMeadInitStep)
+                                                onEditingFinished: controller.calibrationNelderMeadInitStep = parseFloat(text)
+                                            }
+                                        }
+                                        TipRow {
+                                            tip: "Nelder–Mead stop when simplex size falls below this (nelder_mead_convergence_criteria)."
+                                            Label { text: "Convergence" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: String(controller.calibrationNelderMeadConvergence)
+                                                onEditingFinished: controller.calibrationNelderMeadConvergence = parseFloat(text)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Button {
                             text: "Run alignment"
                             enabled: !controller.busyWorking
                             onClicked: controller.runAlignment()
-                            ToolTip.text: "Optimize camera–lidar extrinsic (NID) using ready datasets."
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Optimize camera–lidar extrinsic (NID) using ready calibration datasets, global mask, and settings above."
                             ToolTip.delay: root.tooltipDelayMs
                         }
                     }
@@ -359,9 +496,10 @@ ApplicationWindow {
 
                 // Inspection
                 ScrollView {
+                    id: inspectionScroll
                     clip: true
                     ColumnLayout {
-                        width: parent.width
+                        width: inspectionScroll.availableWidth
                         Label { wrapMode: Text.WordWrap; Layout.fillWidth: true; text: "Inspection datasets (separate from calibration)." }
                         TextField {
                             Layout.fillWidth: true

@@ -36,14 +36,26 @@ The user SHALL set output voxel resolution (e.g. 1 cm, 2 cm) via `FusionParams.v
 - **WHEN** the user sets voxel resolution to 0.01 m and runs fusion
 - **THEN** the returned cloud is downsampled at approximately 1 cm voxels
 
-### Requirement: Exposed fusion parameters v1
+### Requirement: Exposed fusion parameters
 
-The UI SHALL expose `FusionParams` fields: `voxel_resolution`, `num_threads`, `max_correspondence_distance`, and scan-time parameters (`time_unit`, `time_origin`, `scan_duration`). Internal GLIM odometry/submap parameters remain hardcoded. Each exposed field SHALL have an in-app tooltip (see `calibration-pipeline` tooltips requirement).
+The **Datasets** tab SHALL expose every user-relevant field on `glim_cloud_fusion::FusionParams` that affects multi-scan CT-GICP fusion, including scan-time deskew, preprocess neighbor count, all `glim::OdometryEstimationCTParams` fields wired through `fuse_scans` (see `design.md` trace table), and output `voxel_resolution`. Values SHALL be edited per calibration dataset and persisted in `session.json` under each dataset’s `fusion_params` (and session-level legacy `fusion` block for migration).
+
+Each control SHALL have an in-app tooltip. CT-GICP / GLIM controls SHALL be disabled when the active dataset is single-scan (passthrough); output voxel and **Run fusion** remain enabled per single-scan requirement.
 
 #### Scenario: Adjust correspondence distance
 
-- **WHEN** the user changes max correspondence distance before fusion
-- **THEN** the value is passed to the fusion pipeline on the next run
+- **WHEN** the user changes max correspondence distance before multi-scan fusion
+- **THEN** the value is passed to `OdometryEstimationCT` on the next run
+
+#### Scenario: iVox resolution distinct from output voxel
+
+- **WHEN** the user sets `ivox_resolution` and `voxel_resolution` to different values
+- **THEN** fusion uses iVox for scan-to-model matching during odometry and applies output downsampling only in the final `voxel_merge` step
+
+#### Scenario: Fusion params binding audit
+
+- **WHEN** a new `FusionParams` or `OdometryEstimationCTParams` field is added in glim
+- **THEN** the change documents whether it is user-exposed, with trace from UI to `fuse_scans` (same discipline as NID params in `calibration-pipeline`)
 
 ### Requirement: Streaming fusion preview
 

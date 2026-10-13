@@ -99,6 +99,31 @@ bool load_mask_png(const std::string& path, int width, int height, std::vector<s
   return true;
 }
 
+glim_cloud_fusion::LidarScan to_lidar_scan(const PointXYZITCloud& cloud, double stamp) {
+  glim_cloud_fusion::LidarScan scan;
+  scan.stamp = stamp;
+  scan.width = cloud.width;
+  scan.height = cloud.height;
+  scan.points = cloud.scan.points;
+  scan.times = cloud.scan.times;
+  scan.intensities = cloud.scan.intensities;
+  scan.keep = cloud.scan.keep;
+  return scan;
+}
+
+glim_cloud_fusion::LidarScan to_lidar_scan_masked(
+  const PointXYZITCloud& cloud,
+  const std::vector<std::uint8_t>& mask_pixels,
+  double stamp) {
+  auto scan = to_lidar_scan(cloud, stamp);
+  const std::size_t expected =
+    static_cast<std::size_t>(cloud.width) * static_cast<std::size_t>(cloud.height);
+  if (!mask_pixels.empty() && mask_pixels.size() == expected) {
+    apply_mask_to_scan(scan, mask_pixels);
+  }
+  return scan;
+}
+
 void apply_mask_to_scan(glim_cloud_fusion::LidarScan& scan, const std::vector<std::uint8_t>& mask) {
   if (mask.empty()) {
     return;

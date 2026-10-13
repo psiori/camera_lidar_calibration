@@ -14,6 +14,8 @@
 #include <clc_core/dataset_util.hpp>
 #include <clc_core/session.hpp>
 
+#include <vlcal/calib/visual_camera_calibration.hpp>
+
 namespace {
 
 void test_colormap_jet() {
@@ -92,6 +94,46 @@ void test_session_round_trip() {
   std::filesystem::remove(path);
 }
 
+void test_calibration_params_defaults_and_round_trip() {
+  vlcal::VisualCameraCalibrationParams params;
+  clc::apply_default_calibration_params(params);
+  assert(params.num_threads == 15);
+  assert(params.nid_bins == 16);
+  assert(params.registration_type == vlcal::RegistrationType::NID_BFGS);
+  assert(std::abs(params.delta_trans_thresh - 0.005) < 1e-12);
+  assert(std::abs(params.delta_rot_thresh - 0.01 * M_PI / 180.0) < 1e-15);
+  assert(!params.disable_z_buffer_culling);
+
+  clc::SessionData session;
+  session.ensurePrimaryCalibration();
+  session.calibration_datasets.front().image_path = "/tmp/nid.png";
+  session.calibration_datasets.front().cloud_directory = "/tmp/pcds";
+  session.calibration_params = params;
+  session.calibration_params.max_outer_iterations = 3;
+  session.calibration_params.nid_bins = 24;
+  session.calibration_params.registration_type = vlcal::RegistrationType::NID_NELDER_MEAD;
+  session.fusion_params.voxel_resolution = 0.01;
+  session.fusion_params.k_neighbors = 32;
+
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_nid_params.json";
+  assert(clc::save_session(path.string(), session));
+  clc::SessionData loaded;
+  assert(clc::load_session(path.string(), loaded));
+  assert(loaded.calibration_params.max_outer_iterations == 3);
+  assert(loaded.calibration_params.nid_bins == 24);
+  assert(loaded.calibration_params.registration_type == vlcal::RegistrationType::NID_NELDER_MEAD);
+  assert(loaded.calibration_params.num_threads == 15);
+  assert(std::abs(loaded.fusion_params.voxel_resolution - 0.01) < 1e-12);
+  assert(loaded.fusion_params.k_neighbors == 32);
+  std::filesystem::remove(path);
+}
+
+void test_fusion_k_neighbors_default() {
+  glim_cloud_fusion::FusionParams params;
+  clc::apply_default_fusion_params(params);
+  assert(params.k_neighbors == 40);
+}
+
 void test_scan_geometry_empty_directory() {
   const auto scan = clc::scan_pcd_directory("/nonexistent_clc_test_dir", 0, 0);
   assert(!scan.error.empty());
@@ -123,6 +165,8 @@ int main() {
   test_multi_scan_not_ready_until_fused();
   test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
+  test_calibration_params_defaults_and_round_trip();
+  test_fusion_k_neighbors_default();
   test_scan_geometry_empty_directory();
   test_fusion_single_scan_passthrough();
   std::puts("clc_core_tests: ok");

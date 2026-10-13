@@ -49,14 +49,23 @@ The left pane SHALL display the active calibration dataset’s camera image in a
 - **WHEN** the user zooms and pans the image and clicks to complete a correspondence
 - **THEN** the stored image coordinates match the pixel under the reticle in the source image
 
-### Requirement: Gizmo-seeded correspondences
+### Requirement: Correspondence-based initial solve
 
-Manual correspondence solving SHALL use the session working extrinsic `T_camera_lidar` as the pose seed together with picked pairs when estimating the initial transform. A **display-only** camera pose gizmo (see `pose-gizmo`) SHALL visualize that pose on Initial alignment and Calibrate; v1 does not allow editing pose via the gizmo.
+Manual correspondence solving SHALL estimate the initial transform from picked 2D–3D pairs only (vlcal `PoseEstimation` with trusted correspondences). Passing the session working `T_camera_lidar` as a nonlinear pose seed for solves with three or more pairs is **not** implemented in v1 (reserved for post-v1 gizmo interaction). A **display-only** camera pose gizmo (see `pose-gizmo`) SHALL visualize `T_camera_lidar` on Initial alignment and Calibrate; v1 does not allow editing pose via the gizmo.
 
-#### Scenario: Compute uses pose seed
+#### Scenario: Compute uses all pairs
 
-- **WHEN** the user has a current `T_camera_lidar` (from a prior solve or default) and added correspondences, then runs compute initial alignment
-- **THEN** the solver receives the pose seed and all correspondence pairs and writes `T_camera_lidar_initial` and the working extrinsic; the gizmo display updates to match
+- **WHEN** the user has added correspondences on one or more datasets and runs compute initial alignment with valid intrinsics
+- **THEN** the solver receives all correspondence pairs, writes `T_camera_lidar_initial` and the working extrinsic, and the gizmo display updates to match
+
+### Requirement: Active dataset image and cloud stay paired
+
+On Datasets, Initial alignment, and Calibrate tabs, the camera image preview, 3D point cloud, and camera RGB projection SHALL always reflect the **same** active calibration dataset. Switching datasets or tabs SHALL reload both image and cloud for that dataset; the application SHALL NOT show one dataset’s image with another dataset’s cloud.
+
+#### Scenario: Switch calibration dataset
+
+- **WHEN** the user selects a different calibration dataset on any of those tabs
+- **THEN** the image pane and 3D viewer update to that dataset’s image and cloud (fused or preview) together
 
 ### Requirement: Camera pose gizmo on Initial alignment
 
@@ -106,7 +115,7 @@ The user SHALL be able to select a table row for the active dataset. With a row 
 
 ### Requirement: Compute initial alignment on all datasets
 
-The user SHALL run **Compute initial alignment** when the manual method’s minimum pair count is satisfied **across all calibration datasets collectively** (v1: at least three pairs total with valid intrinsics). The solver SHALL use every stored correspondence on every calibration dataset plus the pose seed to estimate a **single** shared `T_camera_lidar`. On success, the application SHALL update the working extrinsic and refresh projected RGB so the user can inspect the result with the 3D viewer blend control.
+The user SHALL run **Compute initial alignment** when the manual method’s minimum pair count is satisfied **across all calibration datasets collectively** (v1: at least three pairs total with valid intrinsics). The solver SHALL use every stored correspondence on every calibration dataset to estimate a **single** shared `T_camera_lidar`. On success, the application SHALL update the working extrinsic and refresh projected RGB on the **active** dataset’s image and cloud so the user can inspect the result with the 3D viewer blend control.
 
 #### Scenario: Multi-dataset solve
 

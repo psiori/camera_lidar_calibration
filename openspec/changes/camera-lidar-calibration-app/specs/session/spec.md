@@ -6,12 +6,17 @@ Defines persistent session state for camera-LiDAR calibration: one rigid extrins
 
 ### Requirement: Single extrinsic per session
 
-The session SHALL store exactly one `T_camera_lidar` (camera pose in lidar frame) shared by all calibration and inspection datasets in that session.
+The session SHALL store exactly one `T_camera_lidar` (camera pose in lidar frame) shared by all calibration and inspection datasets in that session. It SHALL also store session-global `vlcal::VisualCameraCalibrationParams` as `calibration_params` for the Calibrate tab and NID runs.
 
 #### Scenario: Multiple datasets same extrinsic
 
 - **WHEN** the user adds a second calibration dataset
 - **THEN** the system applies the same `T_camera_lidar` to both datasets without per-dataset extrinsic overrides
+
+#### Scenario: NID params in session file
+
+- **WHEN** the user saves a session after editing NID settings on Calibrate
+- **THEN** `session.json` includes serialized `calibration_params` and reload restores them to the Calibrate UI
 
 ### Requirement: Calibration and inspection datasets
 
@@ -61,7 +66,12 @@ Each calibration dataset SHALL be identified by the timestamp parsed from the **
 
 ### Requirement: Per-dataset fusion and scan-time parameters
 
-Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty). Session-level legacy fusion/scan-time fields MAY remain for migration but the UI SHALL edit per-dataset values on the Datasets tab.
+Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. `FusionParams` SHALL include the full CT-GICP / GLIM surface documented in `lidar-fusion` and `design.md` (extended struct in `glim_cloud_fusion`, not only voxel/threads/max correspondence). When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty). Session-level legacy fusion/scan-time fields MAY remain for migration but the UI SHALL edit per-dataset values on the Datasets tab.
+
+#### Scenario: Extended fusion_params in session file
+
+- **WHEN** the user saves a session after editing CT-GICP settings on Datasets
+- **THEN** `session.json` includes the extended `fusion_params` object for each dataset and reload restores them to the UI
 
 #### Scenario: Copy on add
 

@@ -11,7 +11,7 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - Camera pose gizmo on Initial alignment and Calibrate (v1: display at `T_camera_lidar`; post-v1: ImGuizmo-style interaction on Initial alignment only)
 - Initial alignment workspace: tri-pane (image | correspondence table | 3D), segmented calibration sections, manual correspondences with unified method interface (gizmo-seeded solve; feature methods later)
 - NID calibration with live preview; compile-time extensible provider/optimizer traits
-- LiDAR fusion UI with streaming preview, voxel output resolution, geometry validation
+- LiDAR fusion UI with streaming preview, full CT-GICP / GLIM fusion parameters (per dataset), output voxel resolution, geometry validation
 - Inspection datasets with overlay and colored PCD export
 - Session persistence for datasets, mask, intrinsics, and calibrated extrinsic
 - In-app tooltips on calibration/fusion controls (including scan-time deskew settings) so operators can learn parameters without external docs
@@ -29,7 +29,7 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - `pose-gizmo`: Camera-frame pose indicator on Initial alignment and Calibrate (v1 display-only; post-v1 interaction on Initial alignment)
 - `initial-alignment`: Tri-pane manual picking UI, correspondence table across datasets, compile-time initial-alignment methods, compute shared extrinsic from all pairs
 - `calibration-pipeline`: NID optimizer, compile-time provider traits, orchestration with `initial-alignment` for manual guess
-- `lidar-fusion`: Masked scan fusion, passthrough single scan, streaming preview, user voxel size
+- `lidar-fusion`: Masked scan fusion, passthrough single scan, streaming preview, user-tunable CT-GICP / GLIM + output voxel
 - `inspection`: Test datasets, camera-lidar overlay, export PCD with intensity and RGB
 
 ### Modified Capabilities

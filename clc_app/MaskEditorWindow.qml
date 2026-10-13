@@ -45,6 +45,7 @@ Window {
                 ToolTip.delay: maskWindow.tooltipDelayMs
             }
             SpinBox {
+                editable: true
                 from: 1
                 to: 8
                 stepSize: 1
@@ -84,21 +85,30 @@ Window {
             Button {
                 text: qsTr("Keep")
                 enabled: controller.maskPolygonPending
-                onClicked: controller.applyPendingMaskKeep()
+                onClicked: {
+                    controller.applyPendingMaskKeep()
+                    rangeView.clearClosedPolygon()
+                }
                 ToolTip.text: qsTr("Keep points inside the closed polygon (restore or include region).")
                 ToolTip.delay: maskWindow.tooltipDelayMs
             }
             Button {
                 text: qsTr("Remove")
                 enabled: controller.maskPolygonPending
-                onClicked: controller.applyPendingMaskRemove()
+                onClicked: {
+                    controller.applyPendingMaskRemove()
+                    rangeView.clearClosedPolygon()
+                }
                 ToolTip.text: qsTr("Remove points inside the closed polygon (exclude region).")
                 ToolTip.delay: maskWindow.tooltipDelayMs
             }
             Button {
                 text: qsTr("Discard polygon")
                 enabled: controller.maskPolygonPending
-                onClicked: controller.discardPendingMaskPolygon()
+                onClicked: {
+                    controller.discardPendingMaskPolygon()
+                    rangeView.clearClosedPolygon()
+                }
             }
         }
 
@@ -113,15 +123,6 @@ Window {
             maskWidth: controller.maskWidth
             maskHeight: controller.maskHeight
             maskController: controller
-            closedPolygonOverlay: controller.pendingMaskPolygonVertices
-        }
-
-        Connections {
-            target: controller
-            function onMaskPolygonPendingChanged() {
-                if (!controller.maskPolygonPending)
-                    rangeView.clearPendingPolygon()
-            }
         }
 
         Label {

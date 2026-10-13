@@ -48,6 +48,8 @@ Rectangle {
             Layout.fillWidth: true
             Label {
                 text: qsTr("Blend")
+                HoverHandler { id: blendTipHover }
+                ToolTip.visible: blendTipHover.hovered
                 ToolTip.text: qsTr("Mix lidar scalar color with projected camera RGB (0 = lidar only, 1 = camera only).")
                 ToolTip.delay: root.tooltipDelayMs
             }

@@ -43,4 +43,12 @@ bool load_mask_png(const std::string& path, int width, int height, std::vector<s
 /// Apply WxH mask to a structured scan (`keep` per point; 0 excludes).
 void apply_mask_to_scan(glim_cloud_fusion::LidarScan& scan, const std::vector<std::uint8_t>& mask);
 
+glim_cloud_fusion::LidarScan to_lidar_scan(const PointXYZITCloud& cloud, double stamp = 0.0);
+
+/// `to_lidar_scan` plus global mask when `mask_pixels.size() == width * height`.
+glim_cloud_fusion::LidarScan to_lidar_scan_masked(
+  const PointXYZITCloud& cloud,
+  const std::vector<std::uint8_t>& mask_pixels,
+  double stamp = 0.0);
+
 }  // namespace clc

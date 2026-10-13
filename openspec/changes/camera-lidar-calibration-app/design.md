@@ -25,7 +25,7 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
 - Sequence splitter from long recordings (deferred capability)
 - Corner view-orientation gizmo (ImGuizmo `ViewManipulate`)
 - Runtime plugin loading for guess/optimizer providers
-- Exposing internal GLIM odometry/submap parameters beyond `FusionParams`
+- Runtime GLIM `config_odometry` JSON editing (app uses explicit `FusionParams` / per-dataset session fields instead)
 - Alt+wheel FOV zoom, rubber-band selection, stored viewpoint cycling
 - Qt-free or API-agnostic graphics backend (may abstract later)
 - Separate `psiviz` git repository (factor out only after v1 works)
@@ -132,7 +132,9 @@ No Alt+wheel FOV zoom.
 
 **Correspondences:** Stored per calibration dataset in session; UI shows **all** rows, with non-active datasets read-only and visually distinct. Row select → highlight markers; re-pick updates that endpoint; delete removes markers and session entry. **Compute initial alignment** runs the active compile-time method over **all** datasets’ pairs (v1 minimum: three pairs total + intrinsics). Result writes `T_camera_lidar_initial` and working `T_camera_lidar`; blend slider on 3D inspects projection.
 
-**Pose seed:** Manual solve uses session `T_camera_lidar` (`ManualGuessInput::gizmo_T_camera_lidar`). Gizmo on Initial alignment visualizes that pose in v1; interactive nudging is post-v1 (`pose-gizmo`).
+**Pose seed:** `ManualGuessInput::gizmo_T_camera_lidar` is used only when fewer than three pairs (fallback). For ≥3 pairs, vlcal `PoseEstimation` does not yet take a seed; wiring a pose seed is post-v1 (`pose-gizmo` interaction). Display-only gizmo on Initial alignment / Calibrate visualizes `T_camera_lidar` in v1.
+
+**Active dataset media:** Image preview, 3D cloud, and RGB projection must always match the active calibration dataset on Datasets / Initial alignment / Calibrate (`refreshActiveDatasetVisuals` in `AppController`).
 
 **Extensibility:** `InitialGuessTraits` gains UI capability metadata (needs image, 3D, correspondence editor, pose seed) so a future feature-based provider can hide the table or populate it read-only. No runtime plugins.
 
@@ -150,11 +152,63 @@ struct OptimizerTraits<NidOptimizer> {
 
 v1: `ManualGuess` (pose seed + correspondences), `NidOptimizer` only.
 
-### Fusion parameters (v1 UI)
+### Fusion parameters (Datasets tab)
 
-Expose `FusionParams` only: `voxel_resolution`, `num_threads`, `max_correspondence_distance`, `scan_time`. Internal GLIM params remain hardcoded in `fusion.cpp`.
+Expose **all user-relevant** fields that affect multi-scan CT-GICP fusion in `glim_cloud_fusion::fuse_scans`, stored per dataset in `DatasetEntry::fusion_params`, serialized in `session.json`, and passed unchanged into `fuse_scans`. Extend `glim_cloud_fusion::FusionParams` (in the `glim` repo) so nothing material is hardcoded in `fusion.cpp` except GLIM defaults when a field is unset.
 
-`voxel_resolution` is applied in `voxel_merge()` after multi-scan SLAM. On single-scan passthrough, `voxel_merge()` downsamples the masked scan only (no SLAM or deskew). Independent of GLIM iVox.
+**Output vs odometry:** `voxel_resolution` is **post-SLAM output** downsampling (`voxel_merge()`). It is independent of `ivox_resolution` (scan-to-model map used inside `OdometryEstimationCT`).
+
+**glim trace audit** (`glim/glim_cloud_fusion/src/fusion.cpp` + `glim/include/glim/odometry/odometry_estimation_ct.hpp` — re-verify when bumping glim):
+
+| UI group | Member (target on `FusionParams`) | Used where |
+|----------|-------------------------------------|------------|
+| Output | `voxel_resolution` | `voxel_merge()` after merge / single-scan passthrough |
+| Scan time | `scan_time.*` | `normalize_lidar_scan_times` / deskew in `to_preprocessed` |
+| Preprocess | `k_neighbors` | `PreprocessedFrame::k_neighbors` + neighbor search in `to_preprocessed` |
+| CT-GICP odometry | `num_threads` | `OdometryEstimationCTParams::num_threads` |
+| CT-GICP odometry | `max_correspondence_distance` | `OdometryEstimationCTParams::max_correspondence_distance` |
+| iVox map | `ivox_resolution` | `OdometryEstimationCTParams::ivox_resolution` |
+| iVox map | `ivox_min_points_dist` | `OdometryEstimationCTParams::ivox_min_points_dist` |
+| iVox map | `ivox_lru_thresh` | `OdometryEstimationCTParams::ivox_lru_thresh` |
+| Factors | `location_consistency_inf_scale` | CT-GICP graph weights |
+| Factors | `constant_velocity_inf_scale` | CT-GICP graph weights |
+| Solver | `lm_max_iterations` | Levenberg–Marquardt inner loop |
+| Smoother | `smoother_lag` | Fixed-lag window [s] |
+| Smoother | `use_isam2_dogleg` | iSAM2 optimizer choice |
+| Smoother | `isam2_relinearize_skip` | iSAM2 relinearize cadence |
+| Smoother | `isam2_relinearize_thresh` | iSAM2 relinearize threshold |
+
+Not exposed in UI: `compute_covs` (marginal covariances for debugging; no effect on fused cloud export). Defaults for new fields SHALL match `OdometryEstimationCTParams()` constructed from GLIM `config_odometry` when not overridden in session.
+
+**Implementation gate:** Before closing fusion-params tasks, trace each `FusionParams` field UI → `session` → `run_fusion` → `fuse_scans` → `OdometryEstimationCT(odom_params)` (and `to_preprocessed` for `k_neighbors`). Unit test: round-trip extended `fusion_params` in `session.json`.
+
+**Datasets tab layout:** Keep **Fusion** group for output voxel + **Run fusion**. Add collapsible **CT-GICP / GLIM** subsection (multi-scan only): threads, max correspondence, iVox, factor weights, LM iterations, smoother fields, preprocess `k_neighbors`. Grey out entire CT-GICP block when `activeDatasetIsSingleScan` (same rule as today for threads/max corr).
+
+### NID parameters (Calibrate tab)
+
+Expose **all user-relevant** fields of `vlcal::VisualCameraCalibrationParams` on the **Calibrate** tab, stored in `SessionData::calibration_params`, serialized in `session.json`, and passed through `AlignmentInput` into `VisualCameraCalibration` without renaming or dropping fields.
+
+**vlcal trace audit** (direct_visual_lidar_calibration `visual_camera_calibration.cpp` / `.hpp` — re-verify when bumping vlcal):
+
+| UI field | Member | Used where |
+|----------|--------|------------|
+| Max outer iterations | `max_outer_iterations` | `calibrate()` outer `for` |
+| Max inner iterations | `max_inner_iterations` | NM `max_iterations`; BFGS `max_num_iterations` |
+| Threads | `num_threads` | NM cost `parallel for` only — **BFGS path does not pass this to OpenMP** (vlcal quirk; tooltip or fix upstream) |
+| Δtrans / Δrot stop | `delta_trans_thresh`, `delta_rot_thresh` | Outer convergence after each inner solve |
+| Disable Z-buffer culling | `disable_z_buffer_culling` | `ViewCulling` (`enable_depth_buffer_culling = !flag`) |
+| NID bins | `nid_bins` | `CostCalculatorNID` / `NIDCost` |
+| Registration type | `registration_type` | `NID_BFGS` vs `NID_NELDER_MEAD` |
+| NM init step | `nelder_mead_init_step` | NM only |
+| NM convergence | `nelder_mead_convergence_criteria` | NM only |
+
+Not exposed as Calibrate controls: `on_progress` (app callback for live gizmo/RGB). Not in `VisualCameraCalibrationParams`: hardcoded trust region in `MultiNIDCost` (0.2 m / 2°) — out of scope unless vlcal adds fields later.
+
+**vlcal preprocess CLI (not NID params):** `target_num_points` and standalone preprocess `min_distance` remain vlcal-only. In this app: fusion `voxel_resolution` 0.01 m, `num_threads` 15, `max_correspondence_distance` 0.5 m, `k_neighbors` 40 on `FusionParams` (UI + session JSON).
+
+**App defaults (`apply_default_calibration_params`):** `nid_bins` 16, `registration_type` `nid_bfgs`, `num_threads` 15, `delta_trans_thresh` 0.005 m, `delta_rot_thresh` 0.01°, `disable_z_buffer_culling` false.
+
+**Implementation gate:** Before closing the NID-params task, run a binding audit (grep / breakpoint / log once per field) confirming UI writes `session_.calibration_params` and `buildAlignmentInput` copies it to `input.params`. Add a short checklist in PR or `clc_core` test that default-constructed params round-trip through session JSON.
 
 ### Session and dataset I/O (v1 UI)
 
@@ -226,7 +280,7 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 
 **Calibrate tab**
 
-- Global NID params + Run alignment; 3D preview with display-only gizmo updating live during NID.
+- Scrollable **NID / optimization** group: full `VisualCameraCalibrationParams` (see table above); disable or hide Nelder–Mead-only fields when BFGS is selected. Run alignment; 3D preview with display-only gizmo updating live during NID.
 
 **Inspection tab**
 
@@ -264,8 +318,23 @@ Use Qt Quick `ToolTip` (or `ToolTip.visible` on hover) on labeled controls in `c
 
 | Control | Tooltip (v1 copy) |
 |---------|-------------------|
-| Run fusion | Merge loaded PCD scans into one deskewed cloud (CT-GICP), using the global mask and scan-time settings. |
-| Run alignment | Optimize camera–lidar extrinsic (NID) using the current image, fused cloud, and correspondences. |
+| Run fusion | Merge loaded PCD scans into one deskewed cloud (CT-GICP), using the global mask, scan-time settings, and CT-GICP / GLIM parameters. |
+| Fusion voxel (output) | Final merged cloud downsampling resolution (m); not the same as iVox map resolution during odometry. |
+| Fusion k-neighbors | Neighbors per point for covariance / CT-GICP preprocessing (vlcal preprocess default often 40; GLIM fusion today hardcodes 20 until §19). |
+| iVox resolution | Voxel size of the target map used for scan-to-model CT-GICP matching during fusion. |
+| iVox min point dist | Minimum spacing between points stored in an iVox cell. |
+| iVox LRU thresh | iVox cache size before evicting old voxels. |
+| Location / velocity consistency | Information weights on pose consistency factors in the CT-GICP graph. |
+| LM max iterations | Max Levenberg–Marquardt iterations per scan insertion. |
+| Smoother lag | Fixed-lag smoothing window length in seconds for multi-scan trajectory. |
+| iSAM2 dogleg / relinearize | Advanced smoother optimizer settings (see GLIM `config_odometry`). |
+| Run alignment | Optimize camera–lidar extrinsic (NID) using ready calibration datasets, global mask, and Calibrate NID settings. |
+| Registration type | BFGS (default) or Nelder–Mead optimizer for each outer NID iteration. |
+| NID bins | Histogram bins for mutual information cost (vlcal `nid_bins`). |
+| Max outer / inner iterations | Outer extrinsic refinement loops and per-loop solver steps. |
+| Convergence Δtrans / Δrot | Stop outer loop when pose change between iterations is below these thresholds. |
+| Disable Z-buffer culling | Skip depth-buffer point culling before NID (more points, slower). |
+| NID threads | OpenMP threads for Nelder–Mead multi-dataset cost; no effect on BFGS until vlcal is fixed. |
 | Blend | Mix lidar scalar color with projected camera RGB (0 = lidar only, 1 = camera only). |
 | Load / Save session | Load or save datasets, mask, intrinsics, and extrinsic from a session directory. |
 | Session directory | Folder containing `session.json` and related calibration data. |

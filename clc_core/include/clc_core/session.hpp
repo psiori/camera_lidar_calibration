@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <optional>
 #include <string>
 #include <vector>
@@ -71,6 +72,11 @@ bool load_session(const std::string& path, SessionData& session);
 int default_fusion_num_threads();
 void apply_default_fusion_params(glim_cloud_fusion::FusionParams& params);
 void apply_default_scan_time_params(glim_cloud_fusion::ScanTimeParams& scan_time);
+/// Parse a `fusion_params` object or a full `session.json` (uses top-level or first calibration dataset).
+bool fusion_params_from_json_file(const std::string& path, glim_cloud_fusion::FusionParams& params, std::string& error);
+void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParams& params);
+/// Defaults aligned with vlcal `calibrate` / team preprocess CLI (NID + fusion voxel).
+void apply_default_calibration_params(vlcal::VisualCameraCalibrationParams& params);
 
 /// Sweep length in seconds from per-point timestamps (e.g. max time when origin is scan start).
 std::optional<double> infer_scan_duration_seconds(

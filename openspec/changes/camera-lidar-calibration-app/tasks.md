@@ -49,7 +49,7 @@
 ## 6. Calibration pipeline
 
 - [x] 6.1 Add compile-time `InitialGuessTraits` / `OptimizerTraits` and provider registry table
-- [x] 6.2 Manual guess: gizmo + per-dataset Shift+click correspondences → `T_camera_lidar_initial`
+- [x] 6.2 Manual guess: per-dataset Shift+click correspondences → `T_camera_lidar_initial` (display-only gizmo; solver pose seed not wired)
 - [x] 6.3 Wire NID `run_alignment()` multi-dataset with global mask and progress callback
 - [x] 6.4 Live viewer update on `CalibrationProgress`
 - [x] 6.5 QML workflow: load → mask → fuse → guess → optimize → inspect (two-tab shell + mask editor window per `design.md`; includes session and dataset I/O per §1.5–1.9)
@@ -102,7 +102,8 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 12.2 **Tri-pane** layout when Initial alignment active: `CameraImageItem` (pan/zoom/reticle) | table + method/compute | `PointCloudScene` + overlay
 - [x] 12.3 Correspondence model in controller: pending pick, row selection, re-pick, per-row delete, markers in image + 3D
 - [x] 12.4 Table lists all datasets’ pairs; active dataset editable; read-only rows visually distinct; switch dataset updates image pane
-- [x] 12.5 `InitialGuessTraits` UI capability flags; wire Compute to multi-dataset `compute_manual_initial_guess` (all pairs + pose seed)
+- [x] 12.5 `InitialGuessTraits` UI capability flags; wire Compute to multi-dataset `compute_manual_initial_guess` (all pairs)
+- [ ] 12.5b Pass session `T_camera_lidar` as pose seed into manual initial guess when ≥3 pairs (blocked on vlcal / post-v1 gizmo)
 - [x] 12.6 Remove legacy tiny image embed from old Initial guess expansion; tooltips for compute/correspondence flow
 
 ## 13. Multi-dataset session and shell (spec: `session`, `app-shell`, `lidar-fusion`)
@@ -113,6 +114,14 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 13.4 Per-dataset fuse; post-fuse drop in-memory scans; persist fused cloud; lazy/async load into viewer
 - [x] 13.5 Mask editor dataset selector (shared global mask); grey out not-ready datasets on Initial alignment / Calibrate
 - [x] 13.6 Calibrate tab: global NID params + run on all ready datasets; 3D preview with display-only gizmo
+
+## 18. NID optimization parameters (spec: `calibration-pipeline`, `app-shell`, `session`)
+
+- [x] 18.1 Trace audit: document vlcal `VisualCameraCalibrationParams` usage in `design.md` (keep in sync with direct_visual_lidar_calibration on bump)
+- [x] 18.2 `session.json`: serialize/deserialize `calibration_params` (all fields except `on_progress`)
+- [x] 18.3 `AppController` + `Main.qml` Calibrate tab: expose every audited parameter with tooltips; NM-only fields disabled when BFGS selected
+- [x] 18.4 Binding verification: confirm UI → `session_.calibration_params` → `AlignmentInput::params` → `VisualCameraCalibration` (checklist or test); note BFGS `num_threads` gap in tooltip
+- [x] 18.5 UAT: change bins/outer iterations, save/load session, run alignment and observe behavior change (e.g. iteration counts in status)
 
 ## 14. Camera pose gizmo — display (spec: `pose-gizmo`, `initial-alignment`, `calibration-pipeline`)
 
@@ -140,3 +149,14 @@ v1 is **display-only** on Initial alignment and Calibrate (no drag/rotate). Came
 
 - [x] 17.1 `AppController`: expose `activeDatasetIsSingleScan` (or equivalent) when active catalog has exactly one PCD
 - [x] 17.2 Datasets tab: disable/grey Scan time group and fusion threads + max correspondence when single scan; keep voxel + **Run fusion**; tooltips per `design.md`
+
+## 19. Full CT-GICP / GLIM fusion parameters (spec: `lidar-fusion`, `session`, `app-shell`)
+
+- [x] 19.1a `k_neighbors` on `FusionParams`; wire `fusion.cpp` (no hardcoded neighbor count)
+- [ ] 19.1b Remaining `OdometryEstimationCTParams` fields on `FusionParams`; pass full `odom_params` in `fuse_scans`
+- [x] 19.2a `session.json`: `k_neighbors` in per-dataset and legacy `fusion` blocks; default 40 in `apply_default_fusion_params`
+- [ ] 19.2b Serialize remaining CT-GICP fields when 19.1b lands
+- [x] 19.3a Datasets tab: `k_neighbors` SpinBox + tooltip (enabled for single- and multi-scan)
+- [ ] 19.3b Expose remaining CT-GICP fields; grey odometry block when single-scan
+- [ ] 19.4 Binding verification: UI → `DatasetEntry::fusion_params` → `run_fusion` → `fuse_scans` → `OdometryEstimationCT` (test or checklist)
+- [ ] 19.5 UAT: change iVox resolution vs output voxel, save/load session, multi-scan fuse and confirm behavior shift

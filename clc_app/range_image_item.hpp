@@ -43,6 +43,7 @@ class RangeImageItem : public QQuickPaintedItem {
   Q_INVOKABLE void closePolygon();
   Q_INVOKABLE void cancelPolygon();
   Q_INVOKABLE void clearPendingPolygon();
+  Q_INVOKABLE void clearClosedPolygon();
 
  signals:
   void imageChanged();

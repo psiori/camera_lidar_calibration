@@ -350,12 +350,13 @@ void RangeImageItem::closePolygon() {
   }
   pending_closed_native_vertices_ = current_native_vertices_;
   current_native_vertices_.clear();
+  setClosedPolygonOverlay(verts);
   setDrawing(false);
   has_hover_ = false;
-  update();
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
     controller->commitMaskPolygonNative(pending_closed_native_vertices_);
   }
+  update();
   emit polygonCommitted(verts);
 }
 
@@ -367,10 +368,15 @@ void RangeImageItem::cancelPolygon() {
 }
 
 void RangeImageItem::clearPendingPolygon() {
-  if (pending_closed_native_vertices_.empty()) {
+  clearClosedPolygon();
+}
+
+void RangeImageItem::clearClosedPolygon() {
+  if (pending_closed_native_vertices_.empty() && closed_polygon_overlay_.empty()) {
     return;
   }
   pending_closed_native_vertices_.clear();
+  closed_polygon_overlay_.clear();
   update();
 }
 
@@ -378,10 +384,7 @@ void RangeImageItem::addVertexAtDisplay(const QPointF& display) {
   if (image_.isNull() || !interactionRectContains(display)) {
     return;
   }
-  if (!pending_closed_native_vertices_.empty()) {
-    return;
-  }
-  if (!closed_polygon_overlay_.empty()) {
+  if (!pending_closed_native_vertices_.empty() || !closed_polygon_overlay_.empty()) {
     return;
   }
   const QPointF first_display = current_native_vertices_.empty()
@@ -487,11 +490,11 @@ void RangeImageItem::paint(QPainter* painter) {
     return out;
   };
 
-  const std::vector<QPointF> overlay_from_controller = variantListToNative(closed_polygon_overlay_);
-  if (!overlay_from_controller.empty()) {
-    draw_polygon_overlay(overlay_from_controller, true);
-  } else if (!pending_closed_native_vertices_.empty()) {
-    draw_polygon_overlay(pending_closed_native_vertices_, true);
+  const std::vector<QPointF> overlay_from_property = variantListToNative(closed_polygon_overlay_);
+  const std::vector<QPointF>& closed_native =
+      !pending_closed_native_vertices_.empty() ? pending_closed_native_vertices_ : overlay_from_property;
+  if (!closed_native.empty()) {
+    draw_polygon_overlay(closed_native, true);
   }
   if (!current_native_vertices_.empty()) {
     draw_polygon_overlay(current_native_vertices_, false);
