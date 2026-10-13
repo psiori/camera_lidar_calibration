@@ -1,5 +1,10 @@
 build/
+build-*/
 .conan-prefix/
 .cache/
+.cursor/
+CMakeUserPresets.json
+out.pcd
+conan/__pycache__/
 *.user
 *.autosave
