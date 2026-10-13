@@ -84,6 +84,14 @@ Same fusion defaults as the app (hardware thread count, 0.5 m max correspondence
 
 Use `--max-scans N` for a quick timing sample. Progress lines report load and per-scan fusion timing.
 
+All `glim_cloud_fusion::FusionParams` fields are overridable on the CLI (`--help` lists them). Load the same values as a saved session with `--params-json /path/to/session.json`. Example tuning closer to DVLC dynamic integration:
+
+```bash
+clc_fusion /path/to/pcds --output fused.pcd \
+  --ivox-resolution 0.05 --voxel-resolution 0.05 \
+  --max-correspondence-dist 0.5 --smoother-lag 0
+```
+
 ### App workflow (v1)
 
 1. **Session** — choose a session directory, **Load** / **Save** (`session.json` with calibration + inspection datasets, mask path, extrinsics, fusion/scan-time params).
