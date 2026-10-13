@@ -66,7 +66,7 @@ Each calibration dataset SHALL be identified by the timestamp parsed from the **
 
 ### Requirement: Per-dataset fusion and scan-time parameters
 
-Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. `FusionParams` SHALL include the full CT-GICP / GLIM surface documented in `lidar-fusion` and `design.md` (extended struct in `glim_cloud_fusion`, not only voxel/threads/max correspondence). When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty). Session-level legacy fusion/scan-time fields MAY remain for migration but the UI SHALL edit per-dataset values on the Datasets tab.
+Each calibration dataset SHALL store its own `FusionParams` and `ScanTimeParams`. `FusionParams` SHALL include required `backend` (`GlimSlam` or `CtIntegrator`) and the full parameter surface for the selected backend documented in `lidar-fusion` and `design.md` (extended struct in `glim_cloud_fusion`, not only voxel/threads/max correspondence). When the user adds a new calibration dataset, those fields SHALL be initialized from the first calibration dataset (or session defaults if the list was empty), including `backend`. The UI SHALL edit per-dataset values on the Datasets tab only (no session-level fusion parameter block).
 
 #### Scenario: Extended fusion_params in session file
 
@@ -99,6 +99,15 @@ All structured PCDs across all calibration datasets in a session SHALL share the
 ### Requirement: Session persistence
 
 The session SHALL be saveable and loadable to a directory including intrinsics, extrinsics, global mask path, per-dataset fusion and scan-time settings, dataset ids and paths, fused cloud paths, and per-dataset correspondences.
+
+### Requirement: Single supported session schema (pre-stable)
+
+Until the first stable release, the application SHALL support **only** the current `session.json` shape written by the app. Load SHALL **not** implement migration, inference, or fallbacks for omitted fields from earlier experimental saves. If `session.json` is missing required keys (including per-dataset `fusion_params.backend`), load SHALL fail with a clear error.
+
+#### Scenario: Outdated session file
+
+- **WHEN** the user loads a `session.json` that does not match the current schema
+- **THEN** load fails with an error message and the session is not partially applied
 
 #### Scenario: Save and reload
 

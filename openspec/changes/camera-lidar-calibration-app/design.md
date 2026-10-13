@@ -3,7 +3,7 @@
 See `proposal.md`. The shell (`clc_app` + `clc_core`) exists with fusion/alignment workers and basic QML. Libraries are split across three work packages:
 
 - **WP1** `vlcal_align`: headless NID calibration (`direct_visual_lidar_calibration`)
-- **WP2** `glim_cloud_fusion`: CT-GICP SLAM + post-merge voxel downsampling
+- **WP2** `glim_cloud_fusion`: Multi-scan fusion via **CT integrator** (default) or **CT-GICP SLAM** + post-merge voxel downsampling
 - **WP3** `camera_lidar_calibration`: Qt-free core + Qt/QML app + in-repo 3D viz library (`psiviz`)
 
 Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpdater` and PCL `pcd_viewer` navigation is reimplemented in Qt.
@@ -152,11 +152,32 @@ struct OptimizerTraits<NidOptimizer> {
 
 v1: `ManualGuess` (pose seed + correspondences), `NidOptimizer` only.
 
+### Fusion backends (`glim_cloud_fusion`)
+
+Multi-scan fusion SHALL support two backends selected **per calibration dataset** via `FusionParams::backend` (default **`CtIntegrator`** for new datasets and app defaults). The Datasets tab SHALL use a **dropdown** bound to the **active** dataset only; other datasets retain their own `backend` and parameter sets.
+
+| Backend | Source of truth | Behavior |
+|---------|-----------------|----------|
+| **`GlimSlam`** | `OdometryEstimationCT` + iSAM2 fixed-lag smoother | Current `fuse_scans` path: deskewed scans merged using smoothed `T_world_begin`; exposes full CT-GICP / smoother parameter surface. |
+| **`CtIntegrator`** | `glim_cloud_fusion` CT integrator (ported from legacy dvl preprocess; reference `direct_visual_lidar_calibration/.../dynamic_point_cloud_integrator.cpp`) | **No SLAM:** per-scan isolated LM on begin/end poses with `gtsam_points::IntegratedCT_GICPFactor`, constant-velocity prediction from previous scan, growing scan-to-model map, deskewed points accumulated into a global voxel hash (interpolated pose per point). **No** iSAM2, **no** cross-scan pose graph. |
+
+**Implementation location (WP2):** New integrator implementation lives in the `glim` repo under `glim_cloud_fusion/` (shared `to_preprocessed` / `normalize_lidar_scan_times` / `voxel_merge` with SLAM path). Use `gtsam_points` factors and `iVox` the same way `OdometryEstimationCT` does for the inner scan solve; do **not** link `vlcal_preprocess` from the app.
+
+**Parity notes (integrator vs vlcal):** Match vlcal ordering (sort by time, `randomgrid_sampling` with **0.5 m** grid voxel, cap `target_num_points`, kNN covariances, 3× LM outer loops with 10 iterations). Integrator scan-to-model map uses vlcal `iVox(1.0, 0.05, 100)` via `integrator_ivox_resolution` (leaf **1.0 m**), `integrator_ivox_min_points_dist` (**0.05 m** insertion spacing), and `integrator_ivox_lru_thresh` (**100**). These are independent of output `voxel_resolution` (vlcal integrator param default **0.05 m**) and of SLAM `ivox_*` fields. `min_distance` (default **1.0 m**) filters accumulated deskewed points by range from the sensor; it is **not** iVox cell spacing.
+
+**Scan timestamps:** Default app/CLI scan time is **nanoseconds** + **ScanStart** (`apply_default_scan_time_params`). Per-point times are relative to rotation/sweep start even when angular masking leaves gaps in the saved points; do **not** use `FirstPoint` for that data. `scan_duration` (seconds) is required to normalize times into the sweep interval for deskew.
+
+**Headless testing:** `camera_lidar_calibration/tools/clc_fusion` SHALL accept `--fusion-backend slam|integrator` (and integrator-specific flags) calling the same `fuse_scans` entry point as `clc_app`.
+
 ### Fusion parameters (Datasets tab)
 
-Expose **all user-relevant** fields that affect multi-scan CT-GICP fusion in `glim_cloud_fusion::fuse_scans`, stored per dataset in `DatasetEntry::fusion_params`, serialized in `session.json`, and passed unchanged into `fuse_scans`. Extend `glim_cloud_fusion::FusionParams` (in the `glim` repo) so nothing material is hardcoded in `fusion.cpp` except GLIM defaults when a field is unset.
+Expose **all user-relevant** fields that affect multi-scan fusion in `glim_cloud_fusion::fuse_scans`, stored per dataset in `DatasetEntry::fusion_params`, serialized in `session.json`, and passed unchanged into `fuse_scans`. Extend `glim_cloud_fusion::FusionParams` (in the `glim` repo) so nothing material is hardcoded in `fusion.cpp` except GLIM defaults when a field is unset.
 
-**Output vs odometry:** `voxel_resolution` is **post-SLAM output** downsampling (`voxel_merge()`). It is independent of `ivox_resolution` (scan-to-model map used inside `OdometryEstimationCT`).
+**Backend switch:** Datasets tab **Fusion method** dropdown (user labels: **CT integrator** | **CT-GICP SLAM**; stored as `CtIntegrator` | `GlimSlam`). Changing dataset selection SHALL reload the dropdown and visible parameter groups from that dataset’s `fusion_params`. When **CT integrator** is selected, hide or disable SLAM-only fields and wire only integrator + shared fields into `fuse_scans`. When **CT-GICP SLAM** is selected, hide or disable integrator-only fields and wire SLAM + shared fields. Unwired controls for the inactive backend SHALL NOT be written back to session on save (or SHALL retain last stored values without applying them at fuse time).
+
+**Output compatibility:** Both backends SHALL emit `DensePointCloud` / exported PCD with the **same intensity semantics** as today’s SLAM path (raw per-point intensities averaged in `voxel_merge` / integrator voxel cells; no backend-specific normalization that would break shared colormap, NID projection, or cross-dataset inspection). If integrator accumulation differs numerically, normalize only inside the fusion module so viewer and export ranges match the existing SLAM fusion contract.
+
+**Output vs internal maps:** `voxel_resolution` is **final output** downsampling (`voxel_merge()` after backend-specific accumulation). It is independent of `ivox_resolution` (SLAM scan-to-model map) and of integrator internal map resolution.
 
 **glim trace audit** (`glim/glim_cloud_fusion/src/fusion.cpp` + `glim/include/glim/odometry/odometry_estimation_ct.hpp` — re-verify when bumping glim):
 
@@ -180,9 +201,26 @@ Expose **all user-relevant** fields that affect multi-scan CT-GICP fusion in `gl
 
 Not exposed in UI: `compute_covs` (marginal covariances for debugging; no effect on fused cloud export). Defaults for new fields SHALL match `OdometryEstimationCTParams()` constructed from GLIM `config_odometry` when not overridden in session.
 
-**Implementation gate:** Before closing fusion-params tasks, trace each `FusionParams` field UI → `session` → `run_fusion` → `fuse_scans` → `OdometryEstimationCT(odom_params)` (and `to_preprocessed` for `k_neighbors`). Unit test: round-trip extended `fusion_params` in `session.json`.
+**Implementation gate:** Before closing fusion-params tasks, trace each `FusionParams` field UI → `session` → `run_fusion` → `fuse_scans` → `OdometryEstimationCT(odom_params)` when `backend == GlimSlam` (and `to_preprocessed` for `k_neighbors`). Before closing integrator tasks (§20), trace integrator fields → integrator branch only. Unit test: round-trip extended `fusion_params` including `backend` in `session.json`.
 
-**Datasets tab layout:** Keep **Fusion** group for output voxel + **Run fusion**. Add collapsible **CT-GICP / GLIM** subsection (multi-scan only): threads, max correspondence, iVox, factor weights, LM iterations, smoother fields, preprocess `k_neighbors`. Grey out entire CT-GICP block when `activeDatasetIsSingleScan` (same rule as today for threads/max corr).
+**Integrator parameter trace** (target on `FusionParams` when `backend == CtIntegrator`):
+
+| UI group | Member | Used where |
+|----------|--------|------------|
+| Preprocess | `k_neighbors` | kNN + covariances (shared with SLAM path) |
+| Preprocess | `target_num_points` | `randomgrid_sampling` cap per scan (vlcal default 10000) |
+| Integrator map | `integrator_ivox_resolution` | Target iVox leaf size for scan-to-model (vlcal **1.0** m) |
+| Integrator map | `integrator_ivox_min_points_dist` | Min spacing between points in the same integrator iVox cell (vlcal **0.05** m) |
+| Integrator map | `integrator_ivox_lru_thresh` | Integrator target map LRU horizon (vlcal **100**) |
+| Accumulation | `min_distance` | Drop deskewed points closer than this to sensor origin when accumulating (vlcal default **1.0** m; not iVox spacing) |
+| Solver | `num_threads` | OpenMP in kNN / factor |
+| Solver | `lm_max_iterations` | Per-scan LM iterations (vlcal: 10 inner, 3 outer loops) |
+| Scan time | `scan_time.*` | Deskew time normalization (shared) |
+| Output | `voxel_resolution` | Final `voxel_merge` / integrator voxel hash cell size (vlcal `voxel_resolution` param) |
+
+Not exposed in v1 integrator UI: vlcal `visualize` / `verbose` (use CLI logging in `clc_fusion`).
+
+**Datasets tab layout:** Keep **Fusion** group for **Fusion method** dropdown, output voxel, and **Run fusion**. Add collapsible **CT-GICP / GLIM** subsection (multi-scan + `GlimSlam` only): threads, max correspondence, iVox, factor weights, LM iterations, smoother fields, preprocess `k_neighbors`. Add collapsible **CT integrator** subsection (multi-scan + `CtIntegrator` only): `target_num_points`, `min_distance`, `integrator_ivox_resolution`, `integrator_ivox_min_points_dist`, shared `k_neighbors` / threads / LM. Grey out backend-specific blocks when `activeDatasetIsSingleScan` (scan time + both backend blocks; keep voxel + **Run fusion**).
 
 ### NID parameters (Calibrate tab)
 
@@ -204,7 +242,7 @@ Expose **all user-relevant** fields of `vlcal::VisualCameraCalibrationParams` on
 
 Not exposed as Calibrate controls: `on_progress` (app callback for live gizmo/RGB). Not in `VisualCameraCalibrationParams`: hardcoded trust region in `MultiNIDCost` (0.2 m / 2°) — out of scope unless vlcal adds fields later.
 
-**vlcal preprocess CLI (not NID params):** `target_num_points` and standalone preprocess `min_distance` remain vlcal-only. In this app: fusion `voxel_resolution` 0.01 m, `num_threads` 15, `max_correspondence_distance` 0.5 m, `k_neighbors` 40 on `FusionParams` (UI + session JSON).
+**vlcal preprocess CLI (not NID params):** `target_num_points` and standalone preprocess `min_distance` remain vlcal-only. Integrator fusion defaults follow vlcal `DynamicPointCloudIntegrator` + `apply_default_fusion_params` (see integrator trace table above).
 
 **App defaults (`apply_default_calibration_params`):** `nid_bins` 16, `registration_type` `nid_bfgs`, `num_threads` 15, `delta_trans_thresh` 0.005 m, `delta_rot_thresh` 0.01°, `disable_z_buffer_culling` false.
 
@@ -214,7 +252,7 @@ Not exposed as Calibrate controls: `on_progress` (app callback for live gizmo/RG
 
 `clc_app` exposes paths and session persistence in `Main.qml`:
 
-- **Session directory** + **Load** / **Save**: read/write `session.json` under the chosen folder (intrinsics, extrinsics, fusion/scan-time params, dataset paths, mask path when modeled).
+- **Session directory** + **Load** / **Save**: read/write `session.json` under the chosen folder (intrinsics, extrinsics, per-dataset `fusion_params` / `scan_time`, dataset paths, mask path when modeled). **Pre-stable:** one schema only — no migration from older JSON; invalid or incomplete files fail load (see `session` spec).
 - **Image path** and **PCD directory**: per-dataset inputs; PCD directory is scanned for `.pcd` files when set or after session load.
 - **Load intrinsics** (planned): OpenCV YAML via `FileStorage`; path stored in session on save.
 
@@ -318,7 +356,8 @@ Use Qt Quick `ToolTip` (or `ToolTip.visible` on hover) on labeled controls in `c
 
 | Control | Tooltip (v1 copy) |
 |---------|-------------------|
-| Run fusion | Merge loaded PCD scans into one deskewed cloud (CT-GICP), using the global mask, scan-time settings, and CT-GICP / GLIM parameters. |
+| Fusion method | **CT integrator (default):** sequential deskew and accumulate without SLAM. **CT-GICP SLAM:** multi-scan odometry with fixed-lag smoothing. |
+| Run fusion | Merge loaded PCD scans into one deskewed cloud using the selected backend, global mask, scan-time settings, and backend parameters. |
 | Fusion voxel (output) | Final merged cloud downsampling resolution (m); not the same as iVox map resolution during odometry. |
 | Fusion k-neighbors | Neighbors per point for covariance / CT-GICP preprocessing (vlcal preprocess default often 40; GLIM fusion today hardcodes 20 until §19). |
 | iVox resolution | Voxel size of the target map used for scan-to-model CT-GICP matching during fusion. |
@@ -367,6 +406,7 @@ Extend `FusionProgress` (or parallel callback) with partial cloud snapshots; thr
 | Depth pick collisions at 20M | Optional point-index render target |
 | Qt coupling blocks non-Qt reuse | Accept for v1; extract interface when factoring out |
 | Mask topology mismatch across files | Hard error on load; block fusion |
+| SLAM vs integrator geometry differ on same data | Document expected geometric differences; §20.3 regression on integrator port; intensity range MUST stay compatible for mixed datasets in one session |
 | Gizmo vs navigation conflict | `psiviz` input router: gizmo first; app disables gizmo during optimize |
 
 ## Open Questions

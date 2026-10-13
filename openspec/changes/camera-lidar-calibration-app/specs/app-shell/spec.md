@@ -76,7 +76,7 @@ Each row SHALL have a short hint label, a read-only path field, and a **Browse�
 
 ### Requirement: Datasets tab content
 
-The **Datasets** tab SHALL provide per-dataset configuration for the **active** dataset: image path and PCD directory (set when the dataset is created), per-dataset scan-time and fusion parameters (new datasets copy values from the first calibration dataset), fuse action, global mask file shortcuts, and **Edit mask…**. Intrinsics SHALL remain session-global on this tab. After a dataset is added, its image and PCD paths SHALL NOT be editable; the user SHALL delete the dataset and add a new one to change paths (path editing may be added later).
+The **Datasets** tab SHALL provide per-dataset configuration for the **active** dataset: image path and PCD directory (set when the dataset is created), **Fusion method** dropdown (**CT integrator** / **CT-GICP SLAM**, stored as `CtIntegrator` / `GlimSlam`), per-dataset scan-time and fusion parameters (new datasets copy values from the first calibration dataset), fuse action, global mask file shortcuts, and **Edit mask…**. Intrinsics SHALL remain session-global on this tab. After a dataset is added, its image and PCD paths SHALL NOT be editable; the user SHALL delete the dataset and add a new one to change paths (path editing may be added later).
 
 #### Scenario: Immutable paths
 
@@ -85,17 +85,17 @@ The **Datasets** tab SHALL provide per-dataset configuration for the **active** 
 
 ### Requirement: Single-scan fusion and scan-time UI
 
-On the **Datasets** tab, when the **active** calibration dataset has exactly **one** structured PCD in its catalog (single `.pcd` file at add time, or a directory that resolved to one scan), the UI SHALL **disable and visually grey out** the **Scan time** controls and the multi-scan **CT-GICP / GLIM** fusion controls (`num_threads`, `max_correspondence_distance`, iVox, smoother, etc.). **`k_neighbors`** SHALL remain enabled for single-scan passthrough because preprocessing still uses it; only output voxel and **Run fusion** are required for a single cloud, but neighbor count remains editable. Scan-time fields SHALL NOT apply to single-scan passthrough (no cross-scan deskew). **`voxel_resolution`** and **Run fusion** SHALL remain enabled so the user can run single-scan passthrough / downsampling per `lidar-fusion`. Disabled groups SHALL show a tooltip explaining that only output voxel size and **Run fusion** apply for a single cloud.
+On the **Datasets** tab, when the **active** calibration dataset has exactly **one** structured PCD in its catalog (single `.pcd` file at add time, or a directory that resolved to one scan), the UI SHALL **disable and visually grey out** the **Fusion method** dropdown, the **Scan time** controls, and both multi-scan backend parameter groups (**CT-GICP / GLIM** and **CT integrator**). **`k_neighbors`** SHALL remain enabled for single-scan passthrough because preprocessing still uses it; only output voxel and **Run fusion** are required for a single cloud, but neighbor count remains editable. Scan-time fields SHALL NOT apply to single-scan passthrough (no cross-scan deskew). **`voxel_resolution`** and **Run fusion** SHALL remain enabled so the user can run single-scan passthrough / downsampling per `lidar-fusion`. Disabled groups SHALL show a tooltip explaining that only output voxel size and **Run fusion** apply for a single cloud.
 
 #### Scenario: One PCD selected
 
 - **WHEN** the active dataset’s catalog contains one PCD
-- **THEN** time unit, time origin, scan duration, fusion threads, and max correspondence are greyed out and non-interactive
+- **THEN** Fusion method, time unit, time origin, scan duration, and backend-specific fusion parameters are greyed out and non-interactive
 
 #### Scenario: Multi-scan directory
 
 - **WHEN** the active dataset’s catalog contains two or more PCDs
-- **THEN** fusion and scan-time controls are enabled (subject to geometry validation and worker busy state)
+- **THEN** Fusion method, scan-time controls, and the parameter group for the **selected** method are enabled (subject to geometry validation and worker busy state); the inactive method’s parameter group is hidden or greyed out
 
 ### Requirement: Initial alignment tri-pane layout
 

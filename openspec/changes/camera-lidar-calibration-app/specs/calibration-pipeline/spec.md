@@ -114,7 +114,7 @@ At minimum, tooltips SHALL cover: scan time (time unit, time origin, scan durati
 #### Scenario: Scan time origin
 
 - **WHEN** the user hovers the time-origin control
-- **THEN** a tooltip explains FirstPoint (zero time at the first point in each scan) vs ScanStart (zero at the scan header stamp, requires scan duration)
+- **THEN** a tooltip explains FirstPoint (re-zero at the first stored point) vs ScanStart (times already relative to sweep/rotation start; use when gaps omit points but timestamps stay valid; requires scan duration for deskew)
 
 #### Scenario: Scan duration
 

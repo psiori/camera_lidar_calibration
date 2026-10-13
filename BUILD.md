@@ -54,6 +54,8 @@ Dependency order:
 3. `glim` (includes `glim_cloud_fusion`)
 4. `vlcal_align` (`direct_visual_lidar_calibration`)
 
+When you change packaged sources in `glim` or `direct_visual_lidar_calibration`, **bump the Conan `version` in that repo's `conanfile.py`**, then update `scripts/install-deps.sh` (`GLIM_CONAN_VERSION` / `VLCAL_CONAN_VERSION`) and `camera_lidar_calibration/conanfile.py` (`requires(...)`). Run `install-deps.sh` again; Conan treats the new version as a new package and builds it (`--build=missing` on downstream steps). Same version with different sources is what leads to stale cache confusion.
+
 The Conan profile (`conan/profiles/native-macos`) uses `compiler.version=13` for Conan Center binary compatibility. The numeric stack (`gtsam`, `gtsam_points`, `glim`, `vlcal_align`, and `clc_core`) is built from source with `-march=native` enabled by default (`CALIB_MARCH_NATIVE=True`). Set `CALIB_MARCH_NATIVE=False` to disable CPU-specific tuning.
 
 Hybrid Homebrew integration (OpenMP, Qt hints for Conan; OpenCV 4 and Qt for the app) lives only in this repo under `conan/calib_deps.py` and `scripts/build-app.sh`. Conan library packages use Conan Center OpenCV 4.x; `build-app.sh` passes Homebrew `opencv@4` `OpenCV_DIR` / `Qt6_DIR` when configuring the app. If you upgrade `opencv@4`, rerun `install-deps.sh` to refresh `vlcal_align` in the Conan cache when needed.
@@ -77,7 +79,7 @@ Same fusion defaults as the app (hardware thread count, 0.5 m max correspondence
 
 ```bash
 ~/source_builds/camera_lidar_calibration/build/tools/clc_fusion/clc_fusion \
-  /path/to/pcd_dir --sort timestamp \
+  /path/to/pcd_dir \
   --glim-config ~/source_builds/glim/config \
   --output /tmp/fused.pcd
 ```
@@ -89,8 +91,12 @@ All `glim_cloud_fusion::FusionParams` fields are overridable on the CLI (`--help
 ```bash
 clc_fusion /path/to/pcds --output fused.pcd \
   --ivox-resolution 0.05 --voxel-resolution 0.05 \
-  --max-correspondence-dist 0.5 --smoother-lag 0
+  --max-correspondence-dist 0.5
 ```
+
+Batch fusion defaults to the **CT integrator** backend (`--fusion-backend integrator`) with vlcal-aligned defaults (see `clc_fusion -h`). Use `--fusion-backend slam` for CT-GICP odometry. Integrator flags include `--target-num-points`, `--min-distance` (accumulation range filter), `--integrator-ivox-resolution` (map leaf, default 1.0 m), and `--integrator-ivox-min-points-dist` (map cell spacing, default 0.05 m). Default scan time is nanoseconds + `ScanStart` (rotation-relative timestamps).
+
+With SLAM, the iSAM2 smoother stays off by default (`enable_fixed_lag_smoother=false`); use `--enable-smoother` only if you need live-style pose smoothing.
 
 ### App workflow (v1)
 
@@ -110,6 +116,14 @@ Built automatically when `BUILD_CLC_APP=ON`. Targets:
 - `psiviz_scene_test` — minimal render smoke test.
 
 Unit tests for `clc_core` (mask, colormap, session I/O, single-scan fusion): `clc_core_tests` via CTest after configure.
+
+Mask editor regression (loads `MaskEditorWindow`, synthetic structured scan, polygon with margin clicks outside the rendered image, asserts outline stays visible after close while `maskPolygonPending` is true):
+
+```bash
+cmake --build build --target clc_mask_editor_polygon_test
+./build/clc_app/clc_mask_editor_polygon_test
+# or: ctest --test-dir build -R clc_mask_editor_polygon_test
+```
 
 ## Repositories / branches
 
