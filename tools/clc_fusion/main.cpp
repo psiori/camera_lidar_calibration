@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <glim/util/config.hpp>
 
 #include <clc_core/fusion_service.hpp>
@@ -31,24 +35,23 @@ std::string format_duration(double seconds) {
 void print_usage(const char* prog) {
   std::cerr
     << "Usage: " << prog << " <pcd_directory> [options]\n"
-    << "  Fuses sorted PCD scans with glim_cloud_fusion (CT-GICP), same core as clc_app.\n\n"
+    << "  Fuses sorted PCD scans with glim_cloud_fusion (default: CT integrator), same core as clc_app.\n\n"
     << "I/O:\n"
     << "  --output PATH               Write fused cloud as binary PCD (XYZ + intensity)\n"
-    << "  --max-scans N               Only process first N files after sorting\n"
-    << "  --sort lex|timestamp        File order (default: lex)\n"
+    << "  --max-scans N               Only process first N files after timestamp sort\n"
     << "  --glim-config DIR           GLIM config directory (silences missing /config.json)\n"
     << "  --params-json PATH          Load fusion_params from session.json or fusion_params JSON\n"
     << "  --print-params              Print effective FusionParams and exit (with --params-json only)\n\n"
     << "Output merge:\n"
-    << "  --voxel-resolution M        Post-SLAM voxel average size in meters (default: app default)\n\n"
+    << "  --voxel-resolution M        Accumulated output voxel size in meters (default: 0.01)\n\n"
     << "Scan time / deskew:\n"
     << "  --time-unit seconds|nanoseconds (default: nanoseconds)\n"
     << "  --time-origin scan_start|first_point (default: scan_start)\n"
     << "  --scan-duration S           Sweep duration in seconds (inferred from first scan if omitted)\n\n"
     << "Preprocess:\n"
-    << "  --k-neighbors N             kNN count for per-point covariances (default: app default)\n\n"
-    << "CT-GICP odometry:\n"
-    << "  --threads N                 Worker threads (default: app default / hardware count)\n"
+    << "  --k-neighbors N             kNN count for per-point covariances (default: 20)\n"
+    << "  --threads N                 OpenMP worker threads (default: 16 for integrator)\n\n"
+    << "CT-GICP SLAM (--fusion-backend slam):\n"
     << "  --max-correspondence-dist M Max correspondence distance in meters\n"
     << "  --ivox-resolution M         Scan-to-model iVox leaf size in meters\n"
     << "  --ivox-min-points-dist M    Min distance between points in an iVox cell\n"
@@ -61,46 +64,25 @@ void print_usage(const char* prog) {
     << "  --isam2-relinearize-skip N  ISAM2 relinearize skip\n"
     << "  --isam2-relinearize-thresh T ISAM2 relinearize threshold\n"
     << "  --compute-covs              Compute marginal covariances (debug)\n"
+    << "  --enable-smoother           Enable iSAM2 fixed-lag smoother (default: off)\n"
+    << "CT integrator (default --fusion-backend integrator):\n"
+    << "  --fusion-backend integrator|slam   Fusion method (default: integrator)\n"
+    << "  --max-correspondence-dist M Max correspondence (m, default: 1.0)\n"
+    << "  --target-num-points N       Per-scan point cap after random-grid subsample (default: 10000)\n"
+    << "  --min-distance M            Min range when accumulating deskewed points (m, default: 1.0; not iVox spacing)\n"
+    << "  --integrator-ivox-resolution M  Scan-to-model iVox leaf size (m, default: 1.0)\n"
+    << "  --integrator-ivox-min-points-dist M  Min spacing in integrator iVox cells (m, default: 0.05)\n"
     << "  -h, --help                  Show this help\n";
 }
 
-bool parse_autocrane_timestamp(const std::string& filename, double& stamp_seconds) {
-  int y = 0;
-  unsigned m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
-  if (7 != std::sscanf(filename.c_str(), "%d-%u-%uT%u_%u_%u_%3uZ.pcd", &y, &m, &d, &h, &mi, &s, &ms)) {
-    return false;
-  }
-  std::tm calendar_time{};
-  calendar_time.tm_sec = s;
-  calendar_time.tm_min = mi;
-  calendar_time.tm_hour = h;
-  calendar_time.tm_mday = d;
-  calendar_time.tm_mon = m - 1;
-  calendar_time.tm_year = y - 1900;
-  calendar_time.tm_isdst = 0;
-#if defined(_WIN32)
-  const std::time_t utc_time = _mkgmtime(&calendar_time);
-#else
-  const std::time_t utc_time = timegm(&calendar_time);
-#endif
-  const auto ms_tp = std::chrono::milliseconds(ms) + std::chrono::system_clock::from_time_t(utc_time);
-  stamp_seconds =
-    std::chrono::duration_cast<std::chrono::duration<double>>(ms_tp.time_since_epoch()).count();
-  return true;
-}
-
-std::vector<std::string> sort_pcd_paths(const std::vector<std::string>& paths, const std::string& mode) {
-  if (mode != "timestamp") {
-    return paths;
-  }
+std::vector<std::string> sort_pcd_paths_by_timestamp(const std::vector<std::string>& paths) {
   std::vector<std::pair<double, std::string>> keyed;
   keyed.reserve(paths.size());
   for (const auto& path : paths) {
     double stamp = 0.0;
     const auto name = std::filesystem::path(path).filename().string();
-    if (!parse_autocrane_timestamp(name, stamp)) {
-      std::cerr << "Warning: cannot parse timestamp from " << name << ", using lex order key\n";
-      stamp = static_cast<double>(keyed.size());
+    if (!clc::parse_pcd_filename_stamp(name, stamp)) {
+      throw std::runtime_error("cannot parse timestamp from " + name);
     }
     keyed.emplace_back(stamp, path);
   }
@@ -132,8 +114,13 @@ struct Options {
   std::optional<double> isam2_relinearize_skip;
   std::optional<double> isam2_relinearize_thresh;
   std::optional<bool> compute_covs;
-  std::string output_path;
-  std::string sort_mode = "lex";
+  std::optional<bool> enable_fixed_lag_smoother;
+  std::optional<std::string> fusion_backend;
+  std::optional<int> target_num_points;
+  std::optional<double> min_distance;
+  std::optional<double> integrator_ivox_resolution;
+  std::optional<double> integrator_ivox_min_points_dist;
+  std::string output_path = "out.pcd";
   std::string glim_config_dir;
   std::string params_json_path;
   bool print_params_only = false;
@@ -192,6 +179,28 @@ void apply_cli_overrides(const Options& opt, glim_cloud_fusion::FusionParams& pa
   if (opt.compute_covs.has_value()) {
     params.compute_covs = *opt.compute_covs;
   }
+  if (opt.enable_fixed_lag_smoother.has_value()) {
+    params.enable_fixed_lag_smoother = *opt.enable_fixed_lag_smoother;
+  }
+  if (opt.fusion_backend.has_value()) {
+    if (*opt.fusion_backend == "slam" || *opt.fusion_backend == "glim_slam") {
+      params.backend = glim_cloud_fusion::FusionBackend::GlimSlam;
+    } else if (*opt.fusion_backend == "integrator" || *opt.fusion_backend == "ct_integrator") {
+      params.backend = glim_cloud_fusion::FusionBackend::CtIntegrator;
+    }
+  }
+  if (opt.target_num_points.has_value()) {
+    params.target_num_points = *opt.target_num_points;
+  }
+  if (opt.min_distance.has_value()) {
+    params.min_distance = *opt.min_distance;
+  }
+  if (opt.integrator_ivox_resolution.has_value()) {
+    params.integrator_ivox_resolution = *opt.integrator_ivox_resolution;
+  }
+  if (opt.integrator_ivox_min_points_dist.has_value()) {
+    params.integrator_ivox_min_points_dist = *opt.integrator_ivox_min_points_dist;
+  }
 }
 
 std::optional<Options> parse_args(int argc, char** argv) {
@@ -215,6 +224,30 @@ std::optional<Options> parse_args(int argc, char** argv) {
     }
     if (arg == "--compute-covs") {
       opt.compute_covs = true;
+      continue;
+    }
+    if (arg == "--enable-smoother") {
+      opt.enable_fixed_lag_smoother = true;
+      continue;
+    }
+    if (arg == "--fusion-backend" && i + 1 < argc) {
+      opt.fusion_backend = argv[++i];
+      continue;
+    }
+    if (arg == "--target-num-points" && i + 1 < argc) {
+      opt.target_num_points = std::stoi(argv[++i]);
+      continue;
+    }
+    if (arg == "--min-distance" && i + 1 < argc) {
+      opt.min_distance = std::stod(argv[++i]);
+      continue;
+    }
+    if (arg == "--integrator-ivox-resolution" && i + 1 < argc) {
+      opt.integrator_ivox_resolution = std::stod(argv[++i]);
+      continue;
+    }
+    if (arg == "--integrator-ivox-min-points-dist" && i + 1 < argc) {
+      opt.integrator_ivox_min_points_dist = std::stod(argv[++i]);
       continue;
     }
     if (arg == "--threads" && i + 1 < argc) {
@@ -279,10 +312,6 @@ std::optional<Options> parse_args(int argc, char** argv) {
     }
     if (arg == "--output" && i + 1 < argc) {
       opt.output_path = argv[++i];
-      continue;
-    }
-    if (arg == "--sort" && i + 1 < argc) {
-      opt.sort_mode = argv[++i];
       continue;
     }
     if (arg == "--glim-config" && i + 1 < argc) {
@@ -376,7 +405,12 @@ int main(int argc, char** argv) {
   }
 
   try {
-    const auto params = build_fusion_params(opt);
+    auto params = build_fusion_params(opt);
+#ifdef _OPENMP
+    if (params.num_threads > 0) {
+      omp_set_num_threads(params.num_threads);
+    }
+#endif
     std::vector<std::uint8_t> mask_pixels;
     if (!opt.params_json_path.empty()) {
       clc::SessionData session;
@@ -402,7 +436,7 @@ int main(int argc, char** argv) {
     }
 
     auto paths = clc::list_pcd_files(opt.directory);
-    paths = sort_pcd_paths(paths, opt.sort_mode);
+    paths = sort_pcd_paths_by_timestamp(paths);
     if (paths.empty()) {
       std::cerr << "No PCD files under: " << opt.directory << "\n";
       return 1;
@@ -413,6 +447,10 @@ int main(int argc, char** argv) {
     }
 
     auto params_mut = params;
+    if (!clc::scan_time_duration_valid(params_mut.scan_time)) {
+      std::cerr << "scan_duration is required (set --scan-duration or fusion_params.scan_time in JSON)\n";
+      return 1;
+    }
     std::cout << "PCD directory: " << opt.directory << "\n";
     std::cout << "Scans: " << paths.size() << "\nFusionParams:\n";
     clc::print_fusion_params(std::cout, params_mut);
@@ -428,19 +466,7 @@ int main(int argc, char** argv) {
         std::cerr << "Failed to load " << paths[i] << ": " << err << "\n";
         return 1;
       }
-      if (scans.empty() && (!params_mut.scan_time.scan_duration.has_value() ||
-                            *params_mut.scan_time.scan_duration <= 0.0)) {
-        if (const auto duration = clc::infer_scan_duration_seconds(cloud.scan, params_mut.scan_time)) {
-          params_mut.scan_time.scan_duration = *duration;
-          std::cout << "Inferred scan_duration: " << *duration << " s\n";
-        }
-      }
-
-      double stamp = static_cast<double>(i) * 0.1;
-      if (opt.sort_mode == "timestamp") {
-        parse_autocrane_timestamp(std::filesystem::path(paths[i]).filename().string(), stamp);
-      }
-      scans.push_back(clc::to_lidar_scan_masked(cloud, mask_pixels, stamp));
+      scans.push_back(clc::to_lidar_scan_masked(cloud, mask_pixels, 0.0));
 
       if ((i + 1) % 10 == 0 || i + 1 == paths.size()) {
         const double elapsed =
