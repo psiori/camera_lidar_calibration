@@ -36,29 +36,48 @@ nlohmann::json scan_time_to_json(const glim_cloud_fusion::ScanTimeParams& scan_t
   nlohmann::json j;
   j["time_unit"] = static_cast<int>(scan_time.time_unit);
   j["time_origin"] = static_cast<int>(scan_time.time_origin);
-  if (scan_time.scan_duration.has_value()) {
-    j["scan_duration"] = *scan_time.scan_duration;
-  }
+  j["scan_duration"] = *scan_time.scan_duration;
   return j;
 }
 
-void scan_time_from_json(const nlohmann::json& j, glim_cloud_fusion::ScanTimeParams& scan_time) {
+bool scan_time_from_json(const nlohmann::json& j, glim_cloud_fusion::ScanTimeParams& scan_time) {
   if (!j.is_object()) {
-    return;
+    return false;
   }
   scan_time.time_unit = static_cast<glim_cloud_fusion::TimeUnit>(
     j.value("time_unit", static_cast<int>(scan_time.time_unit)));
   scan_time.time_origin = static_cast<glim_cloud_fusion::TimeOrigin>(
     j.value("time_origin", static_cast<int>(scan_time.time_origin)));
-  if (j.contains("scan_duration")) {
-    scan_time.scan_duration = j["scan_duration"].get<double>();
-  } else {
-    scan_time.scan_duration.reset();
+  if (!j.contains("scan_duration") || !j["scan_duration"].is_number()) {
+    return false;
   }
+  const double duration = j["scan_duration"].get<double>();
+  if (duration <= 0.0 || !std::isfinite(duration)) {
+    return false;
+  }
+  scan_time.scan_duration = duration;
+  return true;
+}
+
+const char* fusion_backend_to_string(glim_cloud_fusion::FusionBackend backend) {
+  return backend == glim_cloud_fusion::FusionBackend::GlimSlam ? "glim_slam" : "ct_integrator";
+}
+
+bool fusion_backend_from_string(const std::string& s, glim_cloud_fusion::FusionBackend& backend) {
+  if (s == "glim_slam") {
+    backend = glim_cloud_fusion::FusionBackend::GlimSlam;
+    return true;
+  }
+  if (s == "ct_integrator") {
+    backend = glim_cloud_fusion::FusionBackend::CtIntegrator;
+    return true;
+  }
+  return false;
 }
 
 nlohmann::json fusion_params_to_json(const glim_cloud_fusion::FusionParams& params) {
   nlohmann::json j;
+  j["backend"] = fusion_backend_to_string(params.backend);
   j["voxel_resolution"] = params.voxel_resolution;
   j["num_threads"] = params.num_threads;
   j["max_correspondence_distance"] = params.max_correspondence_distance;
@@ -74,13 +93,26 @@ nlohmann::json fusion_params_to_json(const glim_cloud_fusion::FusionParams& para
   j["isam2_relinearize_skip"] = params.isam2_relinearize_skip;
   j["isam2_relinearize_thresh"] = params.isam2_relinearize_thresh;
   j["compute_covs"] = params.compute_covs;
+  j["enable_fixed_lag_smoother"] = params.enable_fixed_lag_smoother;
+  j["target_num_points"] = params.target_num_points;
+  j["min_distance"] = params.min_distance;
+  j["integrator_ivox_resolution"] = params.integrator_ivox_resolution;
+  j["integrator_ivox_min_points_dist"] = params.integrator_ivox_min_points_dist;
+  j["integrator_ivox_lru_thresh"] = params.integrator_ivox_lru_thresh;
+  j["integrator_lm_outer_loops"] = params.integrator_lm_outer_loops;
   j["scan_time"] = scan_time_to_json(params.scan_time);
   return j;
 }
 
-void fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionParams& params) {
+bool fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionParams& params) {
   if (!j.is_object()) {
-    return;
+    return false;
+  }
+  if (!j.contains("backend") || !j["backend"].is_string()) {
+    return false;
+  }
+  if (!fusion_backend_from_string(j["backend"].get<std::string>(), params.backend)) {
+    return false;
   }
   params.voxel_resolution = j.value("voxel_resolution", params.voxel_resolution);
   params.num_threads = j.value("num_threads", params.num_threads);
@@ -98,9 +130,18 @@ void fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionP
   params.isam2_relinearize_skip = j.value("isam2_relinearize_skip", params.isam2_relinearize_skip);
   params.isam2_relinearize_thresh = j.value("isam2_relinearize_thresh", params.isam2_relinearize_thresh);
   params.compute_covs = j.value("compute_covs", params.compute_covs);
-  if (j.contains("scan_time")) {
-    scan_time_from_json(j["scan_time"], params.scan_time);
+  params.enable_fixed_lag_smoother = j.value("enable_fixed_lag_smoother", params.enable_fixed_lag_smoother);
+  if (!j.contains("scan_time") || !scan_time_from_json(j["scan_time"], params.scan_time)) {
+    return false;
   }
+  params.target_num_points = j.value("target_num_points", params.target_num_points);
+  params.min_distance = j.value("min_distance", params.min_distance);
+  params.integrator_ivox_resolution = j.value("integrator_ivox_resolution", params.integrator_ivox_resolution);
+  params.integrator_ivox_min_points_dist =
+    j.value("integrator_ivox_min_points_dist", params.integrator_ivox_min_points_dist);
+  params.integrator_ivox_lru_thresh = j.value("integrator_ivox_lru_thresh", params.integrator_ivox_lru_thresh);
+  params.integrator_lm_outer_loops = j.value("integrator_lm_outer_loops", params.integrator_lm_outer_loops);
+  return true;
 }
 
 nlohmann::json dataset_to_json(const DatasetEntry& d) {
@@ -120,8 +161,8 @@ nlohmann::json dataset_to_json(const DatasetEntry& d) {
   return j;
 }
 
-DatasetEntry dataset_from_json(const nlohmann::json& j) {
-  DatasetEntry d;
+bool dataset_from_json(const nlohmann::json& j, DatasetEntry& d) {
+  d = DatasetEntry{};
   d.id = j.value("id", "");
   d.image_path = j.value("image_path", "");
   d.cloud_directory = j.value("cloud_directory", "");
@@ -129,12 +170,16 @@ DatasetEntry dataset_from_json(const nlohmann::json& j) {
   d.pcd_paths = j.value("pcd_paths", std::vector<std::string>{});
   d.fusion_complete = j.value("fusion_complete", false);
   d.geometry_error = j.value("geometry_error", false);
-  if (j.contains("fusion_params")) {
-    fusion_params_from_json(j["fusion_params"], d.fusion_params);
+  if (!j.contains("fusion_params") || !fusion_params_from_json(j["fusion_params"], d.fusion_params)) {
+    return false;
   }
   if (j.contains("scan_time")) {
-    scan_time_from_json(j["scan_time"], d.scan_time);
+    if (!scan_time_from_json(j["scan_time"], d.scan_time)) {
+      return false;
+    }
     d.fusion_params.scan_time = d.scan_time;
+  } else {
+    d.scan_time = d.fusion_params.scan_time;
   }
   if (j.contains("correspondences") && j["correspondences"].is_array()) {
     for (const auto& c : j["correspondences"]) {
@@ -151,7 +196,7 @@ DatasetEntry dataset_from_json(const nlohmann::json& j) {
       d.correspondences.push_back(corr);
     }
   }
-  return d;
+  return true;
 }
 
 }  // namespace
@@ -162,10 +207,26 @@ int default_fusion_num_threads() {
 }
 
 void apply_default_fusion_params(glim_cloud_fusion::FusionParams& params) {
-  params.voxel_resolution = 0.01;
-  params.num_threads = 15;
-  params.max_correspondence_distance = 0.5;
-  params.k_neighbors = 40;
+  // CT integrator defaults: vlcal `DynamicPointCloudIntegratorParams` + `iVox(1.0, 0.05, 100)`.
+  params.backend = glim_cloud_fusion::FusionBackend::CtIntegrator;
+  params.voxel_resolution = 0.05;
+  params.num_threads = 16;
+  params.max_correspondence_distance = 1.0;
+  params.k_neighbors = 20;
+  params.ivox_resolution = 1.0;
+  params.ivox_min_points_dist = 0.1;
+  params.ivox_lru_thresh = 200;
+  params.location_consistency_inf_scale = 1e-3;
+  params.constant_velocity_inf_scale = 1e5;
+  params.lm_max_iterations = 10;
+  params.smoother_lag = 1.0;
+  params.enable_fixed_lag_smoother = false;
+  params.target_num_points = 10000;
+  params.min_distance = 1.0;
+  params.integrator_ivox_resolution = 1.0;
+  params.integrator_ivox_min_points_dist = 0.05;
+  params.integrator_ivox_lru_thresh = 100;
+  params.integrator_lm_outer_loops = 3;
 }
 
 void apply_default_calibration_params(vlcal::VisualCameraCalibrationParams& params) {
@@ -229,19 +290,9 @@ void apply_default_scan_time_params(glim_cloud_fusion::ScanTimeParams& scan_time
   scan_time.scan_duration.reset();
 }
 
-std::optional<double> infer_scan_duration_seconds(
-  const glim_cloud_fusion::LidarScan& scan,
-  const glim_cloud_fusion::ScanTimeParams& params) {
-  if (scan.times.empty()) {
-    return std::nullopt;
-  }
-  const double max_t = *std::max_element(scan.times.begin(), scan.times.end());
-  const double scale = (params.time_unit == glim_cloud_fusion::TimeUnit::Nanoseconds) ? 1e-9 : 1.0;
-  const double duration = max_t * scale;
-  if (duration <= 0.0 || !std::isfinite(duration)) {
-    return std::nullopt;
-  }
-  return duration;
+bool scan_time_duration_valid(const glim_cloud_fusion::ScanTimeParams& scan_time) {
+  return scan_time.scan_duration.has_value() && *scan_time.scan_duration > 0.0 &&
+         std::isfinite(*scan_time.scan_duration);
 }
 
 void SessionData::ensurePrimaryCalibration() {
@@ -259,6 +310,15 @@ void SessionData::ensurePrimaryInspection() {
 bool save_session(const std::string& path, const SessionData& session_in) {
   SessionData session = session_in;
   prune_placeholder_calibration_datasets(session);
+
+  if (!scan_time_duration_valid(session.scan_time)) {
+    return false;
+  }
+  for (const auto& d : session.calibration_datasets) {
+    if (!scan_time_duration_valid(d.fusion_params.scan_time)) {
+      return false;
+    }
+  }
 
   nlohmann::json j;
   j["camera"]["model"] = session.camera.model;
@@ -281,15 +341,7 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   for (const auto& d : session.inspection_datasets) {
     j["inspection_datasets"].push_back(dataset_to_json(d));
   }
-  j["fusion"]["voxel_resolution"] = session.fusion_params.voxel_resolution;
-  j["fusion"]["num_threads"] = session.fusion_params.num_threads;
-  j["fusion"]["max_correspondence_distance"] = session.fusion_params.max_correspondence_distance;
-  j["fusion"]["k_neighbors"] = session.fusion_params.k_neighbors;
-  j["scan_time"]["time_unit"] = static_cast<int>(session.scan_time.time_unit);
-  j["scan_time"]["time_origin"] = static_cast<int>(session.scan_time.time_origin);
-  if (session.scan_time.scan_duration.has_value()) {
-    j["scan_time"]["scan_duration"] = *session.scan_time.scan_duration;
-  }
+  j["scan_time"] = scan_time_to_json(session.scan_time);
   save_pose(j, "T_camera_lidar", session.T_camera_lidar);
   save_pose(j, "T_camera_lidar_initial", session.T_camera_lidar_initial);
   j["calibration_params"] = calibration_params_to_json(session.calibration_params);
@@ -330,30 +382,27 @@ bool load_session(const std::string& path, SessionData& session) {
   session.calibration_datasets.clear();
   if (j.contains("calibration_datasets") && j["calibration_datasets"].is_array()) {
     for (const auto& d : j["calibration_datasets"]) {
-      session.calibration_datasets.push_back(dataset_from_json(d));
+      DatasetEntry entry;
+      if (!dataset_from_json(d, entry)) {
+        return false;
+      }
+      session.calibration_datasets.push_back(std::move(entry));
     }
   }
   session.inspection_datasets.clear();
   if (j.contains("inspection_datasets") && j["inspection_datasets"].is_array()) {
     for (const auto& d : j["inspection_datasets"]) {
-      session.inspection_datasets.push_back(dataset_from_json(d));
+      DatasetEntry entry;
+      if (!dataset_from_json(d, entry)) {
+        return false;
+      }
+      session.inspection_datasets.push_back(std::move(entry));
     }
   }
   prune_placeholder_calibration_datasets(session);
   apply_default_fusion_params(session.fusion_params);
-  if (j.contains("fusion")) {
-    session.fusion_params.voxel_resolution = j["fusion"].value("voxel_resolution", session.fusion_params.voxel_resolution);
-    session.fusion_params.num_threads = j["fusion"].value("num_threads", session.fusion_params.num_threads);
-    session.fusion_params.max_correspondence_distance =
-      j["fusion"].value("max_correspondence_distance", session.fusion_params.max_correspondence_distance);
-    session.fusion_params.k_neighbors = j["fusion"].value("k_neighbors", session.fusion_params.k_neighbors);
-  }
-  session.scan_time.time_unit = static_cast<glim_cloud_fusion::TimeUnit>(
-    j["scan_time"].value("time_unit", static_cast<int>(glim_cloud_fusion::TimeUnit::Nanoseconds)));
-  session.scan_time.time_origin = static_cast<glim_cloud_fusion::TimeOrigin>(
-    j["scan_time"].value("time_origin", static_cast<int>(glim_cloud_fusion::TimeOrigin::ScanStart)));
-  if (j["scan_time"].contains("scan_duration")) {
-    session.scan_time.scan_duration = j["scan_time"]["scan_duration"].get<double>();
+  if (!j.contains("scan_time") || !scan_time_from_json(j["scan_time"], session.scan_time)) {
+    return false;
   }
   load_pose(j, "T_camera_lidar", session.T_camera_lidar);
   load_pose(j, "T_camera_lidar_initial", session.T_camera_lidar_initial);
@@ -363,15 +412,10 @@ bool load_session(const std::string& path, SessionData& session) {
   }
   session.fusion_params.scan_time = session.scan_time;
   for (auto& d : session.calibration_datasets) {
+    d.scan_time = d.fusion_params.scan_time;
     if (d.fusion_params.num_threads <= 0) {
-      d.fusion_params = session.fusion_params;
-    }
-    if (!d.fusion_params.scan_time.scan_duration.has_value() && session.scan_time.scan_duration.has_value()) {
-      d.fusion_params.scan_time = session.scan_time;
-    }
-    if (d.scan_time.time_unit == glim_cloud_fusion::TimeUnit::Nanoseconds &&
-        d.scan_time.time_origin == glim_cloud_fusion::TimeOrigin::ScanStart && !d.scan_time.scan_duration.has_value()) {
-      d.scan_time = session.scan_time;
+      apply_default_fusion_params(d.fusion_params);
+      d.fusion_params.scan_time = d.scan_time;
     }
     if (d.id.empty() && !d.pcd_paths.empty()) {
       d.id = dataset_id_from_first_scan(d.pcd_paths);
@@ -390,17 +434,16 @@ bool fusion_params_from_json_file(const std::string& path, glim_cloud_fusion::Fu
     }
     nlohmann::json j;
     in >> j;
-    if (j.contains("fusion_params") && j["fusion_params"].is_object()) {
-      fusion_params_from_json(j["fusion_params"], params);
+    if (j.contains("fusion_params") && j["fusion_params"].is_object() &&
+        fusion_params_from_json(j["fusion_params"], params)) {
       return true;
     }
     if (j.contains("calibration_datasets") && j["calibration_datasets"].is_array() &&
-        !j["calibration_datasets"].empty() && j["calibration_datasets"][0].contains("fusion_params")) {
-      fusion_params_from_json(j["calibration_datasets"][0]["fusion_params"], params);
+        !j["calibration_datasets"].empty() && j["calibration_datasets"][0].contains("fusion_params") &&
+        fusion_params_from_json(j["calibration_datasets"][0]["fusion_params"], params)) {
       return true;
     }
-    if (j.is_object() && (j.contains("voxel_resolution") || j.contains("num_threads") || j.contains("scan_time"))) {
-      fusion_params_from_json(j, params);
+    if (j.is_object() && fusion_params_from_json(j, params)) {
       return true;
     }
     error = "no fusion_params object found in " + path;
@@ -413,7 +456,8 @@ bool fusion_params_from_json_file(const std::string& path, glim_cloud_fusion::Fu
 
 void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParams& params) {
   const auto& st = params.scan_time;
-  out << "  voxel_resolution: " << params.voxel_resolution << "\n"
+  out << "  backend: " << fusion_backend_to_string(params.backend) << "\n"
+      << "  voxel_resolution: " << params.voxel_resolution << "\n"
       << "  num_threads: " << params.num_threads << "\n"
       << "  max_correspondence_distance: " << params.max_correspondence_distance << "\n"
       << "  k_neighbors: " << params.k_neighbors << "\n"
@@ -428,6 +472,13 @@ void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParam
       << "  isam2_relinearize_skip: " << params.isam2_relinearize_skip << "\n"
       << "  isam2_relinearize_thresh: " << params.isam2_relinearize_thresh << "\n"
       << "  compute_covs: " << (params.compute_covs ? "true" : "false") << "\n"
+      << "  enable_fixed_lag_smoother: " << (params.enable_fixed_lag_smoother ? "true" : "false") << "\n"
+      << "  target_num_points: " << params.target_num_points << "\n"
+      << "  min_distance: " << params.min_distance << "\n"
+      << "  integrator_ivox_resolution: " << params.integrator_ivox_resolution << "\n"
+      << "  integrator_ivox_min_points_dist: " << params.integrator_ivox_min_points_dist << "\n"
+      << "  integrator_ivox_lru_thresh: " << params.integrator_ivox_lru_thresh << "\n"
+      << "  integrator_lm_outer_loops: " << params.integrator_lm_outer_loops << "\n"
       << "  scan_time.time_unit: " << (st.time_unit == glim_cloud_fusion::TimeUnit::Nanoseconds ? "nanoseconds" : "seconds")
       << "\n"
       << "  scan_time.time_origin: "
@@ -435,7 +486,7 @@ void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParam
   if (st.scan_duration.has_value()) {
     out << "  scan_time.scan_duration: " << *st.scan_duration << "\n";
   } else {
-    out << "  scan_time.scan_duration: (infer from first scan)\n";
+    out << "  scan_time.scan_duration: (required, not set)\n";
   }
 }
 
