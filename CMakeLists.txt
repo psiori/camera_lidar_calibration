@@ -17,13 +17,28 @@ if(BUILD_WITH_MARCH_NATIVE)
 endif()
 
 find_package(Eigen3 REQUIRED)
-include(cmake/clc_opencv.cmake)
-clc_ensure_opencv_found()
+
+# Homebrew opencv@4 only (see BUILD.md). Avoid Conan static opencv on the app link line.
+if(NOT OpenCV_DIR)
+  if(EXISTS "/opt/homebrew/opt/opencv@4/lib/cmake/opencv4/OpenCVConfig.cmake")
+    set(OpenCV_DIR "/opt/homebrew/opt/opencv@4/lib/cmake/opencv4" CACHE PATH "Homebrew opencv@4")
+  elseif(EXISTS "/usr/local/opt/opencv@4/lib/cmake/opencv4/OpenCVConfig.cmake")
+    set(OpenCV_DIR "/usr/local/opt/opencv@4/lib/cmake/opencv4" CACHE PATH "Homebrew opencv@4")
+  endif()
+endif()
+if(OpenCV_DIR)
+  find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs
+    PATHS "${OpenCV_DIR}" NO_DEFAULT_PATH NO_CMAKE_PACKAGE_REGISTRY)
+else()
+  find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs)
+endif()
+
 find_package(PCL REQUIRED COMPONENTS io)
 find_package(nlohmann_json REQUIRED)
 
 if(CLC_DEV_BUILD)
   if(NOT TARGET vlcal_align)
+    set(BUILD_VLCAL_TESTS OFF CACHE BOOL "" FORCE)
     add_subdirectory(
       "${CMAKE_CURRENT_SOURCE_DIR}/../direct_visual_lidar_calibration"
       "${CMAKE_BINARY_DIR}/direct_visual_lidar_calibration"
@@ -49,7 +64,7 @@ if(BUILD_CLC_FUSION_CLI)
 endif()
 
 if(BUILD_CLC_APP)
-  find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Qml Gui Core ShaderTools)
+  find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Qml Gui Core ShaderTools Test)
   qt_standard_project_setup()
   add_subdirectory(psiviz)
   add_subdirectory(clc_app)

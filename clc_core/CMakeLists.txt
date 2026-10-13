@@ -36,8 +36,10 @@ target_link_libraries(clc_core PUBLIC
   ${_clc_fusion_target}
   Eigen3::Eigen
   ${_clc_pcl_target}
+  opencv_core
+  opencv_imgproc
+  opencv_imgcodecs
 )
-clc_target_link_opencv(clc_core)
 if(PCL_INCLUDE_DIRS)
   target_include_directories(clc_core SYSTEM PUBLIC ${PCL_INCLUDE_DIRS})
 endif()

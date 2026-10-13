@@ -113,6 +113,18 @@ fi
 if [[ -d "${BREW_OPENCV_DIR}" ]]; then
   CMAKE_EXTRA_ARGS+=(-DOpenCV_DIR="${BREW_OPENCV_DIR}")
 fi
+
+CONAN_TOOLCHAIN="${GENERATORS_DIR}/conan_toolchain.cmake"
+CONAN_STAMP_FILE="${BUILD_DIR}/.conan_toolchain.stamp"
+if [[ -f "${CONAN_TOOLCHAIN}" ]]; then
+  NEW_STAMP="$(shasum -a 256 "${CONAN_TOOLCHAIN}" | awk '{print $1}')"
+  if [[ ! -f "${CONAN_STAMP_FILE}" ]] || [[ "$(cat "${CONAN_STAMP_FILE}")" != "${NEW_STAMP}" ]]; then
+    echo "Conan toolchain changed; clearing CMake cache in ${BUILD_DIR}"
+    rm -rf "${BUILD_DIR}/CMakeCache.txt" "${BUILD_DIR}/CMakeFiles"
+    echo "${NEW_STAMP}" > "${CONAN_STAMP_FILE}"
+  fi
+fi
+
 cmake -S "${APP_REPO}" -B "${BUILD_DIR}" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="${GENERATORS_DIR}/conan_toolchain.cmake" \

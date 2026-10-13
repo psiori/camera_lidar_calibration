@@ -12,9 +12,12 @@
 #   7. Build and install each library into the Conan cache with `conan create`:
 #        - gtsam 4.3a1
 #        - gtsam_points 1.2.2 (CPU only, no CUDA)
-#        - glim 1.2.2 (no viewer, no CUDA, with cloud fusion)
-#        - direct_visual_lidar_calibration / vlcal_align 0.1.0 
+#        - glim 1.2.3 (no viewer, no CUDA, with cloud fusion)
+#        - direct_visual_lidar_calibration / vlcal_align 0.1.0
 #   8. Print where packages were cached and how to build the app next.
+#
+# In-tree libraries: bump the Conan version in each repo's conanfile.py when you change
+# packaged sources, then match that version here and in camera_lidar_calibration/conanfile.py.
 #
 # Environment variables (all optional):
 #   CALIB_SRC          — Parent directory holding all cloned repos (default: parent of this repo).
@@ -23,7 +26,6 @@
 #   GITHUB_ORG         — GitHub org for cloning (default: psiori).
 #   CALIB_MARCH_NATIVE — Pass -march=native to builds (default: True).
 #   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: true).
-#   CALIB_FORCE_REBUILD — Force rebuild glim and vlcal_align (default: false).
 #
 set -euo pipefail
 
@@ -35,6 +37,10 @@ GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
 CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
 CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-true}"
+
+# Keep in sync with glim/conanfile.py and camera_lidar_calibration/conanfile.py
+GLIM_CONAN_VERSION="1.2.7"
+VLCAL_CONAN_VERSION="0.1.0"
 
 export CONAN_HOME
 export CALIB_UPDATE_REPOS
@@ -104,26 +110,16 @@ conan create "${CALIB_SRC}/gtsam_points" --name=gtsam_points --version=1.2.2 \
   -o "gtsam_points/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "gtsam_points/*:build_with_cuda=False"
 
-# vlcal_align pulls Conan opencv when its recipe requires it; glim defaults build_with_opencv=False.
-# Rebuild only when missing
-# or when recipe/options/profile change. Force with: CALIB_FORCE_REBUILD=true
-EXTRA_BUILD=()
-if [[ "${CALIB_FORCE_REBUILD:-false}" == "true" ]]; then
-  EXTRA_BUILD=(--build=glim/* --build=vlcal_align/*)
-fi
-
-conan create "${CALIB_SRC}/glim" --name=glim --version=1.2.2 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" \
-  "${EXTRA_BUILD[@]}" "${CONAN_BUILD[@]}" \
+conan create "${CALIB_SRC}/glim" --name=glim --version="${GLIM_CONAN_VERSION}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
   -o "glim/*:build_with_viewer=False" \
   -o "glim/*:build_with_opencv=False" \
   -o "glim/*:build_with_cuda=False" \
   -o "glim/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
   -o "glim/*:build_glim_cloud_fusion=True"
 
-conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version=0.1.0 \
-  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" \
-  "${EXTRA_BUILD[@]}" "${CONAN_BUILD[@]}" \
+conan create "${CALIB_SRC}/direct_visual_lidar_calibration" --name=vlcal_align --version="${VLCAL_CONAN_VERSION}" \
+  -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
   -o "vlcal_align/*:shared=False" \
   -o "vlcal_align/*:build_with_viewer=False" \
   -o "vlcal_align/*:build_with_march_native=${CALIB_MARCH_NATIVE}" \
