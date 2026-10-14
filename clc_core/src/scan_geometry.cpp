@@ -84,6 +84,12 @@ PcdDirectoryScan scan_pcd_directory(const std::string& directory, int reference_
     }
   }
 
+  std::string order_error;
+  if (!finalize_pcd_catalog_paths(readable, order_error)) {
+    result.error = order_error;
+    return result;
+  }
+
   result.paths = std::move(readable);
   result.reference_width = ref_w;
   result.reference_height = ref_h;
@@ -101,11 +107,6 @@ PcdDirectoryScan scan_pcd_source(const std::string& path, int reference_width, i
   if (std::filesystem::is_regular_file(fs_path, ec)) {
     if (!path_has_pcd_extension(fs_path)) {
       result.error = "not a PCD file: " + path;
-      return result;
-    }
-    double stamp_seconds = 0.0;
-    if (!parse_pcd_filename_stamp(fs_path.filename().string(), stamp_seconds)) {
-      result.error = "PCD filename does not match UTC timestamp pattern: " + path;
       return result;
     }
     int w = 0;

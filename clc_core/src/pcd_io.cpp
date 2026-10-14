@@ -275,6 +275,8 @@ bool load_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud&
     return false;
   }
 
+  resolve_float_intensity_range(pcl_cloud, intensity, num_points);
+
   cloud.points.clear();
   cloud.intensities.clear();
   cloud.points.reserve(num_points);
@@ -297,8 +299,11 @@ bool load_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud&
     double intensity_value = 0.0;
     if (intensity.decode == IntensityDecode::Float && intensity.field != nullptr) {
       read_field_as_double(point_data, *intensity.field, intensity_value);
+      if (intensity.float_range == FloatIntensityRange::Byte0255) {
+        intensity_value /= 255.0;
+      }
     } else if (intensity.decode == IntensityDecode::Uint8 && intensity.field != nullptr) {
-      intensity_value = static_cast<double>(read_intensity_uint8(point_data, intensity));
+      intensity_value = static_cast<double>(read_intensity_uint8(point_data, intensity)) / 255.0;
     }
     cloud.intensities.push_back(intensity_value);
   }
@@ -310,7 +315,7 @@ bool load_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud&
   return true;
 }
 
-bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string& error) {
+bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string& error, bool check_time) {
   if (!path_has_pcd_extension(path)) {
     error = "not a PCD file: " + path;
     return false;
@@ -318,7 +323,7 @@ bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string
 
   const auto basename = std::filesystem::path(path).filename().string();
   double stamp_seconds = 0.0;
-  if (!parse_pcd_filename_stamp(basename, stamp_seconds)) {
+  if (check_time && !parse_pcd_filename_stamp(basename, stamp_seconds)) {
     error = "PCD filename does not match UTC timestamp pattern (YYYY-MM-DDTHH_MM_SS_mmmZ.pcd): " + path;
     return false;
   }
@@ -423,14 +428,39 @@ std::vector<std::string> list_pcd_files(const std::string& directory) {
     if (!path_has_pcd_extension(path)) {
       continue;
     }
-    double stamp_seconds = 0.0;
-    if (!parse_pcd_filename_stamp(name, stamp_seconds)) {
-      continue;
-    }
     files.push_back(path.string());
   }
   std::sort(files.begin(), files.end());
   return files;
+}
+
+bool finalize_pcd_catalog_paths(std::vector<std::string>& paths, std::string& error) {
+  error.clear();
+  if (paths.size() <= 1) {
+    std::sort(paths.begin(), paths.end());
+    return true;
+  }
+  std::vector<std::pair<double, std::string>> keyed;
+  keyed.reserve(paths.size());
+  for (const auto& path : paths) {
+    double stamp_seconds = 0.0;
+    const auto name = std::filesystem::path(path).filename().string();
+    if (!parse_pcd_filename_stamp(name, stamp_seconds)) {
+      error =
+        "PCD filename does not match UTC timestamp pattern (YYYY-MM-DDTHH_MM_SS_mmmZ.pcd; required for "
+        "multi-scan folders): " +
+        path;
+      return false;
+    }
+    keyed.emplace_back(stamp_seconds, path);
+  }
+  std::sort(keyed.begin(), keyed.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+  paths.clear();
+  for (const auto& [stamp, path] : keyed) {
+    paths.push_back(path);
+  }
+  return true;
 }
 
 }  // namespace clc
