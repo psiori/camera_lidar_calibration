@@ -1,3 +1,5 @@
+// session.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/session.hpp>
 
 #include <clc_core/dataset_util.hpp>
@@ -13,13 +15,19 @@ namespace clc {
 
 namespace {
 
-void save_pose(nlohmann::json& j, const std::string& key, const Eigen::Isometry3d& T) {
-  const Eigen::Quaterniond q(T.linear());
-  const Eigen::Vector3d t = T.translation();
-  j[key] = {t.x(), t.y(), t.z(), q.x(), q.y(), q.z(), q.w()};
+void save_pose(nlohmann::json& j, const std::string& key, const Mat4d& T) {
+  double qx = 0.;
+  double qy = 0.;
+  double qz = 0.;
+  double qw = 1.;
+  double tx = 0.;
+  double ty = 0.;
+  double tz = 0.;
+  mat4dToQuaternionTranslation(T, qx, qy, qz, qw, tx, ty, tz);
+  j[key] = {tx, ty, tz, qx, qy, qz, qw};
 }
 
-bool load_pose(const nlohmann::json& j, const std::string& key, Eigen::Isometry3d& T) {
+bool load_pose(const nlohmann::json& j, const std::string& key, Mat4d& T) {
   if (!j.contains(key)) {
     return false;
   }
@@ -27,8 +35,7 @@ bool load_pose(const nlohmann::json& j, const std::string& key, Eigen::Isometry3
   if (!v.is_array() || v.size() != 7) {
     return false;
   }
-  T.translation() << v[0], v[1], v[2];
-  T.linear() = Eigen::Quaterniond(v[6], v[3], v[4], v[5]).normalized().toRotationMatrix();
+  T = mat4dFromQuaternionTranslation(v[3], v[4], v[5], v[6], v[0], v[1], v[2]);
   return true;
 }
 

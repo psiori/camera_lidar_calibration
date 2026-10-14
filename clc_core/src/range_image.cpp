@@ -1,3 +1,5 @@
+// range_image.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/range_image.hpp>
 
 #include <algorithm>
@@ -42,7 +44,7 @@ std::vector<std::uint8_t> rasterize_mask(int width, int height, const std::vecto
     std::vector<cv::Point> pts;
     pts.reserve(poly.vertices.size());
     for (const auto& v : poly.vertices) {
-      pts.emplace_back(static_cast<int>(std::lround(v.x())), static_cast<int>(std::lround(v.y())));
+      pts.emplace_back(static_cast<int>(std::lround(v.x)), static_cast<int>(std::lround(v.y)));
     }
     cv_polys.push_back(std::move(pts));
   }
@@ -68,7 +70,7 @@ std::vector<std::uint8_t> build_mask_from_ops(int width, int height, const std::
     std::vector<cv::Point> pts;
     pts.reserve(op.polygon.vertices.size());
     for (const auto& v : op.polygon.vertices) {
-      pts.emplace_back(static_cast<int>(std::lround(v.x())), static_cast<int>(std::lround(v.y())));
+      pts.emplace_back(static_cast<int>(std::lround(v.x)), static_cast<int>(std::lround(v.y)));
     }
     const std::vector<std::vector<cv::Point>> cv_polys{pts};
     cv::fillPoly(view, cv_polys, op.keep_inside ? cv::Scalar(255) : cv::Scalar(0));

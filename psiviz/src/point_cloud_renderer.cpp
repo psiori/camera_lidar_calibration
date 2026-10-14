@@ -1,3 +1,5 @@
+// point_cloud_renderer.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/point_cloud_renderer.hpp"
 
 #include "psiviz/depth_picker.hpp"
@@ -61,33 +63,34 @@ QShader loadFirst(const QStringList& names) {
   return {};
 }
 
-void appendAxis(std::vector<GizmoVertex>& v, const Eigen::Vector3f& o, const Eigen::Vector3f& dir, float len,
-                float r, float g, float b) {
-  const Eigen::Vector3f e = o + dir * len;
-  v.push_back({o.x(), o.y(), o.z(), r, g, b});
-  v.push_back({e.x(), e.y(), e.z(), r, g, b});
+void appendAxis(std::vector<GizmoVertex>& v, const clc::Vec3f& o, const clc::Vec3f& dir, float len, float r, float g,
+                float b) {
+  const clc::Vec3f e = o + dir * len;
+  v.push_back({o.x, o.y, o.z, r, g, b});
+  v.push_back({e.x, e.y, e.z, r, g, b});
 }
 
-void appendRing(std::vector<GizmoVertex>& v, const Eigen::Vector3f& o, const Eigen::Matrix3f& R, int axis, float radius,
+void appendRing(std::vector<GizmoVertex>& v, const clc::Vec3f& o, const clc::Mat4f& pose, int axis, float radius,
                 float r, float g, float b) {
   constexpr int kSeg = 48;
-  Eigen::Vector3f u, w;
+  clc::Vec3f u;
+  clc::Vec3f w;
   if (axis == 0) {
-    u = R.col(1);
-    w = R.col(2);
+    u = clc::rotationColumn(pose, 1);
+    w = clc::rotationColumn(pose, 2);
   } else if (axis == 1) {
-    u = R.col(2);
-    w = R.col(0);
+    u = clc::rotationColumn(pose, 2);
+    w = clc::rotationColumn(pose, 0);
   } else {
-    u = R.col(0);
-    w = R.col(1);
+    u = clc::rotationColumn(pose, 0);
+    w = clc::rotationColumn(pose, 1);
   }
-  Eigen::Vector3f prev = o + u * radius;
+  clc::Vec3f prev = o + u * radius;
   for (int i = 1; i <= kSeg; ++i) {
     const float a = static_cast<float>(i) / static_cast<float>(kSeg) * 6.2831853f;
-    const Eigen::Vector3f p = o + (u * std::cos(a) + w * std::sin(a)) * radius;
-    v.push_back({prev.x(), prev.y(), prev.z(), r, g, b});
-    v.push_back({p.x(), p.y(), p.z(), r, g, b});
+    const clc::Vec3f p = o + (u * std::cos(a) + w * std::sin(a)) * radius;
+    v.push_back({prev.x, prev.y, prev.z, r, g, b});
+    v.push_back({p.x, p.y, p.z, r, g, b});
     prev = p;
   }
 }
@@ -503,15 +506,15 @@ void PointCloudRenderer::uploadGizmo(const PoseGizmo& gizmo) {
     return;
   }
   std::vector<GizmoVertex> verts;
-  const Eigen::Vector3f o = gizmo.pose().translation();
-  const Eigen::Matrix3f R = gizmo.pose().linear();
+  const clc::Mat4f pose = gizmo.pose();
+  const clc::Vec3f o = clc::translation(pose);
   const float s = gizmo.clipScale();
-  appendAxis(verts, o, R.col(0), s, 1.f, 0.2f, 0.2f);
-  appendAxis(verts, o, R.col(1), s, 0.2f, 1.f, 0.2f);
-  appendAxis(verts, o, R.col(2), s, 0.3f, 0.4f, 1.f);
-  appendRing(verts, o, R, 0, s * 0.7f, 1.f, 0.3f, 0.3f);
-  appendRing(verts, o, R, 1, s * 0.7f, 0.3f, 1.f, 0.3f);
-  appendRing(verts, o, R, 2, s * 0.7f, 0.3f, 0.4f, 1.f);
+  appendAxis(verts, o, clc::rotationColumn(pose, 0), s, 1.f, 0.2f, 0.2f);
+  appendAxis(verts, o, clc::rotationColumn(pose, 1), s, 0.2f, 1.f, 0.2f);
+  appendAxis(verts, o, clc::rotationColumn(pose, 2), s, 0.3f, 0.4f, 1.f);
+  appendRing(verts, o, pose, 0, s * 0.7f, 1.f, 0.3f, 0.3f);
+  appendRing(verts, o, pose, 1, s * 0.7f, 0.3f, 1.f, 0.3f);
+  appendRing(verts, o, pose, 2, s * 0.7f, 0.3f, 0.4f, 1.f);
 
   const quint32 bytes = static_cast<quint32>(verts.size() * sizeof(GizmoVertex));
   if (res.gizmo_vertex_buffer->size() < bytes) {
@@ -576,12 +579,12 @@ void PointCloudRenderer::renderPickPass(QRhiCommandBuffer* cb, const TrackballCa
   }
 
   UniformBlock ub{};
-  Eigen::Matrix4f clip_corr = Eigen::Matrix4f::Identity();
+  clc::Mat4f clip_corr = clc::Mat4f::identity();
   if (rhi_) {
     const QMatrix4x4 qt_corr = rhi_->clipSpaceCorrMatrix();
     std::memcpy(clip_corr.data(), qt_corr.constData(), sizeof(float) * 16);
   }
-  const Eigen::Matrix4f mvp = clip_corr * camera.projectionMatrix() * camera.viewMatrix();
+  const clc::Mat4f mvp = clc::multiply(clip_corr, clc::multiply(camera.projectionMatrix(), camera.viewMatrix()));
   std::memcpy(ub.mvp, mvp.data(), sizeof(ub.mvp));
   ub.pointSize = request.point_size;
   ub.blendWeight = blend_weight_;
@@ -655,12 +658,12 @@ void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& ca
   const int fb_h = fb.height() > 0 ? fb.height() : std::max(1, height_);
 
   UniformBlock ub{};
-  Eigen::Matrix4f clip_corr = Eigen::Matrix4f::Identity();
+  clc::Mat4f clip_corr = clc::Mat4f::identity();
   if (rhi_) {
     const QMatrix4x4 qt_corr = rhi_->clipSpaceCorrMatrix();
     std::memcpy(clip_corr.data(), qt_corr.constData(), sizeof(float) * 16);
   }
-  const Eigen::Matrix4f mvp = clip_corr * camera.projectionMatrix() * camera.viewMatrix();
+  const clc::Mat4f mvp = clc::multiply(clip_corr, clc::multiply(camera.projectionMatrix(), camera.viewMatrix()));
   std::memcpy(ub.mvp, mvp.data(), sizeof(ub.mvp));
   ub.pointSize = camera.pointSize();
   ub.blendWeight = blend_weight_;

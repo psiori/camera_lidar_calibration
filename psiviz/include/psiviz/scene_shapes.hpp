@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <Eigen/Core>
+#include <clc/linalg.hpp>
 
 namespace psiviz {
 
@@ -13,10 +13,10 @@ struct ShapeVertex {
 };
 
 struct SphereMarker {
-  Eigen::Vector3f center{0.f, 0.f, 0.f};
+  clc::Vec3f center{0.f, 0.f, 0.f};
   float radius{0.05f};
   /// Bright orange (sRGB-ish linear).
-  Eigen::Vector3f color{1.f, 0.45f, 0.f};
+  clc::Vec3f color{1.f, 0.45f, 0.f};
   float alpha{1.f};
 };
 

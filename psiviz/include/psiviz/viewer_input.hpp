@@ -9,6 +9,7 @@ namespace psiviz {
 class PoseGizmo;
 class TrackballCamera;
 
+/// High-level action the viewer should perform after handling one input event.
 enum class InputAction {
   None,
   CameraRotate,
@@ -23,11 +24,13 @@ enum class InputAction {
   GizmoDrag,
 };
 
+/// Outcome of routing mouse/keyboard input to camera vs gizmo vs pick.
 struct InputResult {
   InputAction action{InputAction::None};
-  bool gizmo_captured{false};
+  bool gizmo_captured{false};  /// True when the gizmo consumed the event (block camera drag).
 };
 
+/// Maps Qt mouse, wheel, and key events to camera moves, gizmo drags, and pick requests.
 class ViewerInputRouter {
  public:
   ViewerInputRouter(TrackballCamera& camera, PoseGizmo& gizmo);
@@ -45,16 +48,16 @@ class ViewerInputRouter {
  private:
   TrackballCamera& camera_;
   PoseGizmo& gizmo_;
-  bool interaction_enabled_{true};
-  bool picking_enabled_{true};
-  bool gizmo_manipulable_{true};
-  bool dragging_{false};
+  bool interaction_enabled_{true};   /// Master switch for camera navigation.
+  bool picking_enabled_{true};       /// Allow Shift+click pick.
+  bool gizmo_manipulable_{true};     /// Allow dragging the pose gizmo.
+  bool dragging_{false};             /// Left/middle/right drag in progress.
   Qt::MouseButton drag_button_{Qt::NoButton};
-  QPoint last_pos_;
-  QPoint shift_press_pos_;
-  bool shift_left_active_{false};
-  bool shift_pick_pending_{false};
-  bool shift_dragged_{false};
+  QPoint last_pos_;                  /// Last mouse position for delta computation.
+  QPoint shift_press_pos_;           /// Origin of Shift+left click (click vs drag).
+  bool shift_left_active_{false};    /// Shift+left button held.
+  bool shift_pick_pending_{false};   /// Waiting for release to fire pick if not dragged.
+  bool shift_dragged_{false};        /// Mouse moved enough to cancel pick-on-release.
   static constexpr int kPickClickMoveThresholdPx = 4;
 };
 

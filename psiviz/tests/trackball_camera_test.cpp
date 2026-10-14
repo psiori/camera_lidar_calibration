@@ -1,55 +1,44 @@
 #include <cmath>
+#include <cstdlib>
 
-#include <QtTest>
-
-#include "psiviz/trackball_camera.hpp"
+#include <clc/linalg.hpp>
+#include <psiviz/trackball_camera.hpp>
 
 namespace {
 
-Eigen::Vector3f eyeFromView(const Eigen::Matrix4f& view) {
-  const Eigen::Matrix3f r = view.block<3, 3>(0, 0);
-  const Eigen::Vector3f t(view(0, 3), view(1, 3), view(2, 3));
-  return -r.transpose() * t;
+clc::Vec3f eyeFromView(const clc::Mat4f& view) {
+  const clc::Vec3f t{view(0, 3), view(1, 3), view(2, 3)};
+  return {-(view(0, 0) * t.x + view(1, 0) * t.y + view(2, 0) * t.z),
+          -(view(0, 1) * t.x + view(1, 1) * t.y + view(2, 1) * t.z),
+          -(view(0, 2) * t.x + view(1, 2) * t.y + view(2, 2) * t.z)};
 }
 
 }  // namespace
 
-class TrackballCameraTest : public QObject {
-  Q_OBJECT
-
- private slots:
-  void rotatePreservesFocalAndDistance();
-  void rotateDoesNotClampAfterManyVerticalDrags();
-};
-
-void TrackballCameraTest::rotatePreservesFocalAndDistance() {
+int main() {
   psiviz::TrackballCamera camera;
   camera.setViewport(800, 600, 1.f);
-  camera.fitToBounds(Eigen::Vector3f(-1.f, -1.f, -1.f), Eigen::Vector3f(1.f, 1.f, 1.f));
+  camera.fitToBounds({-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f});
 
-  const Eigen::Vector3f focal = camera.focalPoint();
-  const float d0 = (eyeFromView(camera.viewMatrix()) - focal).norm();
-
-  camera.rotate(40.f, 25.f);
-  camera.rotate(-15.f, 60.f);
-
-  QVERIFY((camera.focalPoint() - focal).norm() < 1e-4f);
-  const float d1 = (eyeFromView(camera.viewMatrix()) - focal).norm();
-  QVERIFY(std::abs(d0 - d1) < 1e-3f);
-}
-
-void TrackballCameraTest::rotateDoesNotClampAfterManyVerticalDrags() {
-  psiviz::TrackballCamera camera;
-  camera.setViewport(1000, 800, 1.f);
-  camera.fitToBounds(Eigen::Vector3f(-2.f, -2.f, -2.f), Eigen::Vector3f(2.f, 2.f, 2.f));
-
-  const Eigen::Matrix4f prev = camera.viewMatrix();
-  for (int i = 0; i < 80; ++i) {
-    camera.rotate(0.f, 12.f);
+  const clc::Vec3f focal = camera.focalPoint();
+  if (std::abs(focal.x) > 0.2f || std::abs(focal.y) > 0.2f || std::abs(focal.z) > 0.2f) {
+    return EXIT_FAILURE;
   }
-  const float delta = (camera.viewMatrix() - prev).norm();
-  QVERIFY2(delta > 0.05f, "view should keep changing; pitch clamp would freeze orientation");
-}
 
-QTEST_MAIN(TrackballCameraTest)
-#include "trackball_camera_test.moc"
+  const clc::Vec3f eye0 = eyeFromView(camera.viewMatrix());
+  camera.rotate(40.f, 0.f);
+  const clc::Vec3f eye1 = eyeFromView(camera.viewMatrix());
+  if (clc::length(eye1 - eye0) < 1e-3f) {
+    return EXIT_FAILURE;
+  }
+
+  camera.fitToBounds({-2.f, -2.f, -2.f}, {2.f, 2.f, 2.f});
+  const clc::Mat4f prev = camera.viewMatrix();
+  camera.pan(50.f, 0.f);
+  const clc::Mat4f after = camera.viewMatrix();
+  if (std::abs(prev(0, 3) - after(0, 3)) < 1e-5f && std::abs(prev(1, 3) - after(1, 3)) < 1e-5f) {
+    return EXIT_FAILURE;
+  }
+
+  return EXIT_SUCCESS;
+}

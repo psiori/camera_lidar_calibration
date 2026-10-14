@@ -1,3 +1,4 @@
+// Main window: session paths, calibration workflow tabs, fusion/alignment actions, and 3D viewer layout.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

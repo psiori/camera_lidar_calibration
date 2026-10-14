@@ -1,3 +1,5 @@
+// colormap.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/colormap.hpp"
 
 #include <algorithm>

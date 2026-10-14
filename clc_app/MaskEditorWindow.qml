@@ -1,3 +1,4 @@
+// Separate window to draw keep/remove polygons on the range image and edit the global mask.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

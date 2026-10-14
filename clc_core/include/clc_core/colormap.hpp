@@ -6,6 +6,7 @@
 
 namespace clc {
 
+/// JET false-color for a normalized scalar t in [0,1].
 std::array<float, 3> jet_color(float t);
 
 /// Map scalar values to packed RGB (3 bytes per pixel) with JET and [min_v, max_v].

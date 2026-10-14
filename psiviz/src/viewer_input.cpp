@@ -1,3 +1,5 @@
+// viewer_input.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/viewer_input.hpp"
 
 #include <QtGui/QKeyEvent>
@@ -22,8 +24,8 @@ InputResult ViewerInputRouter::mousePress(const QMouseEvent& event, int width, i
 
   if (gizmo_manipulable_ && gizmo_.enabled() && event.button() == Qt::LeftButton &&
       !event.modifiers().testFlag(Qt::ShiftModifier)) {
-    const Eigen::Matrix4f view = camera_.viewMatrix();
-    const Eigen::Matrix4f proj = camera_.projectionMatrix();
+    const clc::Mat4f view = camera_.viewMatrix();
+    const clc::Mat4f proj = camera_.projectionMatrix();
     const GizmoHit hit = gizmo_.hitTestDetailed(last_pos_.x(), last_pos_.y(), width, height, view, proj);
     if (hit.axis >= 0) {
       gizmo_.beginDrag(hit.axis, hit.mode);
@@ -62,8 +64,8 @@ InputResult ViewerInputRouter::mouseMove(const QMouseEvent& event, int width, in
   const float dy = static_cast<float>(pos.y() - last_pos_.y());
 
   if (gizmo_.isManipulating()) {
-    const Eigen::Matrix4f view = camera_.viewMatrix();
-    const Eigen::Matrix4f proj = camera_.projectionMatrix();
+    const clc::Mat4f view = camera_.viewMatrix();
+    const clc::Mat4f proj = camera_.projectionMatrix();
     gizmo_.drag(pos.x(), pos.y(), last_pos_.x(), last_pos_.y(), width, height, view, proj);
     result.action = InputAction::GizmoDrag;
     last_pos_ = pos;

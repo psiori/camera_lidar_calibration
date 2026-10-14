@@ -1,3 +1,5 @@
+// depth_picker.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/depth_picker.hpp"
 
 #include <algorithm>
@@ -97,11 +99,9 @@ std::uint32_t DepthPicker::selectPointIdFromRgbaPatch(const unsigned char* pixel
   return 0;
 }
 
-std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count,
-                                                                int x, int y, int width, int height,
-                                                                float device_pixel_ratio,
-                                                                const Eigen::Matrix4f& clip_view_projection,
-                                                                float max_pixel_radius) {
+std::optional<clc::Vec3f> DepthPicker::pickNearestOnScreen(const float* positions, std::uint64_t point_count, int x,
+                                                           int y, int width, int height, float device_pixel_ratio,
+                                                           const clc::Mat4f& clip_view_projection, float max_pixel_radius) {
   if (!positions || point_count == 0 || width <= 0 || height <= 0 || max_pixel_radius <= 0.f) {
     return std::nullopt;
   }
@@ -115,15 +115,16 @@ std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* pos
   bool found = false;
 
   for (std::uint64_t i = 0; i < point_count; ++i) {
-    const Eigen::Vector4f world(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2], 1.f);
-    const Eigen::Vector4f clip = clip_view_projection * world;
-    if (clip.w() <= 1e-6f) {
+    const clc::Vec4f clip =
+        clc::mulMat4Vec4(clip_view_projection,
+                         {positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2], 1.f});
+    if (clip.w <= 1e-6f) {
       continue;
     }
-    const float inv_w = 1.f / clip.w();
-    const float ndc_x = clip.x() * inv_w;
-    const float ndc_y = clip.y() * inv_w;
-    const float ndc_z = clip.z() * inv_w;
+    const float inv_w = 1.f / clip.w;
+    const float ndc_x = clip.x * inv_w;
+    const float ndc_y = clip.y * inv_w;
+    const float ndc_z = clip.z * inv_w;
     if (ndc_z < -1.f || ndc_z > 1.f) {
       continue;
     }
@@ -146,8 +147,7 @@ std::optional<Eigen::Vector3f> DepthPicker::pickNearestOnScreen(const float* pos
   if (!found) {
     return std::nullopt;
   }
-  return Eigen::Vector3f(positions[best_index * 3 + 0], positions[best_index * 3 + 1],
-                         positions[best_index * 3 + 2]);
+  return clc::Vec3f{positions[best_index * 3 + 0], positions[best_index * 3 + 1], positions[best_index * 3 + 2]};
 }
 
 }  // namespace psiviz

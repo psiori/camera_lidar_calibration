@@ -1,5 +1,4 @@
 find_package(Qt6 REQUIRED COMPONENTS Quick ShaderTools GuiPrivate Test)
-find_package(Eigen3 REQUIRED)
 
 qt_add_library(psiviz STATIC)
 
@@ -44,7 +43,7 @@ target_link_libraries(psiviz
   PUBLIC
     Qt6::Quick
     Qt6::Gui
-    Eigen3::Eigen
+    clc_linalg
   PRIVATE
     Qt6::ShaderTools
     Qt6::GuiPrivate

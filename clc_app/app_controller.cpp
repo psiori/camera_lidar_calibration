@@ -10,7 +10,8 @@
 #include <limits>
 #include <optional>
 
-#include <Eigen/Geometry>
+#include <clc/linalg.hpp>
+
 #include <opencv2/imgcodecs.hpp>
 
 #include <QFileDialog>
@@ -31,8 +32,11 @@
 
 #include <psiviz/point_cloud_item.hpp>
 
+// File-local helpers for QVariant/QML geometry and display images (not exposed to QML).
+
 namespace {
 
+/// Parse a QPointF from QVariant (point type or {x,y} map).
 std::optional<QPointF> variantToPoint(const QVariant &value) {
   if (value.canConvert<QPointF>()) {
     return value.toPointF();
@@ -45,6 +49,7 @@ std::optional<QPointF> variantToPoint(const QVariant &value) {
   return std::nullopt;
 }
 
+/// Build a clc polygon from QML vertex list (skips invalid entries).
 clc::Polygon2f polygonFromVariantList(const QVariantList &native_vertices) {
   clc::Polygon2f polygon;
   for (const QVariant &v : native_vertices) {
@@ -52,23 +57,23 @@ clc::Polygon2f polygonFromVariantList(const QVariantList &native_vertices) {
     if (!point.has_value()) {
       continue;
     }
-    polygon.vertices.emplace_back(static_cast<float>(point->x()),
-                                  static_cast<float>(point->y()));
+    polygon.vertices.push_back(
+        {static_cast<float>(point->x()), static_cast<float>(point->y())});
   }
   return polygon;
 }
 
-QVariantList isometryToPoseMatrix(const Eigen::Isometry3d &T) {
+QVariantList mat4dToPoseMatrix(const clc::Mat4d& T) {
   QVariantList out;
-  const Eigen::Matrix4d m = T.matrix();
   for (int c = 0; c < 4; ++c) {
     for (int r = 0; r < 4; ++r) {
-      out.append(m(r, c));
+      out.append(T(r, c));
     }
   }
   return out;
 }
 
+/// Apply JET colormap and optional vertical stretch for the range-image QML item.
 QImage rangeImageToDisplay(const clc::RangeImage &image,
                            clc::RangeImageChannel channel, float min_v,
                            float max_v, double y_stretch) {
@@ -96,6 +101,7 @@ QImage rangeImageToDisplay(const clc::RangeImage &image,
   return out;
 }
 
+/// Largest finite value in a channel, or 1.0 if empty (default colormap max).
 float autoMaxValue(const std::vector<float> &values) {
   float max_v = 0.f;
   for (float v : values) {
@@ -106,6 +112,7 @@ float autoMaxValue(const std::vector<float> &values) {
   return max_v > 0.f ? max_v : 1.f;
 }
 
+/// Return absolute directory path (if `path` is a file, use its parent folder).
 QString normalizedDirectoryPath(const QString &path) {
   if (path.isEmpty()) {
     return path;
@@ -117,6 +124,7 @@ QString normalizedDirectoryPath(const QString &path) {
   return info.absolutePath();
 }
 
+/// Normalize a user-selected path to an absolute file or directory for PCD catalog logic.
 QString normalizedPcdPath(const QString &path) {
   if (path.isEmpty()) {
     return path;
@@ -134,6 +142,7 @@ QString normalizedPcdPath(const QString &path) {
   return info.absoluteFilePath();
 }
 
+/// Native file dialog for choosing one .pcd scan.
 QString pickPcdFileDialog(const QString &title, const QString &start_path) {
   const QFileInfo start_info(start_path);
   QString dialog_start = normalizedDirectoryPath(start_path);
@@ -145,12 +154,15 @@ QString pickPcdFileDialog(const QString &title, const QString &start_path) {
       QStringLiteral("PCD files (*.pcd);;All files (*)"));
 }
 
+/// Native folder dialog for a directory of structured scans.
 QString pickPcdFolderDialog(const QString &title, const QString &start_path) {
   return QFileDialog::getExistingDirectory(nullptr, title,
                                            normalizedDirectoryPath(start_path));
 }
 
 } // namespace
+
+// --- AppController (QML-facing session, fusion, calibration, viewer) ---
 
 AppController::AppController(QObject *parent) : QObject(parent) {
   clc::apply_default_fusion_params(session_.fusion_params);
@@ -174,6 +186,7 @@ AppController::~AppController() {
   joinWorker();
 }
 
+/// Wait for the background worker thread to finish.
 void AppController::joinWorker() {
   if (worker_ && worker_->joinable()) {
     worker_->join();
@@ -181,6 +194,7 @@ void AppController::joinWorker() {
   worker_.reset();
 }
 
+/// Update busy flag and gizmo interaction state.
 void AppController::setWorkerRunning(bool running) {
   const bool was = worker_running_.exchange(running);
   if (was != running) {
@@ -192,6 +206,7 @@ void AppController::setWorkerRunning(bool running) {
   }
 }
 
+/// Request cancellation of the active fusion or alignment job.
 void AppController::cancelWorker() {
   if (!worker_running_.load()) {
     return;
@@ -200,6 +215,7 @@ void AppController::cancelWorker() {
   setStatus(QStringLiteral("Cancelling..."));
 }
 
+/// AppController::scanDuration implementation.
 double AppController::scanDuration() const {
   if (main_work_tab_ == 3) {
     return session_.scan_time.scan_duration.value_or(0.0);
@@ -207,6 +223,7 @@ double AppController::scanDuration() const {
   return activeDatasetEntry().scan_time.scan_duration.value_or(0.0);
 }
 
+/// AppController::timeOrigin implementation.
 int AppController::timeOrigin() const {
   if (main_work_tab_ == 3) {
     return static_cast<int>(session_.scan_time.time_origin);
@@ -214,6 +231,7 @@ int AppController::timeOrigin() const {
   return static_cast<int>(activeDatasetEntry().scan_time.time_origin);
 }
 
+/// AppController::timeUnit implementation.
 int AppController::timeUnit() const {
   if (main_work_tab_ == 3) {
     return static_cast<int>(session_.scan_time.time_unit);
@@ -221,6 +239,7 @@ int AppController::timeUnit() const {
   return static_cast<int>(activeDatasetEntry().scan_time.time_unit);
 }
 
+/// Update Scan Duration (QML property backing).
 void AppController::setScanDuration(double seconds) {
   if (main_work_tab_ == 3) {
     session_.scan_time.scan_duration = seconds;
@@ -238,6 +257,7 @@ void AppController::setScanDuration(double seconds) {
   emit scanTimeChanged();
 }
 
+/// Update Time Origin (QML property backing).
 void AppController::setTimeOrigin(int origin) {
   if (main_work_tab_ == 3) {
     session_.scan_time.time_origin =
@@ -258,6 +278,7 @@ void AppController::setTimeOrigin(int origin) {
   emit scanTimeChanged();
 }
 
+/// Update Time Unit (QML property backing).
 void AppController::setTimeUnit(int unit) {
   if (main_work_tab_ == 3) {
     session_.scan_time.time_unit =
@@ -277,16 +298,19 @@ void AppController::setTimeUnit(int unit) {
   emit scanTimeChanged();
 }
 
+/// Update Status (QML property backing).
 void AppController::setStatus(const QString &message) {
   status_message_ = message;
   emit statusMessageChanged();
 }
 
+/// Update Point Count (QML property backing).
 void AppController::setPointCount(int count) {
   point_count_ = count;
   emit pointCountChanged();
 }
 
+/// Create or validate Active Calibration Dataset before continuing.
 void AppController::ensureActiveCalibrationDataset() {
   if (session_.calibration_datasets.empty()) {
     session_.calibration_datasets.emplace_back();
@@ -330,10 +354,12 @@ const clc::DatasetEntry &AppController::activeDatasetEntry() const {
   return session_.calibration_datasets[static_cast<std::size_t>(idx)];
 }
 
+/// AppController::pcdFileCount implementation.
 int AppController::pcdFileCount() const {
   return static_cast<int>(activeDatasetEntry().pcd_paths.size());
 }
 
+/// AppController::fusionVoxelResolution implementation.
 double AppController::fusionVoxelResolution() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.voxel_resolution;
@@ -341,6 +367,7 @@ double AppController::fusionVoxelResolution() const {
   return session_.fusion_params.voxel_resolution;
 }
 
+/// AppController::fusionNumThreads implementation.
 int AppController::fusionNumThreads() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.num_threads;
@@ -348,6 +375,7 @@ int AppController::fusionNumThreads() const {
   return session_.fusion_params.num_threads;
 }
 
+/// AppController::fusionMaxCorrespondence implementation.
 double AppController::fusionMaxCorrespondence() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.max_correspondence_distance;
@@ -355,6 +383,7 @@ double AppController::fusionMaxCorrespondence() const {
   return session_.fusion_params.max_correspondence_distance;
 }
 
+/// AppController::fusionKNeighbors implementation.
 int AppController::fusionKNeighbors() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.k_neighbors;
@@ -362,6 +391,7 @@ int AppController::fusionKNeighbors() const {
   return session_.fusion_params.k_neighbors;
 }
 
+/// AppController::fusionBackend implementation.
 int AppController::fusionBackend() const {
   const auto backend =
       (main_work_tab_ != 3 && !session_.calibration_datasets.empty())
@@ -370,10 +400,12 @@ int AppController::fusionBackend() const {
   return backend == glim_cloud_fusion::FusionBackend::GlimSlam ? 1 : 0;
 }
 
+/// AppController::fusionBackendIsIntegrator implementation.
 bool AppController::fusionBackendIsIntegrator() const {
   return fusionBackend() == 0;
 }
 
+/// AppController::fusionTargetNumPoints implementation.
 int AppController::fusionTargetNumPoints() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.target_num_points;
@@ -381,6 +413,7 @@ int AppController::fusionTargetNumPoints() const {
   return session_.fusion_params.target_num_points;
 }
 
+/// AppController::fusionMinDistance implementation.
 double AppController::fusionMinDistance() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.min_distance;
@@ -388,6 +421,7 @@ double AppController::fusionMinDistance() const {
   return session_.fusion_params.min_distance;
 }
 
+/// AppController::fusionIntegratorIvoxResolution implementation.
 double AppController::fusionIntegratorIvoxResolution() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.integrator_ivox_resolution;
@@ -395,6 +429,7 @@ double AppController::fusionIntegratorIvoxResolution() const {
   return session_.fusion_params.integrator_ivox_resolution;
 }
 
+/// AppController::fusionIntegratorIvoxMinPointsDist implementation.
 double AppController::fusionIntegratorIvoxMinPointsDist() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.integrator_ivox_min_points_dist;
@@ -402,6 +437,7 @@ double AppController::fusionIntegratorIvoxMinPointsDist() const {
   return session_.fusion_params.integrator_ivox_min_points_dist;
 }
 
+/// AppController::fusionIvoxResolution implementation.
 double AppController::fusionIvoxResolution() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.ivox_resolution;
@@ -409,6 +445,7 @@ double AppController::fusionIvoxResolution() const {
   return session_.fusion_params.ivox_resolution;
 }
 
+/// AppController::fusionLmMaxIterations implementation.
 int AppController::fusionLmMaxIterations() const {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     return activeDatasetEntry().fusion_params.lm_max_iterations;
@@ -416,6 +453,7 @@ int AppController::fusionLmMaxIterations() const {
   return session_.fusion_params.lm_max_iterations;
 }
 
+/// AppController::correspondenceCount implementation.
 int AppController::correspondenceCount() const {
   if (main_work_tab_ == 3 || session_.calibration_datasets.empty()) {
     return 0;
@@ -427,18 +465,22 @@ int AppController::correspondenceCount() const {
   return total;
 }
 
+/// AppController::imagePath implementation.
 QString AppController::imagePath() const {
   return QString::fromStdString(activeDatasetEntry().image_path);
 }
 
+/// AppController::pcdDirectory implementation.
 QString AppController::pcdDirectory() const {
   return QString::fromStdString(activeDatasetEntry().cloud_directory);
 }
 
+/// AppController::intrinsicsPath implementation.
 QString AppController::intrinsicsPath() const {
   return QString::fromStdString(session_.intrinsics_path);
 }
 
+/// Update Session Directory (QML property backing).
 void AppController::setSessionDirectory(const QString &directory) {
   const QString normalized = normalizedDirectoryPath(directory);
   if (session_directory_ == normalized) {
@@ -448,6 +490,7 @@ void AppController::setSessionDirectory(const QString &directory) {
   emit sessionPathsChanged();
 }
 
+/// Update Image Path (QML property backing).
 void AppController::setImagePath(const QString &path) {
   const QString normalized = QFileInfo(path).absoluteFilePath();
   if (imagePath() == normalized) {
@@ -467,6 +510,7 @@ void AppController::setImagePath(const QString &path) {
   emit sessionPathsChanged();
 }
 
+/// Update Pcd Directory (QML property backing).
 void AppController::setPcdDirectory(const QString &path) {
   const QString normalized = normalizedPcdPath(path);
   if (pcdDirectory() == normalized) {
@@ -482,10 +526,12 @@ void AppController::setPcdDirectory(const QString &path) {
   emit sessionPathsChanged();
 }
 
+/// Update Inspection Mode (QML property backing).
 void AppController::setInspectionMode(bool inspection) {
   setMainWorkTab(inspection ? 3 : 0);
 }
 
+/// Update Main Work Tab (QML property backing).
 void AppController::setMainWorkTab(int tab) {
   const int clamped = std::clamp(tab, 0, 3);
   if (main_work_tab_ == clamped) {
@@ -514,6 +560,7 @@ void AppController::setMainWorkTab(int tab) {
   syncCorrespondenceMarkers();
 }
 
+/// Update Active Calibration Dataset Index (QML property backing).
 void AppController::setActiveCalibrationDatasetIndex(int index) {
   if (session_.calibration_datasets.empty()) {
     return;
@@ -537,6 +584,7 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   emit correspondencesChanged();
 }
 
+/// AppController::calibrationDatasetIds implementation.
 QStringList AppController::calibrationDatasetIds() const {
   QStringList ids;
   for (const auto &ds : session_.calibration_datasets) {
@@ -546,10 +594,12 @@ QStringList AppController::calibrationDatasetIds() const {
   return ids;
 }
 
+/// AppController::activeDatasetReady implementation.
 bool AppController::activeDatasetReady() const {
   return isCalibrationDatasetReady(active_calibration_dataset_index_);
 }
 
+/// AppController::canPickCorrespondences implementation.
 bool AppController::canPickCorrespondences() const {
   if (session_.calibration_datasets.empty() ||
       active_calibration_dataset_index_ < 0 ||
@@ -562,6 +612,7 @@ bool AppController::canPickCorrespondences() const {
           active_calibration_dataset_index_)]);
 }
 
+/// AppController::isCalibrationDatasetReady implementation.
 bool AppController::isCalibrationDatasetReady(int index) const {
   if (index < 0 ||
       index >= static_cast<int>(session_.calibration_datasets.size())) {
@@ -571,6 +622,7 @@ bool AppController::isCalibrationDatasetReady(int index) const {
       session_.calibration_datasets[static_cast<std::size_t>(index)]);
 }
 
+/// AppController::calibrationDatasetTooltip implementation.
 QString AppController::calibrationDatasetTooltip(int index) const {
   if (isCalibrationDatasetReady(index)) {
     return QStringLiteral("Ready for initial alignment and calibration");
@@ -579,11 +631,13 @@ QString AppController::calibrationDatasetTooltip(int index) const {
       "Load image and LiDAR; fuse multi-scan datasets before NID");
 }
 
+/// AppController::manualInitialGuessSupportsMultiDataset implementation.
 bool AppController::manualInitialGuessSupportsMultiDataset() const {
   return clc::InitialGuessTraits<
       clc::ManualGuessProvider>::supports_multi_dataset;
 }
 
+/// Update Initial Alignment Method (QML property backing).
 void AppController::setInitialAlignmentMethod(int method) {
   if (initial_alignment_method_ == method) {
     return;
@@ -592,6 +646,7 @@ void AppController::setInitialAlignmentMethod(int method) {
   emit initialAlignmentMethodChanged();
 }
 
+/// Update Mask Preview Dataset Index (QML property backing).
 void AppController::setMaskPreviewDatasetIndex(int index) {
   if (session_.calibration_datasets.empty()) {
     return;
@@ -606,10 +661,12 @@ void AppController::setMaskPreviewDatasetIndex(int index) {
   active_calibration_dataset_index_ = prev;
 }
 
+/// AppController::activeDatasetIsSingleScan implementation.
 bool AppController::activeDatasetIsSingleScan() const {
   return clc::dataset_is_single_scan(activeDatasetEntry());
 }
 
+/// AppController::addDatasetDefaultImagePath implementation.
 QString AppController::addDatasetDefaultImagePath() const {
 #ifdef CLC_DEV_ADD_DATASET_DEFAULTS
   return QStringLiteral(
@@ -620,6 +677,7 @@ QString AppController::addDatasetDefaultImagePath() const {
 #endif
 }
 
+/// AppController::addDatasetDefaultLidarPath implementation.
 QString AppController::addDatasetDefaultLidarPath() const {
 #ifdef CLC_DEV_ADD_DATASET_DEFAULTS
   return QStringLiteral(
@@ -630,6 +688,7 @@ QString AppController::addDatasetDefaultLidarPath() const {
 #endif
 }
 
+/// AppController::addDatasetDefaultIntrinsicsPath implementation.
 QString AppController::addDatasetDefaultIntrinsicsPath() const {
 #ifdef CLC_DEV_ADD_DATASET_DEFAULTS
   return QStringLiteral("/Users/rasmus/Documents/Projects/autocrane-core/"
@@ -640,6 +699,7 @@ QString AppController::addDatasetDefaultIntrinsicsPath() const {
 #endif
 }
 
+/// AppController::pickAddDatasetImage implementation.
 QString AppController::pickAddDatasetImage(const QString &initial_dir) {
   const QString start =
       initial_dir.isEmpty() ? addDatasetDefaultImagePath() : initial_dir;
@@ -648,6 +708,7 @@ QString AppController::pickAddDatasetImage(const QString &initial_dir) {
       QStringLiteral("Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"));
 }
 
+/// AppController::pickAddDatasetLidarFile implementation.
 QString AppController::pickAddDatasetLidarFile(const QString &initial_dir) {
   QString start = initial_dir;
   if (start.isEmpty()) {
@@ -657,6 +718,7 @@ QString AppController::pickAddDatasetLidarFile(const QString &initial_dir) {
                            start);
 }
 
+/// AppController::pickAddDatasetLidarFolder implementation.
 QString AppController::pickAddDatasetLidarFolder(const QString &initial_dir) {
   QString start = initial_dir;
   if (start.isEmpty()) {
@@ -666,6 +728,7 @@ QString AppController::pickAddDatasetLidarFolder(const QString &initial_dir) {
       QStringLiteral("LiDAR scan folder for new dataset"), start);
 }
 
+/// AppController::pickAddDatasetIntrinsics implementation.
 QString AppController::pickAddDatasetIntrinsics(const QString &initial_dir) {
   const QString start =
       initial_dir.isEmpty() ? addDatasetDefaultIntrinsicsPath() : initial_dir;
@@ -674,6 +737,7 @@ QString AppController::pickAddDatasetIntrinsics(const QString &initial_dir) {
       QStringLiteral("YAML (*.yaml *.yml);;OpenCV (*.xml)"));
 }
 
+/// AppController::addCalibrationDatasetFromPaths implementation.
 bool AppController::addCalibrationDatasetFromPaths(
     const QString &image_path, const QString &lidar_path,
     const QString &intrinsics_path) {
@@ -765,6 +829,7 @@ bool AppController::addCalibrationDatasetFromPaths(
   return true;
 }
 
+/// AppController::removeActiveCalibrationDataset implementation.
 void AppController::removeActiveCalibrationDataset() {
   if (session_.calibration_datasets.empty()) {
     return;
@@ -801,6 +866,7 @@ void AppController::removeActiveCalibrationDataset() {
   emit correspondencesChanged();
 }
 
+/// Copy Active Dataset Fusion To Session between session model and UI.
 void AppController::syncActiveDatasetFusionToSession() {
   if (main_work_tab_ == 3 || session_.calibration_datasets.empty()) {
     return;
@@ -811,6 +877,7 @@ void AppController::syncActiveDatasetFusionToSession() {
   session_.fusion_params.scan_time = ds.scan_time;
 }
 
+/// Copy Session Fusion To Active Dataset between session model and UI.
 void AppController::syncSessionFusionToActiveDataset() {
   if (main_work_tab_ == 3 || session_.calibration_datasets.empty()) {
     return;
@@ -821,6 +888,7 @@ void AppController::syncSessionFusionToActiveDataset() {
   ds.fusion_params.scan_time = ds.scan_time;
 }
 
+/// AppController::correspondenceTable implementation.
 QVariantList AppController::correspondenceTable() const {
   QVariantList rows;
   if (main_work_tab_ == 3) {
@@ -863,9 +931,9 @@ QVariantList AppController::correspondenceTable() const {
                  active_calibration_dataset_index_);
       row.insert(QStringLiteral("rowIndex"), -1);
       row.insert(QStringLiteral("datasetId"), QString::fromStdString(ds.id));
-      row.insert(QStringLiteral("x"), pending_correspondence_3d_->x());
-      row.insert(QStringLiteral("y"), pending_correspondence_3d_->y());
-      row.insert(QStringLiteral("z"), pending_correspondence_3d_->z());
+      row.insert(QStringLiteral("x"), pending_correspondence_3d_->x);
+      row.insert(QStringLiteral("y"), pending_correspondence_3d_->y);
+      row.insert(QStringLiteral("z"), pending_correspondence_3d_->z);
       row.insert(QStringLiteral("editable"), true);
       row.insert(QStringLiteral("selected"), false);
       row.insert(QStringLiteral("pendingPick"), true);
@@ -891,6 +959,7 @@ QVariantList AppController::correspondenceTable() const {
   return rows;
 }
 
+/// AppController::canComputeInitialAlignment implementation.
 bool AppController::canComputeInitialAlignment() const {
   if (session_.camera.intrinsics.empty()) {
     return false;
@@ -898,11 +967,13 @@ bool AppController::canComputeInitialAlignment() const {
   return correspondenceCount() >= 3;
 }
 
+/// Update Selected Correspondence Row (QML property backing).
 void AppController::setSelectedCorrespondenceRow(int global_row) {
   selected_correspondence_row_ = global_row;
   emit correspondencesChanged();
 }
 
+/// AppController::deleteCorrespondenceRow implementation.
 void AppController::deleteCorrespondenceRow(int global_row) {
   if (main_work_tab_ != 1) {
     return;
@@ -950,6 +1021,7 @@ void AppController::deleteCorrespondenceRow(int global_row) {
   setStatus(QStringLiteral("Could not delete correspondence (row not found)"));
 }
 
+/// Recompute and push Camera Preview to the UI or viewer.
 void AppController::refreshCameraPreview() {
   const QString path = imagePath();
   if (path.isEmpty()) {
@@ -966,6 +1038,7 @@ void AppController::refreshCameraPreview() {
   emit cameraPreviewChanged();
 }
 
+/// Update Intrinsics Path (QML property backing).
 void AppController::setIntrinsicsPath(const QString &path) {
   const QString normalized = QFileInfo(path).absoluteFilePath();
   if (QString::fromStdString(session_.intrinsics_path) == normalized) {
@@ -975,6 +1048,7 @@ void AppController::setIntrinsicsPath(const QString &path) {
   emit sessionPathsChanged();
 }
 
+/// AppController::repopulateActiveDatasetPcdCatalogIfEmpty implementation.
 bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
   auto &dataset = activeDatasetEntry();
   if (!dataset.pcd_paths.empty()) {
@@ -1015,6 +1089,7 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
   return !dataset.pcd_paths.empty();
 }
 
+/// Recompute and push Pcd Catalog to the UI or viewer.
 void AppController::refreshPcdCatalog() {
   fusion_blocked_ = false;
   if (session_.calibration_datasets.empty()) {
@@ -1043,6 +1118,7 @@ void AppController::refreshPcdCatalog() {
   refreshPreviewInViewer();
 }
 
+/// Recompute and push Preview In Viewer to the UI or viewer.
 void AppController::refreshPreviewInViewer() {
   const bool fused_cache_for_active =
       fused_cloud_dataset_index_.has_value() &&
@@ -1055,10 +1131,13 @@ void AppController::refreshPreviewInViewer() {
   }
 }
 
+/// AppController::maskWidth implementation.
 int AppController::maskWidth() const { return maskRasterWidth(); }
 
+/// AppController::maskHeight implementation.
 int AppController::maskHeight() const { return maskRasterHeight(); }
 
+/// AppController::maskPreview implementation.
 QByteArray AppController::maskPreview() const {
   const int w = maskRasterWidth();
   const int h = maskRasterHeight();
@@ -1087,6 +1166,7 @@ QByteArray AppController::maskPreview() const {
                     static_cast<int>(preview.size()));
 }
 
+/// Update Range Colormap Min (QML property backing).
 void AppController::setRangeColormapMin(double v) {
   if (qFuzzyCompare(range_colormap_min_, v)) {
     return;
@@ -1095,6 +1175,7 @@ void AppController::setRangeColormapMin(double v) {
   refreshRangeImage();
 }
 
+/// Update Range Colormap Max (QML property backing).
 void AppController::setRangeColormapMax(double v) {
   if (qFuzzyCompare(range_colormap_max_, v)) {
     return;
@@ -1103,6 +1184,7 @@ void AppController::setRangeColormapMax(double v) {
   refreshRangeImage();
 }
 
+/// Update Range Channel (QML property backing).
 void AppController::setRangeChannel(int channel) {
   if (range_channel_ == channel) {
     return;
@@ -1111,6 +1193,7 @@ void AppController::setRangeChannel(int channel) {
   refreshRangeImage();
 }
 
+/// Update Range YStretch (QML property backing).
 void AppController::setRangeYStretch(double stretch) {
   stretch = std::clamp(stretch, 1.0, 8.0);
   if (qFuzzyCompare(range_y_stretch_, stretch)) {
@@ -1121,14 +1204,17 @@ void AppController::setRangeYStretch(double stretch) {
   emit rangeYStretchChanged();
 }
 
+/// Update Viewer Colormap Min (QML property backing).
 void AppController::setViewerColormapMin(double v) {
   previewViewerColormapRange(v, viewer_colormap_max_);
 }
 
+/// Update Viewer Colormap Max (QML property backing).
 void AppController::setViewerColormapMax(double v) {
   previewViewerColormapRange(viewer_colormap_min_, v);
 }
 
+/// AppController::applyViewerScalarRangeToItem implementation.
 void AppController::applyViewerScalarRangeToItem() {
   if (auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_)) {
     item->setScalarMin(viewer_colormap_min_);
@@ -1136,6 +1222,7 @@ void AppController::applyViewerScalarRangeToItem() {
   }
 }
 
+/// AppController::previewViewerColormapRange implementation.
 void AppController::previewViewerColormapRange(double min_v, double max_v) {
   if (max_v < min_v) {
     std::swap(min_v, max_v);
@@ -1146,15 +1233,18 @@ void AppController::previewViewerColormapRange(double min_v, double max_v) {
   applyViewerScalarRangeToItem();
 }
 
+/// AppController::commitViewerColormapRange implementation.
 void AppController::commitViewerColormapRange(double min_v, double max_v) {
   viewer_colormap_debounce_.stop();
   previewViewerColormapRange(min_v, max_v);
 }
 
+/// React to Viewer Colormap Debounce.
 void AppController::onViewerColormapDebounce() {
   applyViewerScalarRangeToItem();
 }
 
+/// AppController::previewRangeColormapRange implementation.
 void AppController::previewRangeColormapRange(double min_v, double max_v) {
   if (max_v < min_v) {
     std::swap(min_v, max_v);
@@ -1166,13 +1256,16 @@ void AppController::previewRangeColormapRange(double min_v, double max_v) {
   range_colormap_debounce_.start();
 }
 
+/// AppController::commitRangeColormapRange implementation.
 void AppController::commitRangeColormapRange(double min_v, double max_v) {
   range_colormap_debounce_.stop();
   previewRangeColormapRange(min_v, max_v);
 }
 
+/// React to Range Colormap Debounce.
 void AppController::onRangeColormapDebounce() { refreshRangeImageDisplay(); }
 
+/// Update Viewer Scalar Channel (QML property backing).
 void AppController::setViewerScalarChannel(int channel) {
   if (viewer_scalar_channel_ == channel) {
     return;
@@ -1189,6 +1282,7 @@ void AppController::setViewerScalarChannel(int channel) {
   }
 }
 
+/// Update Fusion Voxel Resolution (QML property backing).
 void AppController::setFusionVoxelResolution(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1205,6 +1299,7 @@ void AppController::setFusionVoxelResolution(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Num Threads (QML property backing).
 void AppController::setFusionNumThreads(int n) {
   const int clamped = std::max(1, n);
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
@@ -1222,6 +1317,7 @@ void AppController::setFusionNumThreads(int n) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Max Correspondence (QML property backing).
 void AppController::setFusionMaxCorrespondence(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1239,6 +1335,7 @@ void AppController::setFusionMaxCorrespondence(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion KNeighbors (QML property backing).
 void AppController::setFusionKNeighbors(int n) {
   const int clamped = std::max(2, n);
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
@@ -1256,6 +1353,7 @@ void AppController::setFusionKNeighbors(int n) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Backend (QML property backing).
 void AppController::setFusionBackend(int backend) {
   const auto value = backend == 1
                          ? glim_cloud_fusion::FusionBackend::GlimSlam
@@ -1275,6 +1373,7 @@ void AppController::setFusionBackend(int backend) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Target Num Points (QML property backing).
 void AppController::setFusionTargetNumPoints(int n) {
   const int clamped = std::max(100, n);
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
@@ -1292,6 +1391,7 @@ void AppController::setFusionTargetNumPoints(int n) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Min Distance (QML property backing).
 void AppController::setFusionMinDistance(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1308,6 +1408,7 @@ void AppController::setFusionMinDistance(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Integrator Ivox Resolution (QML property backing).
 void AppController::setFusionIntegratorIvoxResolution(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1325,6 +1426,7 @@ void AppController::setFusionIntegratorIvoxResolution(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Integrator Ivox Min Points Dist (QML property backing).
 void AppController::setFusionIntegratorIvoxMinPointsDist(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1342,6 +1444,7 @@ void AppController::setFusionIntegratorIvoxMinPointsDist(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Ivox Resolution (QML property backing).
 void AppController::setFusionIvoxResolution(double v) {
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
     auto &ds = activeDatasetEntry();
@@ -1358,6 +1461,7 @@ void AppController::setFusionIvoxResolution(double v) {
   emit fusionParamsChanged();
 }
 
+/// Update Fusion Lm Max Iterations (QML property backing).
 void AppController::setFusionLmMaxIterations(int n) {
   const int clamped = std::max(1, n);
   if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
@@ -1375,34 +1479,42 @@ void AppController::setFusionLmMaxIterations(int n) {
   emit fusionParamsChanged();
 }
 
+/// AppController::calibrationMaxOuterIterations implementation.
 int AppController::calibrationMaxOuterIterations() const {
   return session_.calibration_params.max_outer_iterations;
 }
 
+/// AppController::calibrationMaxInnerIterations implementation.
 int AppController::calibrationMaxInnerIterations() const {
   return session_.calibration_params.max_inner_iterations;
 }
 
+/// AppController::calibrationNumThreads implementation.
 int AppController::calibrationNumThreads() const {
   return session_.calibration_params.num_threads;
 }
 
+/// AppController::calibrationDeltaTransThresh implementation.
 double AppController::calibrationDeltaTransThresh() const {
   return session_.calibration_params.delta_trans_thresh;
 }
 
+/// AppController::calibrationDeltaRotDeg implementation.
 double AppController::calibrationDeltaRotDeg() const {
   return session_.calibration_params.delta_rot_thresh * 180.0 / M_PI;
 }
 
+/// AppController::calibrationDisableZBufferCulling implementation.
 bool AppController::calibrationDisableZBufferCulling() const {
   return session_.calibration_params.disable_z_buffer_culling;
 }
 
+/// AppController::calibrationNidBins implementation.
 int AppController::calibrationNidBins() const {
   return session_.calibration_params.nid_bins;
 }
 
+/// AppController::calibrationRegistrationType implementation.
 int AppController::calibrationRegistrationType() const {
   return session_.calibration_params.registration_type ==
                  vlcal::RegistrationType::NID_NELDER_MEAD
@@ -1410,14 +1522,17 @@ int AppController::calibrationRegistrationType() const {
              : 0;
 }
 
+/// AppController::calibrationNelderMeadInitStep implementation.
 double AppController::calibrationNelderMeadInitStep() const {
   return session_.calibration_params.nelder_mead_init_step;
 }
 
+/// AppController::calibrationNelderMeadConvergence implementation.
 double AppController::calibrationNelderMeadConvergence() const {
   return session_.calibration_params.nelder_mead_convergence_criteria;
 }
 
+/// Update Calibration Max Outer Iterations (QML property backing).
 void AppController::setCalibrationMaxOuterIterations(int v) {
   const int clamped = std::max(1, v);
   if (session_.calibration_params.max_outer_iterations == clamped) {
@@ -1427,6 +1542,7 @@ void AppController::setCalibrationMaxOuterIterations(int v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Max Inner Iterations (QML property backing).
 void AppController::setCalibrationMaxInnerIterations(int v) {
   const int clamped = std::max(1, v);
   if (session_.calibration_params.max_inner_iterations == clamped) {
@@ -1436,6 +1552,7 @@ void AppController::setCalibrationMaxInnerIterations(int v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Num Threads (QML property backing).
 void AppController::setCalibrationNumThreads(int v) {
   const int clamped = std::max(1, v);
   if (session_.calibration_params.num_threads == clamped) {
@@ -1445,6 +1562,7 @@ void AppController::setCalibrationNumThreads(int v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Delta Trans Thresh (QML property backing).
 void AppController::setCalibrationDeltaTransThresh(double v) {
   if (qFuzzyCompare(session_.calibration_params.delta_trans_thresh, v)) {
     return;
@@ -1453,6 +1571,7 @@ void AppController::setCalibrationDeltaTransThresh(double v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Delta Rot Deg (QML property backing).
 void AppController::setCalibrationDeltaRotDeg(double v) {
   const double rad = v * M_PI / 180.0;
   if (qFuzzyCompare(session_.calibration_params.delta_rot_thresh, rad)) {
@@ -1462,6 +1581,7 @@ void AppController::setCalibrationDeltaRotDeg(double v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Disable ZBuffer Culling (QML property backing).
 void AppController::setCalibrationDisableZBufferCulling(bool v) {
   if (session_.calibration_params.disable_z_buffer_culling == v) {
     return;
@@ -1470,6 +1590,7 @@ void AppController::setCalibrationDisableZBufferCulling(bool v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Nid Bins (QML property backing).
 void AppController::setCalibrationNidBins(int v) {
   const int clamped = std::max(2, v);
   if (session_.calibration_params.nid_bins == clamped) {
@@ -1479,6 +1600,7 @@ void AppController::setCalibrationNidBins(int v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Registration Type (QML property backing).
 void AppController::setCalibrationRegistrationType(int v) {
   const auto reg = (v == 1) ? vlcal::RegistrationType::NID_NELDER_MEAD
                             : vlcal::RegistrationType::NID_BFGS;
@@ -1489,6 +1611,7 @@ void AppController::setCalibrationRegistrationType(int v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Nelder Mead Init Step (QML property backing).
 void AppController::setCalibrationNelderMeadInitStep(double v) {
   if (qFuzzyCompare(session_.calibration_params.nelder_mead_init_step, v)) {
     return;
@@ -1497,6 +1620,7 @@ void AppController::setCalibrationNelderMeadInitStep(double v) {
   emit calibrationParamsChanged();
 }
 
+/// Update Calibration Nelder Mead Convergence (QML property backing).
 void AppController::setCalibrationNelderMeadConvergence(double v) {
   if (qFuzzyCompare(
           session_.calibration_params.nelder_mead_convergence_criteria, v)) {
@@ -1506,13 +1630,16 @@ void AppController::setCalibrationNelderMeadConvergence(double v) {
   emit calibrationParamsChanged();
 }
 
+/// Recompute and push Viewer Colors to the UI or viewer.
 void AppController::refreshViewerColors() { applyViewerScalarRangeToItem(); }
 
+/// AppController::invalidateProjectionImageCache implementation.
 void AppController::invalidateProjectionImageCache() {
   projection_image_.release();
   projection_image_path_.clear();
 }
 
+/// Create or validate Projection Image For Active Dataset before continuing.
 bool AppController::ensureProjectionImageForActiveDataset() {
   if (session_.calibration_datasets.empty()) {
     invalidateProjectionImageCache();
@@ -1532,6 +1659,7 @@ bool AppController::ensureProjectionImageForActiveDataset() {
   return !projection_image_.empty();
 }
 
+/// Reset Calibration Dataset Visuals to empty defaults.
 void AppController::clearCalibrationDatasetVisuals() {
   invalidateProjectionImageCache();
   fused_cloud_ = {};
@@ -1550,6 +1678,7 @@ void AppController::clearCalibrationDatasetVisuals() {
   refreshViewerGizmoState();
 }
 
+/// AppController::resetSessionStructuredScanState implementation.
 void AppController::resetSessionStructuredScanState() {
   clc::reset_session_structured_scan_reference(session_);
   fusion_blocked_ = false;
@@ -1560,6 +1689,7 @@ void AppController::resetSessionStructuredScanState() {
   emit maskChanged();
 }
 
+/// Recompute and push Active Dataset Visuals to the UI or viewer.
 void AppController::refreshActiveDatasetVisuals() {
   if (main_work_tab_ == 3) {
     return;
@@ -1578,6 +1708,7 @@ void AppController::refreshActiveDatasetVisuals() {
   loadActiveDatasetCloudToViewer();
 }
 
+/// Copy Color Model From Session between session model and UI.
 void AppController::syncColorModelFromSession() {
   const std::string image_path = activeDatasetEntry().image_path;
   if (session_.camera.intrinsics.empty() || image_path.empty() ||
@@ -1594,14 +1725,12 @@ void AppController::syncColorModelFromSession() {
   color_model_.setImage(projection_image_);
 
   const int n = viewer_positions_.size() / 3;
-  std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
-      points;
+  std::vector<clc::Vec3d> points;
   std::vector<double> intensities;
   points.reserve(n);
   intensities.reserve(n);
   for (int i = 0; i < n; ++i) {
-    points.emplace_back(viewer_positions_[i * 3], viewer_positions_[i * 3 + 1],
-                        viewer_positions_[i * 3 + 2]);
+    points.push_back({viewer_positions_[i * 3], viewer_positions_[i * 3 + 1], viewer_positions_[i * 3 + 2]});
     intensities.push_back(i < viewer_scalars_.size()
                               ? static_cast<double>(viewer_scalars_[i])
                               : 0.0);
@@ -1609,6 +1738,7 @@ void AppController::syncColorModelFromSession() {
   color_model_.setPoints(points, intensities);
 }
 
+/// AppController::reprojectViewerCameraRgb implementation.
 void AppController::reprojectViewerCameraRgb() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item || viewer_positions_.isEmpty()) {
@@ -1641,6 +1771,7 @@ void AppController::reprojectViewerCameraRgb() {
   syncCorrespondenceMarkers();
 }
 
+/// Construct Alignment Input from current session state.
 bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
                                         std::string &error) {
   static_assert(
@@ -1713,6 +1844,7 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
   return true;
 }
 
+/// Save Fused Pcd to a user-chosen file path.
 QString AppController::exportFusedPcd() {
   if (fused_cloud_.points.empty()) {
     setStatus(QStringLiteral("No fused cloud to export"));
@@ -1738,6 +1870,7 @@ QString AppController::exportFusedPcd() {
   return path;
 }
 
+/// Recompute and push Viewer Colormap Bounds to the UI or viewer.
 void AppController::refreshViewerColormapBounds(bool reset_colormap_range) {
   if (fused_cloud_.points.empty()) {
     return;
@@ -1782,6 +1915,7 @@ void AppController::refreshViewerColormapBounds(bool reset_colormap_range) {
   }
 }
 
+/// Update Mask Polygon Pending (QML property backing).
 void AppController::setMaskPolygonPending(bool pending) {
   if (mask_polygon_pending_ == pending) {
     return;
@@ -1791,17 +1925,19 @@ void AppController::setMaskPolygonPending(bool pending) {
   emit maskChanged();
 }
 
+/// AppController::pendingMaskPolygonVertices implementation.
 QVariantList AppController::pendingMaskPolygonVertices() const {
   QVariantList out;
   if (!mask_polygon_pending_) {
     return out;
   }
   for (const auto &v : pending_mask_polygon_.vertices) {
-    out.append(QVariant::fromValue(QPointF(v.x(), v.y())));
+    out.append(QVariant::fromValue(QPointF(v.x, v.y)));
   }
   return out;
 }
 
+/// AppController::pendingMaskPolygonNativePoints implementation.
 std::vector<QPointF> AppController::pendingMaskPolygonNativePoints() const {
   std::vector<QPointF> out;
   if (!mask_polygon_pending_ || pending_mask_polygon_.vertices.size() < 3) {
@@ -1809,11 +1945,12 @@ std::vector<QPointF> AppController::pendingMaskPolygonNativePoints() const {
   }
   out.reserve(pending_mask_polygon_.vertices.size());
   for (const auto &v : pending_mask_polygon_.vertices) {
-    out.emplace_back(v.x(), v.y());
+    out.emplace_back(v.x, v.y);
   }
   return out;
 }
 
+/// AppController::maskRasterWidth implementation.
 int AppController::maskRasterWidth() const {
   if (session_.reference_scan_width > 0) {
     return session_.reference_scan_width;
@@ -1821,6 +1958,7 @@ int AppController::maskRasterWidth() const {
   return range_image_.width;
 }
 
+/// AppController::maskRasterHeight implementation.
 int AppController::maskRasterHeight() const {
   if (session_.reference_scan_height > 0) {
     return session_.reference_scan_height;
@@ -1828,6 +1966,7 @@ int AppController::maskRasterHeight() const {
   return range_image_.height;
 }
 
+/// AppController::rebuildMaskFromOps implementation.
 void AppController::rebuildMaskFromOps() {
   const int w = maskRasterWidth();
   const int h = maskRasterHeight();
@@ -1848,6 +1987,7 @@ void AppController::rebuildMaskFromOps() {
   refreshPreviewCloudFromMask(true);
 }
 
+/// AppController::commitMaskPolygonNative implementation.
 void AppController::commitMaskPolygonNative(
     const std::vector<QPointF> &nativeVertices) {
   if (nativeVertices.size() < 3) {
@@ -1875,6 +2015,7 @@ void AppController::commitMaskPolygonNative(
   setStatus(QStringLiteral("Polygon closed — choose Keep or Remove to apply"));
 }
 
+/// AppController::commitMaskPolygon implementation.
 void AppController::commitMaskPolygon(const QVariantList &nativeVertices) {
   pending_mask_polygon_ = polygonFromVariantList(nativeVertices);
   if (pending_mask_polygon_.vertices.size() < 3) {
@@ -1884,6 +2025,7 @@ void AppController::commitMaskPolygon(const QVariantList &nativeVertices) {
   setStatus(QStringLiteral("Polygon closed — choose Keep or Remove to apply"));
 }
 
+/// AppController::applyPendingMaskKeep implementation.
 void AppController::applyPendingMaskKeep() {
   if (!mask_polygon_pending_) {
     return;
@@ -1896,6 +2038,7 @@ void AppController::applyPendingMaskKeep() {
                 .arg(static_cast<int>(mask_ops_.size())));
 }
 
+/// AppController::applyPendingMaskRemove implementation.
 void AppController::applyPendingMaskRemove() {
   if (!mask_polygon_pending_) {
     return;
@@ -1909,6 +2052,7 @@ void AppController::applyPendingMaskRemove() {
 }
 
 #ifdef CLC_APP_TESTING
+/// AppController::installSyntheticMaskEditorScan implementation.
 void AppController::installSyntheticMaskEditorScan(int native_width,
                                                    int native_height,
                                                    double y_stretch) {
@@ -1935,6 +2079,7 @@ void AppController::installSyntheticMaskEditorScan(int native_width,
   emit maskChanged();
 }
 
+/// Update Reference Scan Size For Test (QML property backing).
 void AppController::setReferenceScanSizeForTest(int width, int height) {
   session_.reference_scan_width = width;
   session_.reference_scan_height = height;
@@ -1942,6 +2087,7 @@ void AppController::setReferenceScanSizeForTest(int width, int height) {
 }
 #endif
 
+/// AppController::discardPendingMaskPolygon implementation.
 void AppController::discardPendingMaskPolygon() {
   if (!mask_polygon_pending_) {
     return;
@@ -1952,6 +2098,7 @@ void AppController::discardPendingMaskPolygon() {
   setStatus(QStringLiteral("Pending polygon discarded"));
 }
 
+/// Reset Mask to empty defaults.
 void AppController::clearMask() {
   mask_ops_.clear();
   pending_mask_polygon_ = {};
@@ -1965,6 +2112,7 @@ void AppController::clearMask() {
   setStatus(QStringLiteral("Mask cleared"));
 }
 
+/// AppController::saveMask implementation.
 bool AppController::saveMask() {
   const int w = session_.reference_scan_width;
   const int h = session_.reference_scan_height;
@@ -1996,6 +2144,7 @@ bool AppController::saveMask() {
   return true;
 }
 
+/// Load Mask from disk or session.
 bool AppController::loadMask() {
   const int w = session_.reference_scan_width;
   const int h = session_.reference_scan_height;
@@ -2027,6 +2176,7 @@ bool AppController::loadMask() {
   return true;
 }
 
+/// AppController::browseMaskFile implementation.
 QString AppController::browseMaskFile() {
   const QString file = QFileDialog::getOpenFileName(
       nullptr, QStringLiteral("Load mask PNG"), session_directory_,
@@ -2057,6 +2207,7 @@ QString AppController::browseMaskFile() {
   return file;
 }
 
+/// Load First Readable Scan from disk or session.
 bool AppController::loadFirstReadableScan(clc::PointXYZITCloud &cloud,
                                           std::string &err) {
   const bool check_filename_stamp =
@@ -2072,6 +2223,7 @@ bool AppController::loadFirstReadableScan(clc::PointXYZITCloud &cloud,
   return false;
 }
 
+/// Recompute and push Range Image to the UI or viewer.
 void AppController::refreshRangeImage() {
   const int previous_width = range_image_.width;
   const int previous_height = range_image_.height;
@@ -2113,6 +2265,7 @@ void AppController::refreshRangeImage() {
   emit rangeImageChanged();
 }
 
+/// Recompute and push Range Image Display to the UI or viewer.
 void AppController::refreshRangeImageDisplay() {
   if (range_image_.width <= 0 || range_image_.height <= 0) {
     range_image_display_ = {};
@@ -2127,14 +2280,16 @@ void AppController::refreshRangeImageDisplay() {
   emit rangeImageChanged();
 }
 
+/// AppController::applySessionToViewer implementation.
 void AppController::applySessionToViewer() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item) {
     return;
   }
-  item->setPoseMatrix(isometryToPoseMatrix(session_.T_camera_lidar));
+  item->setPoseMatrix(mat4dToPoseMatrix(session_.T_camera_lidar));
 }
 
+/// Recompute and push Viewer Gizmo State to the UI or viewer.
 void AppController::refreshViewerGizmoState() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item) {
@@ -2149,6 +2304,7 @@ void AppController::refreshViewerGizmoState() {
   item->setPickingEnabled(pickingAllowed() && main_work_tab_ == 1);
 }
 
+/// Load Active Dataset Cloud To Viewer from disk or session.
 void AppController::loadActiveDatasetCloudToViewer() {
   if (main_work_tab_ != 3 && session_.calibration_datasets.empty()) {
     refreshPreviewInViewer();
@@ -2194,6 +2350,7 @@ void AppController::loadActiveDatasetCloudToViewer() {
   refreshViewerGizmoState();
 }
 
+/// AppController::emitSessionUiState implementation.
 void AppController::emitSessionUiState() {
   emit scanTimeChanged();
   emit fusionParamsChanged();
@@ -2210,6 +2367,7 @@ void AppController::emitSessionUiState() {
   }
 }
 
+/// Load session.json from a directory and refresh all UI state.
 bool AppController::loadSession(const QString &directory) {
   const QString dir = normalizedDirectoryPath(directory);
   if (dir.isEmpty()) {
@@ -2268,6 +2426,7 @@ bool AppController::loadSession(const QString &directory) {
   return true;
 }
 
+/// Write session.json and related paths to a directory.
 bool AppController::saveSession(const QString &directory) {
   const QString dir = normalizedDirectoryPath(
       directory.isEmpty() ? session_directory_ : directory);
@@ -2299,6 +2458,7 @@ bool AppController::saveSession(const QString &directory) {
   return true;
 }
 
+/// AppController::browseSessionDirectory implementation.
 QString AppController::browseSessionDirectory() {
   const QString dir = QFileDialog::getExistingDirectory(
       nullptr, QStringLiteral("Session directory"), session_directory_);
@@ -2308,6 +2468,7 @@ QString AppController::browseSessionDirectory() {
   return session_directory_;
 }
 
+/// AppController::browsePcdFile implementation.
 QString AppController::browsePcdFile() {
   const QString path =
       pickPcdFileDialog(QStringLiteral("LiDAR scan file"), pcdDirectory());
@@ -2317,6 +2478,7 @@ QString AppController::browsePcdFile() {
   return pcdDirectory();
 }
 
+/// AppController::browsePcdFolder implementation.
 QString AppController::browsePcdFolder() {
   const QString path =
       pickPcdFolderDialog(QStringLiteral("LiDAR scan folder"), pcdDirectory());
@@ -2326,6 +2488,7 @@ QString AppController::browsePcdFolder() {
   return pcdDirectory();
 }
 
+/// AppController::browseImageFile implementation.
 QString AppController::browseImageFile() {
   const QString file = QFileDialog::getOpenFileName(
       nullptr, QStringLiteral("Camera image"), imagePath(),
@@ -2336,6 +2499,7 @@ QString AppController::browseImageFile() {
   return imagePath();
 }
 
+/// Load Intrinsics File from disk or session.
 bool AppController::loadIntrinsicsFile(const QString &path) {
   const QString normalized = QFileInfo(path).absoluteFilePath();
   if (normalized.isEmpty()) {
@@ -2355,6 +2519,7 @@ bool AppController::loadIntrinsicsFile(const QString &path) {
   return true;
 }
 
+/// Attach the QML PointCloudItem and wire pick/pose signals.
 void AppController::setViewer(QObject *viewer) {
   if (viewer_ == viewer) {
     return;
@@ -2388,6 +2553,7 @@ void AppController::setViewer(QObject *viewer) {
   }
 }
 
+/// Recompute and push Preview Cloud From Mask to the UI or viewer.
 void AppController::refreshPreviewCloudFromMask(bool preserve_view_state) {
   if (!fused_cloud_.points.empty()) {
     return;
@@ -2395,6 +2561,7 @@ void AppController::refreshPreviewCloudFromMask(bool preserve_view_state) {
   uploadPreviewScanToViewer(preserve_view_state);
 }
 
+/// Send Lidar Scan To Viewer data to the point cloud viewer.
 void AppController::uploadLidarScanToViewer(const clc::PointXYZITCloud &cloud,
                                             bool preserve_view_state) {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
@@ -2491,6 +2658,7 @@ void AppController::uploadLidarScanToViewer(const clc::PointXYZITCloud &cloud,
   setStatus(QStringLiteral("3D preview: %1 points (intensity)").arg(shown));
 }
 
+/// Send Preview Scan To Viewer data to the point cloud viewer.
 void AppController::uploadPreviewScanToViewer(bool preserve_view_state) {
   if (fusion_blocked_ || activeDatasetEntry().pcd_paths.empty()) {
     preview_upload_pending_ = false;
@@ -2513,6 +2681,7 @@ void AppController::uploadPreviewScanToViewer(bool preserve_view_state) {
   uploadLidarScanToViewer(cloud, preserve_view_state);
 }
 
+/// Send Dense Cloud To Viewer data to the point cloud viewer.
 void AppController::uploadDenseCloudToViewer(
     const glim_cloud_fusion::DensePointCloud &cloud, bool preserve_view_state) {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
@@ -2589,10 +2758,12 @@ void AppController::uploadDenseCloudToViewer(
   setPointCount(static_cast<int>(cloud.points.size()));
 }
 
+/// Send Fused Cloud To Viewer data to the point cloud viewer.
 void AppController::uploadFusedCloudToViewer() {
   uploadDenseCloudToViewer(fused_cloud_, viewer_scalar_bounds_valid_);
 }
 
+/// Save Inspection Colored Pcd to a user-chosen file path.
 QString AppController::exportInspectionColoredPcd() {
   if (main_work_tab_ != 3) {
     setStatus(QStringLiteral(
@@ -2602,6 +2773,7 @@ QString AppController::exportInspectionColoredPcd() {
   return exportFusedPcd();
 }
 
+/// Copy Correspondence Markers between session model and UI.
 void AppController::syncCorrespondenceMarkers() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item) {
@@ -2622,14 +2794,14 @@ void AppController::syncCorrespondenceMarkers() {
   }
   item->setSphereMarkerPositions(positions);
   if (pending_correspondence_3d_) {
-    item->setPendingSphereMarker((*pending_correspondence_3d_).x(),
-                                 (*pending_correspondence_3d_).y(),
-                                 (*pending_correspondence_3d_).z());
+    item->setPendingSphereMarker((*pending_correspondence_3d_).x, (*pending_correspondence_3d_).y,
+                                 (*pending_correspondence_3d_).z);
   } else {
     item->clearPendingSphereMarker();
   }
 }
 
+/// AppController::finalizePendingCorrespondenceIfReady implementation.
 void AppController::finalizePendingCorrespondenceIfReady() {
   if (!pending_correspondence_3d_.has_value() ||
       !pending_correspondence_2d_.has_value()) {
@@ -2640,9 +2812,9 @@ void AppController::finalizePendingCorrespondenceIfReady() {
   clc::PointCorrespondence c;
   c.u = pending_correspondence_2d_->first;
   c.v = pending_correspondence_2d_->second;
-  c.x = pending_correspondence_3d_->x();
-  c.y = pending_correspondence_3d_->y();
-  c.z = pending_correspondence_3d_->z();
+  c.x = pending_correspondence_3d_->x;
+  c.y = pending_correspondence_3d_->y;
+  c.z = pending_correspondence_3d_->z;
   ds.correspondences.push_back(c);
   pending_correspondence_3d_.reset();
   pending_correspondence_2d_.reset();
@@ -2652,6 +2824,7 @@ void AppController::finalizePendingCorrespondenceIfReady() {
                 .arg(correspondenceCount()));
 }
 
+/// Handle a 3D pick from the viewer for correspondence pairing.
 void AppController::onPointPicked(double x, double y, double z) {
   qInfo().noquote() << QStringLiteral("3D correspondence pick: x=%1 y=%2 z=%3")
                            .arg(x, 0, 'f', 4)
@@ -2697,7 +2870,7 @@ void AppController::onPointPicked(double x, double y, double z) {
       cursor += count;
     }
   }
-  pending_correspondence_3d_ = Eigen::Vector3d(x, y, z);
+  pending_correspondence_3d_ = clc::Vec3d{x, y, z};
   if (pending_correspondence_2d_.has_value()) {
     finalizePendingCorrespondenceIfReady();
     return;
@@ -2707,6 +2880,7 @@ void AppController::onPointPicked(double x, double y, double z) {
                            "location on the camera image"));
 }
 
+/// AppController::pickImageCorrespondence implementation.
 void AppController::pickImageCorrespondence(double u, double v) {
   if (main_work_tab_ != 1 || !pickingAllowed()) {
     return;
@@ -2732,9 +2906,9 @@ void AppController::pickImageCorrespondence(double u, double v) {
         c.u = u;
         c.v = v;
         if (pending_correspondence_3d_) {
-          c.x = (*pending_correspondence_3d_).x();
-          c.y = (*pending_correspondence_3d_).y();
-          c.z = (*pending_correspondence_3d_).z();
+          c.x = (*pending_correspondence_3d_).x;
+          c.y = (*pending_correspondence_3d_).y;
+          c.z = (*pending_correspondence_3d_).z;
           pending_correspondence_3d_.reset();
         }
         pending_correspondence_2d_.reset();
@@ -2754,6 +2928,7 @@ void AppController::pickImageCorrespondence(double u, double v) {
       "Image point picked — Shift+click the matching 3D point in the viewer"));
 }
 
+/// Reset Correspondences to empty defaults.
 void AppController::clearCorrespondences() {
   ensureActiveCalibrationDataset();
   activeDatasetEntry().correspondences.clear();
@@ -2764,6 +2939,7 @@ void AppController::clearCorrespondences() {
   setStatus(QStringLiteral("Correspondences cleared for active dataset"));
 }
 
+/// AppController::estimateInitialGuessFromCorrespondences implementation.
 void AppController::estimateInitialGuessFromCorrespondences() {
   if (session_.camera.intrinsics.empty()) {
     setStatus(QStringLiteral(
@@ -2798,6 +2974,7 @@ void AppController::estimateInitialGuessFromCorrespondences() {
   setStatus(QString::fromStdString(result.message));
 }
 
+/// React to Viewer Pose Changed.
 void AppController::onViewerPoseChanged() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item) {
@@ -2807,18 +2984,19 @@ void AppController::onViewerPoseChanged() {
   if (m.size() != 16) {
     return;
   }
-  Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+  clc::Mat4d T = clc::Mat4d::identity();
   int k = 0;
   for (int c = 0; c < 4; ++c) {
     for (int r = 0; r < 4; ++r) {
       T(r, c) = m[k++].toDouble();
     }
   }
-  session_.T_camera_lidar_initial = Eigen::Isometry3d(T);
+  session_.T_camera_lidar_initial = T;
   session_.T_camera_lidar = session_.T_camera_lidar_initial;
   reprojectViewerCameraRgb();
 }
 
+/// Run multi-scan fusion on a background thread for the active dataset.
 void AppController::runFusion() {
   if (worker_running_) {
     return;
@@ -2941,8 +3119,9 @@ void AppController::runFusion() {
           }
           fused_cloud_ = result.cloud;
           if (!result.scan_poses.empty()) {
-            clc::transform_dense_cloud_from_world(fused_cloud_,
-                                                  result.scan_poses.front());
+            clc::transform_dense_cloud_from_world(
+                fused_cloud_,
+                clc::mat4dFromColumnMajor(result.scan_poses.front().matrix().data()));
           }
           fused_cloud_dataset_index_ = active_calibration_dataset_index_;
           auto &ds = activeDatasetEntry();
@@ -2970,6 +3149,7 @@ void AppController::runFusion() {
   });
 }
 
+/// Run NID / visual-lidar calibration on a background thread.
 void AppController::runAlignment() {
   if (worker_running_) {
     return;
@@ -3018,7 +3198,8 @@ void AppController::runAlignment() {
           QMetaObject::invokeMethod(
               this,
               [this, p]() {
-                session_.T_camera_lidar = p.T_camera_lidar;
+                session_.T_camera_lidar =
+                    clc::mat4dFromColumnMajor(p.T_camera_lidar.matrix().data());
                 applySessionToViewer();
                 reprojectViewerCameraRgb();
                 setStatus(QStringLiteral("cost=%1 outer=%2 inner=%3")
@@ -3046,7 +3227,8 @@ void AppController::runAlignment() {
                                    QString::fromStdString(result.message));
             return;
           }
-          session_.T_camera_lidar = result.T_camera_lidar;
+          session_.T_camera_lidar =
+              clc::mat4dFromColumnMajor(result.T_camera_lidar.matrix().data());
           applySessionToViewer();
           reprojectViewerCameraRgb();
           setStatus(QStringLiteral("Alignment complete"));

@@ -1,3 +1,5 @@
+// scene_shapes.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/scene_shapes.hpp"
 
 #include <cmath>
@@ -6,11 +8,11 @@ namespace psiviz {
 
 namespace {
 
-void appendTriangle(std::vector<ShapeVertex>& out, const Eigen::Vector3f& a, const Eigen::Vector3f& b,
-                    const Eigen::Vector3f& c, float r, float g, float bl, float alpha) {
-  out.push_back({a.x(), a.y(), a.z(), r, g, bl, alpha});
-  out.push_back({b.x(), b.y(), b.z(), r, g, bl, alpha});
-  out.push_back({c.x(), c.y(), c.z(), r, g, bl, alpha});
+void appendTriangle(std::vector<ShapeVertex>& out, const clc::Vec3f& a, const clc::Vec3f& b, const clc::Vec3f& c,
+                    float r, float g, float bl, float alpha) {
+  out.push_back({a.x, a.y, a.z, r, g, bl, alpha});
+  out.push_back({b.x, b.y, b.z, r, g, bl, alpha});
+  out.push_back({c.x, c.y, c.z, r, g, bl, alpha});
 }
 
 }  // namespace
@@ -19,11 +21,11 @@ void appendSphereTriangles(std::vector<ShapeVertex>& out, const SphereMarker& sp
   if (sphere.radius <= 0.f || stacks < 2 || slices < 3) {
     return;
   }
-  const float r = sphere.color.x();
-  const float g = sphere.color.y();
-  const float b = sphere.color.z();
+  const float r = sphere.color.x;
+  const float g = sphere.color.y;
+  const float b = sphere.color.z;
   const float alpha = sphere.alpha;
-  const Eigen::Vector3f& c = sphere.center;
+  const clc::Vec3f c = sphere.center;
   const float rad = sphere.radius;
 
   for (int i = 0; i < stacks; ++i) {
@@ -39,13 +41,13 @@ void appendSphereTriangles(std::vector<ShapeVertex>& out, const SphereMarker& sp
 
       const auto sph = [](float phi, float theta) {
         const float sp = std::sin(phi);
-        return Eigen::Vector3f(sp * std::cos(theta), std::cos(phi), sp * std::sin(theta));
+        return clc::Vec3f{sp * std::cos(theta), std::cos(phi), sp * std::sin(theta)};
       };
 
-      const Eigen::Vector3f p00 = c + sph(phi0, theta0) * rad;
-      const Eigen::Vector3f p01 = c + sph(phi0, theta1) * rad;
-      const Eigen::Vector3f p10 = c + sph(phi1, theta0) * rad;
-      const Eigen::Vector3f p11 = c + sph(phi1, theta1) * rad;
+      const clc::Vec3f p00 = c + sph(phi0, theta0) * rad;
+      const clc::Vec3f p01 = c + sph(phi0, theta1) * rad;
+      const clc::Vec3f p10 = c + sph(phi1, theta0) * rad;
+      const clc::Vec3f p11 = c + sph(phi1, theta1) * rad;
 
       if (i > 0) {
         appendTriangle(out, p00, p10, p11, r, g, b, alpha);

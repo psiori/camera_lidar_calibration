@@ -18,6 +18,8 @@ endif()
 
 find_package(Eigen3 REQUIRED)
 
+add_subdirectory(linalg)
+
 # Homebrew opencv@4 only (see BUILD.md). Avoid Conan static opencv on the app link line.
 if(NOT OpenCV_DIR)
   if(EXISTS "/opt/homebrew/opt/opencv@4/lib/cmake/opencv4/OpenCVConfig.cmake")

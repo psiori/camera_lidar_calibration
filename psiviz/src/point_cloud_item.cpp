@@ -1,3 +1,5 @@
+// point_cloud_item.cpp — psiviz rendering, input, or geometry implementation.
+
 #include "psiviz/point_cloud_item.hpp"
 
 #include <algorithm>
@@ -154,13 +156,13 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
     picked_point_.reset();
     if (point_id > 0 && point_id <= pending_.point_count) {
       const std::uint64_t i = point_id - 1;
-      picked_point_ = Eigen::Vector3f(pending_.positions[i * 3 + 0], pending_.positions[i * 3 + 1],
-                                      pending_.positions[i * 3 + 2]);
+      picked_point_ = clc::Vec3f{pending_.positions[i * 3 + 0], pending_.positions[i * 3 + 1],
+                                 pending_.positions[i * 3 + 2]};
     }
     if (picked_point_) {
       if (pick_resolve_fly_to_) {
         camera_.flyTo(*picked_point_);
-        qCInfo(psivizPickLog) << "fly-to focal ->" << picked_point_->x() << picked_point_->y() << picked_point_->z()
+        qCInfo(psivizPickLog) << "fly-to focal ->" << picked_point_->x << picked_point_->y << picked_point_->z
                               << "at pixel" << pick_resolve_x_ << pick_resolve_y_ << "pointId" << point_id;
       }
     } else {
@@ -188,14 +190,14 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       const auto& p = *picked_point_;
       qCInfo(psivizPickLog).noquote()
           << QStringLiteral("picked xyz=(%1,%2,%3) pixel=(%4,%5) pointId=%6")
-                 .arg(p.x(), 0, 'f', 4)
-                 .arg(p.y(), 0, 'f', 4)
-                 .arg(p.z(), 0, 'f', 4)
+                 .arg(p.x, 0, 'f', 4)
+                 .arg(p.y, 0, 'f', 4)
+                 .arg(p.z, 0, 'f', 4)
                  .arg(last_pick_x_)
                  .arg(last_pick_y_)
                  .arg(last_picked_point_id_);
       if (pick_resolve_emit_signal_) {
-        emit item->pointPicked(static_cast<double>(p.x()), static_cast<double>(p.y()), static_cast<double>(p.z()));
+        emit item->pointPicked(static_cast<double>(p.x), static_cast<double>(p.y), static_cast<double>(p.z));
       }
     } else {
       qCInfo(psivizPickLog).noquote() << QStringLiteral("pick failed pixel=(%1,%2) pointId=%3")
@@ -224,7 +226,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
   bool do_pick_{false};
   bool pick_ready_{false};
   std::uint32_t last_picked_point_id_{0};
-  std::optional<Eigen::Vector3f> picked_point_;
+  std::optional<clc::Vec3f> picked_point_;
   bool fly_to_{false};
   bool pick_emit_signal_{false};
   int last_pick_x_{0};
@@ -305,11 +307,11 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
   const int count = static_cast<int>(marker_positions_xyz_.size() / 3);
   for (int i = 0; i < count; ++i) {
     SphereMarker marker;
-    marker.center = Eigen::Vector3f(static_cast<float>(marker_positions_xyz_[i * 3 + 0]),
-                                    static_cast<float>(marker_positions_xyz_[i * 3 + 1]),
-                                    static_cast<float>(marker_positions_xyz_[i * 3 + 2]));
+    marker.center = clc::Vec3f{static_cast<float>(marker_positions_xyz_[i * 3 + 0]),
+                               static_cast<float>(marker_positions_xyz_[i * 3 + 1]),
+                               static_cast<float>(marker_positions_xyz_[i * 3 + 2])};
     marker.radius = radius;
-    marker.color = Eigen::Vector3f(1.f, 0.45f, 0.f);
+    marker.color = {1.f, 0.45f, 0.f};
     marker.alpha = 1.f;
     sphere_markers_.push_back(marker);
   }
@@ -317,7 +319,7 @@ void PointCloudItem::rebuildSphereMarkersFromPositions() {
     SphereMarker marker;
     marker.center = *pending_marker_;
     marker.radius = radius * 1.35f;
-    marker.color = Eigen::Vector3f(0.15f, 0.95f, 1.f);
+    marker.color = {0.15f, 0.95f, 1.f};
     marker.alpha = 1.f;
     sphere_markers_.push_back(marker);
   }
@@ -338,7 +340,7 @@ void PointCloudItem::setSphereMarkerPositions(const QVector<double>& positions_x
 void PointCloudItem::setPendingSphereMarker(double x, double y, double z) {
   {
     std::lock_guard lock(markers_mutex_);
-    pending_marker_ = Eigen::Vector3f(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+    pending_marker_ = clc::Vec3f{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)};
     markers_dirty_ = true;
   }
   update();
@@ -458,8 +460,8 @@ void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QV
   if (data.rgb.size() < count * 3) {
     data.rgb.resize(count * 3, 0.f);
   }
-  Eigen::Vector3f bounds_min(1e30f, 1e30f, 1e30f);
-  Eigen::Vector3f bounds_max(-1e30f, -1e30f, -1e30f);
+  clc::Vec3f bounds_min{1e30f, 1e30f, 1e30f};
+  clc::Vec3f bounds_max{-1e30f, -1e30f, -1e30f};
   for (std::uint64_t i = 0; i < count; ++i) {
     const float x = data.positions[i * 3 + 0];
     const float y = data.positions[i * 3 + 1];
@@ -467,14 +469,14 @@ void PointCloudItem::setPointCloudData(const QVector<float>& positions, const QV
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
       continue;
     }
-    bounds_min.x() = std::min(bounds_min.x(), x);
-    bounds_min.y() = std::min(bounds_min.y(), y);
-    bounds_min.z() = std::min(bounds_min.z(), z);
-    bounds_max.x() = std::max(bounds_max.x(), x);
-    bounds_max.y() = std::max(bounds_max.y(), y);
-    bounds_max.z() = std::max(bounds_max.z(), z);
+    bounds_min.x = std::min(bounds_min.x, x);
+    bounds_min.y = std::min(bounds_min.y, y);
+    bounds_min.z = std::min(bounds_min.z, z);
+    bounds_max.x = std::max(bounds_max.x, x);
+    bounds_max.y = std::max(bounds_max.y, y);
+    bounds_max.z = std::max(bounds_max.z, z);
   }
-  if (bounds_min.x() <= bounds_max.x()) {
+  if (bounds_min.x <= bounds_max.x) {
     content_bounds_min_ = bounds_min;
     content_bounds_max_ = bounds_max;
     content_bounds_valid_ = true;
@@ -529,7 +531,7 @@ void PointCloudItem::frameCameraToContent() {
 
 QVariantList PointCloudItem::poseMatrix() const {
   QVariantList out;
-  const Eigen::Matrix4f m = gizmo_.pose().matrix();
+  const clc::Mat4f m = gizmo_.pose();
   for (int c = 0; c < 4; ++c) {
     for (int r = 0; r < 4; ++r) {
       out.append(m(r, c));
@@ -542,16 +544,14 @@ void PointCloudItem::setPoseMatrix(const QVariantList& values) {
   if (values.size() != 16) {
     return;
   }
-  Eigen::Matrix4f m;
+  clc::Mat4f m = clc::Mat4f::identity();
   int i = 0;
   for (int c = 0; c < 4; ++c) {
     for (int r = 0; r < 4; ++r) {
       m(r, c) = values[i++].toFloat();
     }
   }
-  Eigen::Affine3f pose;
-  pose.matrix() = m;
-  gizmo_.setPose(pose);
+  gizmo_.setPose(m);
   update();
 }
 

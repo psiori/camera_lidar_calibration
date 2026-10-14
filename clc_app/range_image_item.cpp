@@ -115,6 +115,7 @@ RangeImageItem::RangeImageItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
   setAntialiasing(true);
 }
 
+/// RangeImageItem::setImage — set Image.
 void RangeImageItem::setImage(const QImage& image) {
   if (image_ == image) {
     return;
@@ -126,6 +127,7 @@ void RangeImageItem::setImage(const QImage& image) {
   emit imageChanged();
 }
 
+/// RangeImageItem::setMaskData — set Mask Data.
 void RangeImageItem::setMaskData(const QByteArray& data) {
   if (mask_data_ == data) {
     return;
@@ -135,6 +137,7 @@ void RangeImageItem::setMaskData(const QByteArray& data) {
   emit maskDataChanged();
 }
 
+/// RangeImageItem::setMaskWidth — set Mask Width.
 void RangeImageItem::setMaskWidth(int w) {
   if (mask_width_ == w) {
     return;
@@ -144,6 +147,7 @@ void RangeImageItem::setMaskWidth(int w) {
   emit maskDataChanged();
 }
 
+/// RangeImageItem::setMaskHeight — set Mask Height.
 void RangeImageItem::setMaskHeight(int h) {
   if (mask_height_ == h) {
     return;
@@ -153,6 +157,7 @@ void RangeImageItem::setMaskHeight(int h) {
   emit maskDataChanged();
 }
 
+/// RangeImageItem::setRangeNativeWidth — set Range Native Width.
 void RangeImageItem::setRangeNativeWidth(int w) {
   if (range_native_width_ == w) {
     return;
@@ -162,6 +167,7 @@ void RangeImageItem::setRangeNativeWidth(int w) {
   emit rangeNativeSizeChanged();
 }
 
+/// RangeImageItem::setRangeNativeHeight — set Range Native Height.
 void RangeImageItem::setRangeNativeHeight(int h) {
   if (range_native_height_ == h) {
     return;
@@ -171,6 +177,7 @@ void RangeImageItem::setRangeNativeHeight(int h) {
   emit rangeNativeSizeChanged();
 }
 
+/// RangeImageItem::setDrawing — set Drawing.
 void RangeImageItem::setDrawing(bool drawing) {
   if (drawing_ == drawing) {
     return;
@@ -179,6 +186,7 @@ void RangeImageItem::setDrawing(bool drawing) {
   emit drawingChanged();
 }
 
+/// RangeImageItem::setFillBounds — set Fill Bounds.
 void RangeImageItem::setFillBounds(bool fill) {
   if (fill_bounds_ == fill) {
     return;
@@ -189,6 +197,7 @@ void RangeImageItem::setFillBounds(bool fill) {
   emit fillBoundsChanged();
 }
 
+/// RangeImageItem::setClosedPolygonOverlay — set Closed Polygon Overlay.
 void RangeImageItem::setClosedPolygonOverlay(const QVariantList& vertices) {
   if (closed_polygon_overlay_ == vertices) {
     return;
@@ -198,6 +207,7 @@ void RangeImageItem::setClosedPolygonOverlay(const QVariantList& vertices) {
   emit closedPolygonOverlayChanged();
 }
 
+/// RangeImageItem::setMaskController — set Mask Controller.
 void RangeImageItem::setMaskController(QObject* controller) {
   if (mask_controller_ == controller) {
     return;
@@ -213,6 +223,7 @@ void RangeImageItem::setMaskController(QObject* controller) {
   emit maskControllerChanged();
 }
 
+/// RangeImageItem::imageDestRect — image Dest Rect.
 QRectF RangeImageItem::imageDestRect() const {
   if (image_.isNull() || width() <= 0) {
     return {};
@@ -229,14 +240,17 @@ QRectF RangeImageItem::imageDestRect() const {
   return {x0, y0, iw, ih};
 }
 
+/// RangeImageItem::interactionMarginRect — interaction Margin Rect.
 QRectF RangeImageItem::interactionMarginRect() const {
   return imageDestRect().adjusted(-kEdgeClickMargin, -kEdgeClickMargin, kEdgeClickMargin, kEdgeClickMargin);
 }
 
+/// RangeImageItem::interactionRectContains — interaction Rect Contains.
 bool RangeImageItem::interactionRectContains(const QPointF& display) const {
   return interactionMarginRect().contains(display);
 }
 
+/// RangeImageItem::updateImplicitHeight — update Implicit Height.
 void RangeImageItem::updateImplicitHeight() {
   if (fill_bounds_) {
     setImplicitHeight(-1);
@@ -250,6 +264,7 @@ void RangeImageItem::updateImplicitHeight() {
   setImplicitHeight(dest.height() + 2.0 * kEdgeClickMargin);
 }
 
+/// RangeImageItem::nativeWidth — native Width.
 int RangeImageItem::nativeWidth() const {
   if (range_native_width_ > 0) {
     return range_native_width_;
@@ -260,6 +275,7 @@ int RangeImageItem::nativeWidth() const {
   return mask_width_ > 0 ? mask_width_ : 0;
 }
 
+/// RangeImageItem::nativeHeight — native Height.
 int RangeImageItem::nativeHeight() const {
   if (range_native_height_ > 0) {
     return range_native_height_;
@@ -273,6 +289,7 @@ int RangeImageItem::nativeHeight() const {
   return mask_height_ > 0 ? mask_height_ : 0;
 }
 
+/// RangeImageItem::displayYScale — display YScale.
 qreal RangeImageItem::displayYScale() const {
   const int unstretched_h = range_native_height_ > 0 ? range_native_height_
                                                      : (mask_height_ > 0 ? mask_height_ : 0);
@@ -282,6 +299,7 @@ qreal RangeImageItem::displayYScale() const {
   return static_cast<qreal>(image_.height()) / static_cast<qreal>(unstretched_h);
 }
 
+/// RangeImageItem::displayScale — display Scale.
 qreal RangeImageItem::displayScale() const {
   if (image_.isNull() || image_.width() <= 0 || image_.height() <= 0 || width() <= 0) {
     return 1.0;
@@ -302,6 +320,7 @@ qreal RangeImageItem::displayScale() const {
   return std::min(scale_w, scale_h);
 }
 
+/// RangeImageItem::displayToNative — display To Native.
 QPointF RangeImageItem::displayToNative(const QPointF& display) const {
   const QRectF dest = imageDestRect();
   const qreal scale = displayScale();
@@ -313,6 +332,7 @@ QPointF RangeImageItem::displayToNative(const QPointF& display) const {
   return {local.x() / scale, local.y() / (scale * y_scale)};
 }
 
+/// RangeImageItem::nativeToDisplay — native To Display.
 QPointF RangeImageItem::nativeToDisplay(const QPointF& native) const {
   const QRectF dest = imageDestRect();
   const qreal scale = displayScale();
@@ -320,6 +340,7 @@ QPointF RangeImageItem::nativeToDisplay(const QPointF& native) const {
   return dest.topLeft() + QPointF(native.x() * scale, native.y() * scale * y_scale);
 }
 
+/// RangeImageItem::nativeVertexForClick — native Vertex For Click.
 QPointF RangeImageItem::nativeVertexForClick(const QPointF& display) const {
   const int w = nativeWidth();
   const int h = nativeHeight();
@@ -338,6 +359,7 @@ QPointF RangeImageItem::nativeVertexForClick(const QPointF& display) const {
   return nearestNativeOnImageEdge(native, w, h);
 }
 
+/// RangeImageItem::hoverPointForDisplay — hover Point For Display.
 QPointF RangeImageItem::hoverPointForDisplay(const QPointF& display) const {
   const int w = nativeWidth();
   const int h = nativeHeight();
@@ -353,6 +375,7 @@ QPointF RangeImageItem::hoverPointForDisplay(const QPointF& display) const {
   return nearestNativeOnImageEdge(native, w, h);
 }
 
+/// RangeImageItem::updateHover — update Hover.
 void RangeImageItem::updateHover(const QPointF& display) {
   if (!drawing_ || image_.isNull()) {
     has_hover_ = false;
@@ -376,6 +399,7 @@ void RangeImageItem::updateHover(const QPointF& display) {
   update();
 }
 
+/// RangeImageItem::undoVertex — undo Vertex.
 void RangeImageItem::undoVertex() {
   if (current_native_vertices_.empty()) {
     return;
@@ -388,6 +412,7 @@ void RangeImageItem::undoVertex() {
   update();
 }
 
+/// RangeImageItem::closePolygon — close Polygon.
 void RangeImageItem::closePolygon() {
   if (current_native_vertices_.size() < 3) {
     return;
@@ -407,6 +432,7 @@ void RangeImageItem::closePolygon() {
   emit polygonCommitted(verts);
 }
 
+/// RangeImageItem::cancelPolygon — cancel Polygon.
 void RangeImageItem::cancelPolygon() {
   current_native_vertices_.clear();
   setDrawing(false);
@@ -414,6 +440,7 @@ void RangeImageItem::cancelPolygon() {
   update();
 }
 
+/// RangeImageItem::clearPendingPolygon — clear Pending Polygon.
 void RangeImageItem::clearPendingPolygon() {
   if (pending_closed_native_vertices_.empty() && closed_polygon_overlay_.empty()) {
     return;
@@ -423,6 +450,7 @@ void RangeImageItem::clearPendingPolygon() {
   update();
 }
 
+/// RangeImageItem::hasClosedPolygonAwaitingDecision — has Closed Polygon Awaiting Decision.
 bool RangeImageItem::hasClosedPolygonAwaitingDecision() const {
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
     if (controller->maskPolygonPending()) {
@@ -432,6 +460,7 @@ bool RangeImageItem::hasClosedPolygonAwaitingDecision() const {
   return !pending_closed_native_vertices_.empty();
 }
 
+/// RangeImageItem::maskNativeToRangeNative — mask Native To Range Native.
 QPointF RangeImageItem::maskNativeToRangeNative(const QPointF& p) const {
   const int rw = nativeWidth();
   const int rh = nativeHeight();
@@ -444,6 +473,7 @@ QPointF RangeImageItem::maskNativeToRangeNative(const QPointF& p) const {
           p.y() * static_cast<qreal>(rh) / static_cast<qreal>(mh)};
 }
 
+/// RangeImageItem::closedPolygonNativeVertices — closed Polygon Native Vertices.
 std::vector<QPointF> RangeImageItem::closedPolygonNativeVertices() const {
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
     const std::vector<QPointF> from_controller = controller->pendingMaskPolygonNativePoints();
@@ -462,6 +492,7 @@ std::vector<QPointF> RangeImageItem::closedPolygonNativeVertices() const {
   return {};
 }
 
+/// RangeImageItem::addVertexAtDisplay — add Vertex At Display.
 void RangeImageItem::addVertexAtDisplay(const QPointF& display) {
   if (image_.isNull() || !interactionRectContains(display)) {
     return;
@@ -491,6 +522,7 @@ void RangeImageItem::addVertexAtDisplay(const QPointF& display) {
   update();
 }
 
+/// RangeImageItem::paint — paint.
 void RangeImageItem::paint(QPainter* painter) {
   painter->fillRect(boundingRect(), QColor(24, 24, 26));
   if (image_.isNull()) {
@@ -565,6 +597,7 @@ void RangeImageItem::paint(QPainter* painter) {
   }
 }
 
+/// RangeImageItem::mousePressEvent — mouse Press Event.
 void RangeImageItem::mousePressEvent(QMouseEvent* event) {
   if (image_.isNull() || event->button() != Qt::LeftButton) {
     QQuickPaintedItem::mousePressEvent(event);
@@ -581,6 +614,7 @@ void RangeImageItem::mousePressEvent(QMouseEvent* event) {
   event->accept();
 }
 
+/// RangeImageItem::geometryChange — geometry Change.
 void RangeImageItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) {
   QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
   if (fill_bounds_) {
@@ -595,20 +629,24 @@ void RangeImageItem::geometryChange(const QRectF& newGeometry, const QRectF& old
   }
 }
 
+/// RangeImageItem::hoverMoveEvent — hover Move Event.
 void RangeImageItem::hoverMoveEvent(QHoverEvent* event) {
   updateHover(event->position());
   event->accept();
 }
 
 #ifdef CLC_APP_TESTING
+/// RangeImageItem::clickAtDisplayPosition — click At Display Position.
 void RangeImageItem::clickAtDisplayPosition(qreal x, qreal y) {
   addVertexAtDisplay(QPointF(x, y));
 }
 
+/// RangeImageItem::closedPolygonVertexCount — closed Polygon Vertex Count.
 int RangeImageItem::closedPolygonVertexCount() const {
   return static_cast<int>(closedPolygonNativeVertices().size());
 }
 
+/// RangeImageItem::containsPolygonOutlinePixels — contains Polygon Outline Pixels.
 bool RangeImageItem::containsPolygonOutlinePixels() const {
   auto* self = const_cast<RangeImageItem*>(this);
   const QSharedPointer<QQuickItemGrabResult> grab = self->grabToImage();
@@ -640,10 +678,12 @@ bool RangeImageItem::containsPolygonOutlinePixels() const {
   return false;
 }
 
+/// RangeImageItem::imageDestinationRectForTest — image Destination Rect For Test.
 QRectF RangeImageItem::imageDestinationRectForTest() const {
   return imageDestRect();
 }
 
+/// RangeImageItem::interactionMarginRectForTest — interaction Margin Rect For Test.
 QRectF RangeImageItem::interactionMarginRectForTest() const {
   return interactionMarginRect();
 }

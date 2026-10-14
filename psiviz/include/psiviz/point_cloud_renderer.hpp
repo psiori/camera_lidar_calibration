@@ -6,8 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include <Eigen/Core>
-
 #include "psiviz/point_cloud_buffers.hpp"
 #include "psiviz/pose_gizmo.hpp"
 #include "psiviz/scene_shapes.hpp"
@@ -19,29 +17,37 @@ class QRhiRenderTarget;
 
 namespace psiviz {
 
+/// Qt RHI backend: uploads point clouds, draws gizmo and markers, and runs GPU picking.
 class PointCloudRenderer {
  public:
   explicit PointCloudRenderer(QRhi* rhi);
   ~PointCloudRenderer();
 
+  /// Create shaders and buffers on the render thread (call once before first draw).
   void initialize(QRhiCommandBuffer* cb);
+  /// Resize internal targets when the viewport changes.
   void resize(int width, int height);
+  /// Upload new point positions, scalars, and colors to GPU memory.
   void uploadPointCloud(const PointCloudData& data, QRhiRenderTarget* rt = nullptr);
   [[nodiscard]] int pointCount() const { return point_count_; }
   [[nodiscard]] bool pipelineReady() const { return pipeline_ready_; }
+  /// 0 = scalar colormap only, 1 = full camera RGB from per-point colors.
   void setBlendWeight(float w) { blend_weight_ = w; }
+  /// Scalar range mapped to the JET LUT.
   void setScalarRange(float min_v, float max_v) {
     scalar_min_ = min_v;
     scalar_max_ = max_v;
   }
-  /// Schedules a GPU pick; returns a request id to pass to tryConsumePickResult.
+  /// Schedule a GPU color-id pick at framebuffer pixel (x,y); returns id for tryConsumePickResult.
   [[nodiscard]] std::uint64_t requestPick(int x, int y, float dpr, float point_size);
-  /// True when the GPU readback for `request_id` is ready. `point_id` is 1-based; 0 means miss.
+  /// When true, `point_id` is set (1-based index; 0 means no hit).
   [[nodiscard]] bool tryConsumePickResult(std::uint64_t request_id, std::uint32_t& point_id);
   void setSphereMarkers(const std::vector<SphereMarker>& markers);
+  /// Draw point cloud, pick pass if needed, gizmo, and sphere markers.
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
  private:
+  /// One in-flight or queued GPU pick at a screen location.
   struct PickRequest {
     std::uint64_t request_id{0};
     int x{0};

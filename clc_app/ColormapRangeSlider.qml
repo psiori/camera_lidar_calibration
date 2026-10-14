@@ -1,3 +1,4 @@
+// Dual-handle slider to set colormap min/max with live preview on the range or point cloud.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

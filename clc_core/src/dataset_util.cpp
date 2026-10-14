@@ -1,3 +1,5 @@
+// dataset_util.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/dataset_util.hpp>
 
 #include <algorithm>

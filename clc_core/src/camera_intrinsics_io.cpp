@@ -1,3 +1,5 @@
+// camera_intrinsics_io.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/camera_intrinsics_io.hpp>
 
 #include <opencv2/core.hpp>

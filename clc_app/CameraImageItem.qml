@@ -1,3 +1,4 @@
+// Shows the calibration camera image and accepts clicks for 2D correspondence picking.
 import QtQuick
 import QtQuick.Controls
 

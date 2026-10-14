@@ -3,6 +3,7 @@
 #include <functional>
 #include <vector>
 
+#include <clc/linalg.hpp>
 #include <clc_core/session.hpp>
 
 #include <camera/generic_camera_base.hpp>
@@ -16,7 +17,7 @@ struct AlignmentInput {
   camera::GenericCameraBase::ConstPtr camera;
   std::vector<cv::Mat> images;
   std::vector<vlcal::FrameCPU::Ptr> clouds;
-  Eigen::Isometry3d init_T_camera_lidar = Eigen::Isometry3d::Identity();
+  Mat4d init_T_camera_lidar = Mat4d::identity();
   vlcal::VisualCameraCalibrationParams params;
 };
 
@@ -33,13 +34,13 @@ enum class InitialGuessMethod { ManualCorrespondences, FeatureMatchStub };
 struct InitialGuessResult {
   bool ok = false;
   std::string message;
-  Eigen::Isometry3d T_camera_lidar = Eigen::Isometry3d::Identity();
+  Mat4d T_camera_lidar = Mat4d::identity();
 };
 
 struct ManualGuessInput {
   camera::GenericCameraBase::ConstPtr camera;
   std::vector<PointCorrespondence> correspondences;
-  Eigen::Isometry3d gizmo_T_camera_lidar = Eigen::Isometry3d::Identity();
+  Mat4d gizmo_T_camera_lidar = Mat4d::identity();
 };
 
 InitialGuessResult compute_manual_initial_guess(const ManualGuessInput& input);

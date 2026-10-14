@@ -1,3 +1,4 @@
+// Collapsible section wrapper for dense parameter groups in the main form.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

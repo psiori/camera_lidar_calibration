@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include <Eigen/Geometry>
+#include <clc/linalg.hpp>
 #include <opencv2/core.hpp>
 
 #include <glim_cloud_fusion/fusion.hpp>
@@ -13,12 +13,14 @@
 
 namespace clc {
 
+/// Camera model name and coefficient vectors as stored in session JSON.
 struct CameraIntrinsics {
   std::string model = "plumb_bob";
   std::vector<double> intrinsics;
   std::vector<double> distortion_coeffs;
 };
 
+/// One matched pair: pixel (u,v) on the camera image and 3D point (x,y,z) in lidar frame.
 struct PointCorrespondence {
   double u = 0.0;
   double v = 0.0;
@@ -27,6 +29,7 @@ struct PointCorrespondence {
   double z = 0.0;
 };
 
+/// One calibration or inspection dataset: image, scans, fusion state, and manual correspondences.
 struct DatasetEntry {
   std::string id;
   std::string image_path;
@@ -40,6 +43,7 @@ struct DatasetEntry {
   bool geometry_error = false;
 };
 
+/// Global range-image mask file and raster dimensions shared across datasets.
 struct GlobalMaskMeta {
   std::string path;
   int width = 0;
@@ -47,13 +51,14 @@ struct GlobalMaskMeta {
   bool keep_inside = false;
 };
 
+/// Full on-disk session: intrinsics, fusion/calibration params, poses, masks, and dataset lists.
 struct SessionData {
   CameraIntrinsics camera;
   vlcal::VisualCameraCalibrationParams calibration_params;
   glim_cloud_fusion::FusionParams fusion_params;
   glim_cloud_fusion::ScanTimeParams scan_time;
-  Eigen::Isometry3d T_camera_lidar = Eigen::Isometry3d::Identity();
-  Eigen::Isometry3d T_camera_lidar_initial = Eigen::Isometry3d::Identity();
+  Mat4d T_camera_lidar = Mat4d::identity();
+  Mat4d T_camera_lidar_initial = Mat4d::identity();
   std::string intrinsics_path;
   int reference_scan_width = 0;
   int reference_scan_height = 0;
@@ -61,7 +66,9 @@ struct SessionData {
   std::vector<DatasetEntry> calibration_datasets;
   std::vector<DatasetEntry> inspection_datasets;
 
+  /// Ensure at least one calibration dataset row exists.
   void ensurePrimaryCalibration();
+  /// Ensure at least one inspection dataset row exists.
   void ensurePrimaryInspection();
 };
 

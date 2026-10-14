@@ -1,7 +1,12 @@
+// calibration_service.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/calibration_service.hpp>
 
 #include <stdexcept>
 
+#include <Eigen/Core>
+
+#include "eigen_adapters.hpp"
 #include <vlcal/common/estimate_pose.hpp>
 #include <vlcal/common/visual_lidar_data.hpp>
 
@@ -28,7 +33,7 @@ vlcal::CalibrationResult run_alignment(
   params.on_progress = on_progress;
   params.is_cancelled = is_cancelled;
   vlcal::VisualCameraCalibration calib(input.camera, dataset, params);
-  return calib.calibrate(input.init_T_camera_lidar);
+  return calib.calibrate(detail::toIsometry(input.init_T_camera_lidar));
 }
 
 InitialGuessResult compute_manual_initial_guess(const ManualGuessInput& input) {
@@ -54,7 +59,7 @@ InitialGuessResult compute_manual_initial_guess(const ManualGuessInput& input) {
   pose_params.trust_correspondences = true;
   vlcal::PoseEstimation estimator(pose_params);
   try {
-    result.T_camera_lidar = estimator.estimate(input.camera, pairs);
+    result.T_camera_lidar = detail::fromIsometry(estimator.estimate(input.camera, pairs));
     result.ok = true;
     result.message = "estimated from correspondences";
   } catch (const std::exception& e) {

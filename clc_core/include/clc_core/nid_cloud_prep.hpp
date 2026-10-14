@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <Eigen/Geometry>
+#include <clc/linalg.hpp>
 #include <glim_cloud_fusion/fusion.hpp>
 #include <vlcal/common/frame_cpu.hpp>
 
@@ -12,7 +12,7 @@ namespace clc {
 void equalize_intensities_for_nid(std::vector<double>& intensities);
 
 /// Express fused world-frame points in the reference scan sensor frame (`p_ref = T_world_ref^{-1} p_world`).
-void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Eigen::Isometry3d& T_world_ref);
+void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Mat4d& T_world_ref);
 
 /// Build a vlcal frame for NID (equalized intensities, homogeneous points).
 vlcal::FrameCPU::Ptr dense_cloud_to_nid_frame(const glim_cloud_fusion::DensePointCloud& cloud);

@@ -1,3 +1,5 @@
+// fusion_service.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/fusion_service.hpp>
 
 #include <algorithm>

@@ -5,7 +5,7 @@
 #include <fstream>
 #include <string>
 
-#include <Eigen/Geometry>
+#include <Eigen/Core>
 
 #include <clc_core/colormap.hpp>
 #include <clc_core/fusion_service.hpp>
@@ -113,7 +113,9 @@ void test_session_round_trip() {
   ds.cloud_directory = "/tmp/pcds";
   ds.correspondences.push_back(
     clc::PointCorrespondence{1.0, 2.0, 3.0, 4.0, 5.0});
-  session.T_camera_lidar.translation() = Eigen::Vector3d(1, 2, 3);
+  session.T_camera_lidar(0, 3) = 1.;
+  session.T_camera_lidar(1, 3) = 2.;
+  session.T_camera_lidar(2, 3) = 3.;
   session.scan_time.scan_duration = 0.1;
   session.fusion_params.scan_time = session.scan_time;
   ds.fusion_params.scan_time = session.scan_time;

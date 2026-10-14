@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include <clc/linalg.hpp>
 
 #include <clc_core/pcd_io.hpp>
 
@@ -22,7 +22,7 @@ enum class RangeImageChannel { Range, Intensity };
 RangeImage build_range_image(const PointXYZITCloud& cloud);
 
 struct Polygon2f {
-  std::vector<Eigen::Vector2f> vertices;
+  std::vector<Vec2f> vertices;
 };
 
 struct MaskPolygonOp {

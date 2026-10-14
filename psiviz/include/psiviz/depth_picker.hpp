@@ -3,16 +3,16 @@
 #include <cstdint>
 #include <optional>
 
-#include <Eigen/Core>
+#include <clc/linalg.hpp>
 
 namespace psiviz {
 
 class DepthPicker {
  public:
   /// Nearest cloud point in screen space (CPU fallback / tests).
-  [[nodiscard]] static std::optional<Eigen::Vector3f> pickNearestOnScreen(
+  [[nodiscard]] static std::optional<clc::Vec3f> pickNearestOnScreen(
       const float* positions, std::uint64_t point_count, int x, int y, int width, int height, float device_pixel_ratio,
-      const Eigen::Matrix4f& clip_view_projection, float max_pixel_radius);
+      const clc::Mat4f& clip_view_projection, float max_pixel_radius);
 
   /// `pixels` is row-major R32UI patch; `center_x/y` are in patch coordinates (Qt top-left).
   [[nodiscard]] static std::uint32_t selectPointIdFromPatch(const std::uint32_t* pixels, int patch_w, int patch_h,

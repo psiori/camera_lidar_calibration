@@ -23,7 +23,7 @@ Static helpers for pick resolution (used by `PointCloudRenderer` / `PointCloudIt
 
 ## `psiviz::PoseGizmo`
 
-Holds `Eigen::Affine3f` pose. `beginFrame`, `hitTest`, `drag`, `isManipulating()`. Rendered by `PointCloudRenderer` after the point cloud.
+Holds `clc::Mat4f` pose (column-major 4×4, same layout as Eigen/OpenGL). `hitTest`, `drag`, `isManipulating()`. Rendered by `PointCloudRenderer` after the point cloud.
 
 ## `psiviz::ViewerInputRouter`
 

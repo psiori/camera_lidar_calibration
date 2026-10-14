@@ -1,3 +1,4 @@
+// Reusable path fields and browse buttons for session image, PCD folder, and intrinsics.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

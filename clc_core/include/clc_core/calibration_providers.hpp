@@ -2,9 +2,12 @@
 
 namespace clc {
 
+/// Tag type: initial guess from manual 2D–3D correspondences.
 struct ManualGuessProvider {};
+/// Tag type: NID / vlcal optimizer path.
 struct NidOptimizerProvider {};
 
+/// Maps provider tags to compile-time capability flags for the UI.
 template <typename Provider>
 struct InitialGuessTraits {};
 

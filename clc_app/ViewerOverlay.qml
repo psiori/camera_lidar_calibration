@@ -1,3 +1,4 @@
+// HUD over the 3D viewer: colormap controls, point size, and correspondence hints.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

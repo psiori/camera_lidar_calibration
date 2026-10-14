@@ -4,6 +4,7 @@
 
 #include "app_controller.hpp"
 
+/// Desktop entry point: creates AppController, exposes it to QML as `controller`, loads Main.qml.
 int main(int argc, char* argv[]) {
   QApplication app(argc, argv);
   AppController controller;

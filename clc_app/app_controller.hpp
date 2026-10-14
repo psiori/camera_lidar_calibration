@@ -24,45 +24,83 @@
 
 #include <opencv2/core.hpp>
 
+/// Qt bridge between QML UI and clc_core: session I/O, fusion, calibration, mask editor, and psiviz viewer.
 class AppController : public QObject {
   Q_OBJECT
+
+  // Status and progress
+  /// Text shown in the status bar (errors, hints, worker progress).
   Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
+  /// True while fusion or alignment runs on a background thread.
   Q_PROPERTY(bool busyWorking READ busyWorking NOTIFY busyWorkingChanged)
+  /// Number of points currently loaded in the 3D viewer.
   Q_PROPERTY(int pointCount READ pointCount NOTIFY pointCountChanged)
+
+  // Scan timing (multi-scan fusion)
+  /// Total time span covered by one fused scan sequence, in session time units.
   Q_PROPERTY(double scanDuration READ scanDuration WRITE setScanDuration NOTIFY scanTimeChanged)
+  /// Enum index: where scan timestamps are measured from (session default).
   Q_PROPERTY(int timeOrigin READ timeOrigin WRITE setTimeOrigin NOTIFY scanTimeChanged)
+  /// Enum index: unit for scan timestamps (e.g. seconds vs milliseconds).
   Q_PROPERTY(int timeUnit READ timeUnit WRITE setTimeUnit NOTIFY scanTimeChanged)
+
+  // Session paths (primary / legacy single-dataset fields mirror active dataset)
+  /// Folder that contains or will contain session.json.
   Q_PROPERTY(QString sessionDirectory READ sessionDirectory WRITE setSessionDirectory NOTIFY sessionPathsChanged)
+  /// Camera image path for the active calibration dataset.
   Q_PROPERTY(QString imagePath READ imagePath WRITE setImagePath NOTIFY sessionPathsChanged)
+  /// Directory or file path for lidar PCD(s) on the active dataset.
   Q_PROPERTY(QString pcdDirectory READ pcdDirectory WRITE setPcdDirectory NOTIFY sessionPathsChanged)
+  /// OpenCV intrinsics YAML/XML path for the active dataset.
   Q_PROPERTY(QString intrinsicsPath READ intrinsicsPath WRITE setIntrinsicsPath NOTIFY sessionPathsChanged)
+  /// How many PCD files are in the active dataset catalog.
   Q_PROPERTY(int pcdFileCount READ pcdFileCount NOTIFY pcdCatalogChanged)
+  /// True when fusion cannot run (invalid catalog, geometry error, etc.).
   Q_PROPERTY(bool fusionBlocked READ fusionBlocked NOTIFY pcdCatalogChanged)
+
+  // Range image preview (mask editor and calibration UI)
+  /// JET-colored range or intensity image for QML Image/RangeImageItem.
   Q_PROPERTY(QImage rangeImage READ rangeImage NOTIFY rangeImageChanged)
+  /// Pixel width of the underlying structured scan (not display stretch).
   Q_PROPERTY(int rangeImageNativeWidth READ rangeImageNativeWidth NOTIFY rangeImageChanged)
   Q_PROPERTY(int rangeImageNativeHeight READ rangeImageNativeHeight NOTIFY rangeImageChanged)
+  /// Grayscale mask bytes for overlay (255 = keep, 0 = drop).
   Q_PROPERTY(QByteArray maskPreview READ maskPreview NOTIFY maskChanged)
   Q_PROPERTY(int maskWidth READ maskWidth NOTIFY maskChanged)
   Q_PROPERTY(int maskHeight READ maskHeight NOTIFY maskChanged)
+  /// Colormap slider low end for the range image display.
   Q_PROPERTY(double rangeColormapMin READ rangeColormapMin WRITE setRangeColormapMin NOTIFY rangeImageChanged)
   Q_PROPERTY(double rangeColormapMax READ rangeColormapMax WRITE setRangeColormapMax NOTIFY rangeImageChanged)
+  /// 0 = range channel, 1 = intensity channel.
   Q_PROPERTY(int rangeChannel READ rangeChannel WRITE setRangeChannel NOTIFY rangeImageChanged)
+  /// Vertical scale factor when painting the range image in the mask window.
   Q_PROPERTY(double rangeYStretch READ rangeYStretch WRITE setRangeYStretch NOTIFY rangeYStretchChanged)
+  /// True when a closed polygon awaits keep/remove in the mask editor.
   Q_PROPERTY(bool maskPolygonPending READ maskPolygonPending NOTIFY maskPolygonPendingChanged)
+  /// Vertices of the polygon waiting for keep/remove (native range coordinates).
   Q_PROPERTY(QVariantList pendingMaskPolygonVertices READ pendingMaskPolygonVertices NOTIFY maskPolygonPendingChanged)
+  /// On-disk path of the global mask PNG in the session.
   Q_PROPERTY(QString maskPath READ maskPath NOTIFY maskChanged)
+
+  // Point cloud viewer colormap
   Q_PROPERTY(double viewerColormapMin READ viewerColormapMin WRITE setViewerColormapMin NOTIFY viewerColormapChanged)
   Q_PROPERTY(double viewerColormapMax READ viewerColormapMax WRITE setViewerColormapMax NOTIFY viewerColormapChanged)
+  /// Auto-detected min of the active scalar channel in the viewer cloud.
   Q_PROPERTY(double viewerDataMin READ viewerDataMin NOTIFY viewerColormapChanged)
   Q_PROPERTY(double viewerDataMax READ viewerDataMax NOTIFY viewerColormapChanged)
   Q_PROPERTY(double rangeDataMin READ rangeDataMin NOTIFY rangeImageChanged)
   Q_PROPERTY(double rangeDataMax READ rangeDataMax NOTIFY rangeImageChanged)
+  /// 0 = range-like scalar, 1 = intensity for psiviz coloring.
   Q_PROPERTY(int viewerScalarChannel READ viewerScalarChannel WRITE setViewerScalarChannel NOTIFY viewerColormapChanged)
+
+  // Fusion parameters (session + per-dataset; UI edits active dataset)
   Q_PROPERTY(double fusionVoxelResolution READ fusionVoxelResolution WRITE setFusionVoxelResolution NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionNumThreads READ fusionNumThreads WRITE setFusionNumThreads NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionMaxCorrespondence READ fusionMaxCorrespondence WRITE setFusionMaxCorrespondence NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionKNeighbors READ fusionKNeighbors WRITE setFusionKNeighbors NOTIFY fusionParamsChanged)
+  /// Backend enum as int (SLAM vs integrator, etc.).
   Q_PROPERTY(int fusionBackend READ fusionBackend WRITE setFusionBackend NOTIFY fusionParamsChanged)
+  /// True when the selected backend is the continuous-time integrator path.
   Q_PROPERTY(bool fusionBackendIsIntegrator READ fusionBackendIsIntegrator NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionTargetNumPoints READ fusionTargetNumPoints WRITE setFusionTargetNumPoints NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionMinDistance READ fusionMinDistance WRITE setFusionMinDistance NOTIFY fusionParamsChanged)
@@ -72,6 +110,8 @@ class AppController : public QObject {
                WRITE setFusionIntegratorIvoxMinPointsDist NOTIFY fusionParamsChanged)
   Q_PROPERTY(double fusionIvoxResolution READ fusionIvoxResolution WRITE setFusionIvoxResolution NOTIFY fusionParamsChanged)
   Q_PROPERTY(int fusionLmMaxIterations READ fusionLmMaxIterations WRITE setFusionLmMaxIterations NOTIFY fusionParamsChanged)
+
+  // Visual–lidar calibration (NID / vlcal) parameters
   Q_PROPERTY(int calibrationMaxOuterIterations READ calibrationMaxOuterIterations WRITE setCalibrationMaxOuterIterations
                  NOTIFY calibrationParamsChanged)
   Q_PROPERTY(int calibrationMaxInnerIterations READ calibrationMaxInnerIterations WRITE setCalibrationMaxInnerIterations
@@ -89,34 +129,53 @@ class AppController : public QObject {
                  NOTIFY calibrationParamsChanged)
   Q_PROPERTY(double calibrationNelderMeadConvergence READ calibrationNelderMeadConvergence WRITE setCalibrationNelderMeadConvergence
                  NOTIFY calibrationParamsChanged)
+
+  // UI mode and tabs
+  /// True when the inspection workflow tab is selected (mainWorkTab == 3).
   Q_PROPERTY(bool inspectionMode READ inspectionMode WRITE setInspectionMode NOTIFY inspectionModeChanged)
+  /// Index of the main tab strip (calibration, fusion, alignment, inspection, …).
   Q_PROPERTY(int mainWorkTab READ mainWorkTab WRITE setMainWorkTab NOTIFY mainWorkTabChanged)
+
+  // Multi-dataset calibration list
   Q_PROPERTY(int activeCalibrationDatasetIndex READ activeCalibrationDatasetIndex WRITE setActiveCalibrationDatasetIndex
                  NOTIFY calibrationDatasetsChanged)
+  /// Short ids shown in the dataset combo box.
   Q_PROPERTY(QStringList calibrationDatasetIds READ calibrationDatasetIds NOTIFY calibrationDatasetsChanged)
+  /// True when the active dataset has image, intrinsics, and lidar ready for alignment.
   Q_PROPERTY(bool activeDatasetReady READ activeDatasetReady NOTIFY calibrationDatasetsChanged)
+  /// True when the user may add 2D/3D correspondence pairs.
   Q_PROPERTY(bool canPickCorrespondences READ canPickCorrespondences NOTIFY calibrationDatasetsChanged)
+  /// True when the active catalog is a single PCD (fusion is a no-op passthrough).
   Q_PROPERTY(bool activeDatasetIsSingleScan READ activeDatasetIsSingleScan NOTIFY pcdCatalogChanged)
+  /// Default file dialog start paths for Add Dataset (fixed for app lifetime).
   Q_PROPERTY(QString addDatasetDefaultImagePath READ addDatasetDefaultImagePath CONSTANT)
   Q_PROPERTY(QString addDatasetDefaultLidarPath READ addDatasetDefaultLidarPath CONSTANT)
   Q_PROPERTY(QString addDatasetDefaultIntrinsicsPath READ addDatasetDefaultIntrinsicsPath CONSTANT)
+
+  // Manual initial alignment correspondences
   Q_PROPERTY(int correspondenceCount READ correspondenceCount NOTIFY correspondencesChanged)
+  /// User picked a 3D point in the viewer and still needs the matching image click.
   Q_PROPERTY(bool pendingCorrespondence3d READ pendingCorrespondence3d NOTIFY correspondencesChanged)
   Q_PROPERTY(bool pendingCorrespondence2d READ pendingCorrespondence2d NOTIFY correspondencesChanged)
   Q_PROPERTY(int selectedCorrespondenceRow READ selectedCorrespondenceRow WRITE setSelectedCorrespondenceRow
                  NOTIFY correspondencesChanged)
+  /// Table rows for QML ListView: u, v, x, y, z per pair.
   Q_PROPERTY(QVariantList correspondenceTable READ correspondenceTable NOTIFY correspondencesChanged)
   Q_PROPERTY(bool canComputeInitialAlignment READ canComputeInitialAlignment NOTIFY correspondencesChanged)
   Q_PROPERTY(bool manualInitialGuessSupportsMultiDataset READ manualInitialGuessSupportsMultiDataset CONSTANT)
+  /// 0 = manual correspondences, 1 = feature match stub.
   Q_PROPERTY(int initialAlignmentMethod READ initialAlignmentMethod WRITE setInitialAlignmentMethod
                  NOTIFY initialAlignmentMethodChanged)
+  /// False while a worker thread holds the pipeline (disables picking).
   Q_PROPERTY(bool pickingAllowed READ pickingAllowed NOTIFY busyWorkingChanged)
+  /// Scaled camera image for the correspondence / preview pane.
   Q_PROPERTY(QImage cameraPreviewImage READ cameraPreviewImage NOTIFY cameraPreviewChanged)
 
 public:
   explicit AppController(QObject* parent = nullptr);
   ~AppController() override;
 
+  // --- Status and session paths (bound from Main.qml) ---
   QString statusMessage() const { return status_message_; }
   bool busyWorking() const { return worker_running_; }
   int pointCount() const { return point_count_; }
@@ -193,6 +252,7 @@ public:
   bool pickingAllowed() const { return !worker_running_; }
   QImage cameraPreviewImage() const { return camera_preview_; }
 
+  // --- Property setters invoked from QML bindings ---
   void setScanDuration(double seconds);
   void setTimeOrigin(int origin);
   void setTimeUnit(int unit);
@@ -201,6 +261,7 @@ public:
   void setPcdDirectory(const QString& path);
   void setIntrinsicsPath(const QString& path);
 
+  // --- User actions (buttons, menus, file dialogs); callable from QML as controller.foo() ---
   Q_INVOKABLE bool loadSession(const QString& directory);
   Q_INVOKABLE bool saveSession(const QString& directory);
   Q_INVOKABLE bool loadIntrinsicsFile(const QString& path);
@@ -237,11 +298,13 @@ public:
   void setCalibrationNelderMeadInitStep(double v);
   void setCalibrationNelderMeadConvergence(double v);
   Q_INVOKABLE void refreshViewerColors();
+  /// Live colormap preview while dragging the viewer slider (no session write).
   Q_INVOKABLE void previewViewerColormapRange(double min_v, double max_v);
   Q_INVOKABLE void commitViewerColormapRange(double min_v, double max_v);
   Q_INVOKABLE void previewRangeColormapRange(double min_v, double max_v);
   Q_INVOKABLE void commitRangeColormapRange(double min_v, double max_v);
   Q_INVOKABLE QString exportFusedPcd();
+  /// Called from RangeImageItem.polygonCommitted with native range-image vertices.
   Q_INVOKABLE void commitMaskPolygon(const QVariantList& nativeVertices);
   void commitMaskPolygonNative(const std::vector<QPointF>& nativeVertices);
   Q_INVOKABLE void applyPendingMaskKeep();
@@ -274,14 +337,17 @@ public:
   Q_INVOKABLE void runFusion();
   Q_INVOKABLE void runAlignment();
   Q_INVOKABLE void cancelWorker();
+  /// PnP initial T_camera_lidar from correspondenceTable and gizmo pose.
   Q_INVOKABLE void estimateInitialGuessFromCorrespondences();
   Q_INVOKABLE void clearCorrespondences();
   Q_INVOKABLE void pickImageCorrespondence(double u, double v);
   Q_INVOKABLE QString exportInspectionColoredPcd();
+  /// Pass the PointCloudScene QML object; connects pointPicked and poseChanged.
   Q_INVOKABLE void setViewer(QObject* viewer);
   Q_INVOKABLE void refreshPreviewInViewer();
   Q_INVOKABLE void uploadFusedCloudToViewer();
 
+  // --- NOTIFY signals: emitted when the matching Q_PROPERTY may have changed ---
 signals:
   void statusMessageChanged();
   void busyWorkingChanged();
@@ -289,6 +355,7 @@ signals:
   void scanTimeChanged();
   void sessionPathsChanged();
   void pcdCatalogChanged();
+  /// Emitted after loadSession succeeds; QML can refresh time-unit controls.
   void sessionLoaded();
   void rangeImageChanged();
   void rangeYStretchChanged();
@@ -297,6 +364,7 @@ signals:
   void viewerColormapChanged();
   void fusionParamsChanged();
   void calibrationParamsChanged();
+  /// Background fusion completed; show message dialog if needed.
   void fusionFinished(bool ok, const QString& message);
   void alignmentFinished(bool ok, const QString& message);
   void inspectionModeChanged();
@@ -305,99 +373,104 @@ signals:
   void initialAlignmentMethodChanged();
   void correspondencesChanged();
   void cameraPreviewChanged();
+
+  // --- Slots: C++ connections from psiviz viewer and QTimer debouncers ---
 private slots:
+  /// Wired to PointCloudItem::pointPicked for correspondence workflow.
   void onPointPicked(double x, double y, double z);
+  /// Wired to PointCloudItem::poseChanged; writes gizmo pose into session.
   void onViewerPoseChanged();
   void onViewerColormapDebounce();
   void onRangeColormapDebounce();
 
 private:
-  void setStatus(const QString& message);
-  void setPointCount(int count);
-  void refreshPcdCatalog();
+  // --- Internal helpers (session sync, viewer uploads, worker thread) ---
+  void setStatus(const QString& message);  /// Update status bar text and notify QML.
+  void setPointCount(int count);           /// Update displayed point count in the viewer pane.
+  void refreshPcdCatalog();                /// Rescan PCD paths for the active dataset.
   /// Re-scan cloud_directory when the in-memory catalog was cleared (e.g. after fusion).
   bool repopulateActiveDatasetPcdCatalogIfEmpty();
-  void refreshRangeImage();
+  void refreshRangeImage();                /// Rebuild range_image_ from the first scan of the mask preview dataset.
   void uploadPreviewScanToViewer(bool preserve_view_state = false);
   void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud, bool preserve_view_state = false);
   void uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, bool preserve_view_state = false);
-  void refreshPreviewCloudFromMask(bool preserve_view_state = true);
-  void refreshCameraPreview();
+  void refreshPreviewCloudFromMask(bool preserve_view_state = true);  /// Reload scan after mask edits.
+  void refreshCameraPreview();           /// Load and scale the active dataset camera image for QML.
   clc::DatasetEntry& activeDatasetEntry();
   const clc::DatasetEntry& activeDatasetEntry() const;
-  void ensureActiveCalibrationDataset();
+  void ensureActiveCalibrationDataset(); /// Create placeholder row if the list is empty.
   bool loadFirstReadableScan(clc::PointXYZITCloud& cloud, std::string& err);
-  void rebuildMaskFromOps();
-  int maskRasterWidth() const;
+  void rebuildMaskFromOps();             /// Rasterize mask_ops_ into global_mask_pixels_.
+  int maskRasterWidth() const;           /// Mask width (session reference or range image).
   int maskRasterHeight() const;
   void setMaskPolygonPending(bool pending);
   void refreshViewerColormapBounds(bool reset_colormap_range = true);
-  void refreshRangeImageDisplay();
-  void applyViewerScalarRangeToItem();
-  void applySessionToViewer();
-  void refreshViewerGizmoState();
+  void refreshRangeImageDisplay();       /// JET-color range image into range_image_display_.
+  void applyViewerScalarRangeToItem();   /// Push colormap min/max to psiviz item.
+  void applySessionToViewer();           /// Sync pose gizmo matrix from session T_camera_lidar.
+  void refreshViewerGizmoState();        /// Enable/disable gizmo and picking while worker runs.
   void loadActiveDatasetCloudToViewer();
   void syncActiveDatasetFusionToSession();
   void syncSessionFusionToActiveDataset();
-  void emitSessionUiState();
-  void syncColorModelFromSession();
+  void emitSessionUiState();             /// Emit all path/catalog related signals.
+  void syncColorModelFromSession();      /// Reload PointColorModel from intrinsics + image.
   bool ensureProjectionImageForActiveDataset();
   void invalidateProjectionImageCache();
-  void clearCalibrationDatasetVisuals();
+  void clearCalibrationDatasetVisuals(); /// Clear viewer cloud when switching datasets.
   void resetSessionStructuredScanState();
-  void refreshActiveDatasetVisuals();
-  void reprojectViewerCameraRgb();
-  void syncCorrespondenceMarkers();
-  void finalizePendingCorrespondenceIfReady();
+  void refreshActiveDatasetVisuals();    /// Range image, viewer cloud, correspondences, preview.
+  void reprojectViewerCameraRgb();       /// Re-run color_model_ projection for viewer_rgb_.
+  void syncCorrespondenceMarkers();      /// Orange spheres at 3D correspondence points.
+  void finalizePendingCorrespondenceIfReady();  /// Add pair when both 2D and 3D are picked.
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);
   void joinWorker();
   void setWorkerRunning(bool running);
 
-  clc::SessionData session_;
-  clc::DatasetEntry empty_calibration_dataset_scratch_;
-  clc::PointColorModel color_model_;
-  cv::Mat projection_image_;
-  std::string projection_image_path_;
-  std::optional<int> fused_cloud_dataset_index_;
-  QVector<float> viewer_positions_;
-  QVector<float> viewer_scalars_;
-  QVector<float> viewer_rgb_;
-  std::vector<std::uint8_t> global_mask_pixels_;
-  std::vector<clc::MaskPolygonOp> mask_ops_;
-  clc::Polygon2f pending_mask_polygon_;
+  clc::SessionData session_;                              /// Loaded session.json state.
+  clc::DatasetEntry empty_calibration_dataset_scratch_;   /// Fallback when no datasets exist.
+  clc::PointColorModel color_model_;                      /// Camera RGB projection for viewer tint.
+  cv::Mat projection_image_;                              /// BGR image used for color_model_.
+  std::string projection_image_path_;                     /// Path of projection_image_ (cache key).
+  std::optional<int> fused_cloud_dataset_index_;          /// Which dataset index owns fused_cloud_.
+  QVector<float> viewer_positions_;                       /// Last cloud uploaded to psiviz (xyz).
+  QVector<float> viewer_scalars_;                         /// Per-point scalar channel for colormap.
+  QVector<float> viewer_rgb_;                             /// Per-point camera RGB for blending.
+  std::vector<std::uint8_t> global_mask_pixels_;          /// Raster mask (255 = keep point).
+  std::vector<clc::MaskPolygonOp> mask_ops_;              /// History of polygon mask edits.
+  clc::Polygon2f pending_mask_polygon_;                   /// Polygon awaiting keep/remove.
   bool mask_polygon_pending_ = false;
-  clc::RangeImage range_image_;
-  QImage range_image_display_;
+  clc::RangeImage range_image_;                           /// Raw range/intensity from active scan.
+  QImage range_image_display_;                            /// JET-colored QImage for QML preview.
   double range_colormap_min_ = 0.0;
   double range_colormap_max_ = 50.0;
-  int range_channel_ = 0;
-  double range_y_stretch_ = 2.0;
+  int range_channel_ = 0;                                 /// 0 = range, 1 = intensity.
+  double range_y_stretch_ = 2.0;                          /// Vertical scale for mask editor UI.
   bool preview_upload_pending_ = false;
   bool viewer_scalar_bounds_valid_ = false;
   double viewer_colormap_min_ = 0.0;
   double viewer_colormap_max_ = 1.0;
-  double viewer_data_min_ = 0.0;
-  double viewer_data_max_ = 1.0;
+  double viewer_data_min_ = 0.0;                          /// Auto min of active scalar channel.
+  double viewer_data_max_ = 1.0;                          /// Auto max of active scalar channel.
   double range_data_min_ = 0.0;
   double range_data_max_ = 50.0;
   int viewer_scalar_channel_ = 0;
-  QTimer viewer_colormap_debounce_;
+  QTimer viewer_colormap_debounce_;                       /// Delays heavy viewer refresh on slider drag.
   QTimer range_colormap_debounce_;
-  glim_cloud_fusion::DensePointCloud fused_cloud_;
+  glim_cloud_fusion::DensePointCloud fused_cloud_;        /// Result of last fusion for active dataset.
   QString status_message_ = QStringLiteral("Ready");
-  QString session_directory_;
-  int point_count_ = 0;
-  bool fusion_blocked_ = false;
-  int main_work_tab_ = 0;
+  QString session_directory_;                             /// Folder containing session.json.
+  int point_count_ = 0;                                   /// Points shown in viewer (status bar).
+  bool fusion_blocked_ = false;                           /// True when catalog is invalid for fusion.
+  int main_work_tab_ = 0;                                 /// 0=calibration tabs, 3=inspection.
   int active_calibration_dataset_index_ = 0;
-  int mask_preview_dataset_index_ = 0;
+  int mask_preview_dataset_index_ = 0;                    /// Which scan drives range image in mask UI.
   int initial_alignment_method_ = 0;
   int selected_correspondence_row_ = -1;
-  std::optional<Eigen::Vector3d> pending_correspondence_3d_;
-  std::optional<std::pair<double, double>> pending_correspondence_2d_;
-  QImage camera_preview_;
-  std::atomic<bool> worker_running_{false};
+  std::optional<clc::Vec3d> pending_correspondence_3d_;   /// Lidar pick waiting for image click.
+  std::optional<std::pair<double, double>> pending_correspondence_2d_;  /// Image click waiting for 3D.
+  QImage camera_preview_;                                 /// Thumbnail of active dataset image.
+  std::atomic<bool> worker_running_{false};                 /// Fusion or alignment thread active.
   std::atomic<bool> worker_cancel_requested_{false};
   std::unique_ptr<std::thread> worker_;
-  class QObject* viewer_{nullptr};
+  class QObject* viewer_{nullptr};                          /// psiviz::PointCloudItem instance from QML.
 };

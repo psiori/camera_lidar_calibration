@@ -1,3 +1,4 @@
+// Embeds psiviz PointCloudScene and forwards keyboard navigation to the viewer.
 import QtQuick
 import QtQuick.Controls
 import Psiviz

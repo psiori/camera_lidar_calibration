@@ -8,19 +8,28 @@
 #include <QtQml/qqmlregistration.h>
 #include <vector>
 
+/// QML item that paints a range-image preview and captures polygon vertices for the global mask editor.
 class RangeImageItem : public QQuickPaintedItem {
   Q_OBJECT
   QML_NAMED_ELEMENT(RangeImageItem)
+
+  /// Colored range image from AppController.rangeImage.
   Q_PROPERTY(QImage image READ image WRITE setImage NOTIFY imageChanged)
+  /// Raw mask raster (same encoding as AppController.maskPreview).
   Q_PROPERTY(QByteArray maskData READ maskData WRITE setMaskData NOTIFY maskDataChanged)
   Q_PROPERTY(int maskWidth READ maskWidth WRITE setMaskWidth NOTIFY maskDataChanged)
   Q_PROPERTY(int maskHeight READ maskHeight WRITE setMaskHeight NOTIFY maskDataChanged)
+  /// Structured scan width for mapping display clicks to native pixels.
   Q_PROPERTY(int rangeNativeWidth READ rangeNativeWidth WRITE setRangeNativeWidth NOTIFY rangeNativeSizeChanged)
   Q_PROPERTY(int rangeNativeHeight READ rangeNativeHeight WRITE setRangeNativeHeight NOTIFY rangeNativeSizeChanged)
+  /// True while placing vertices for an open polygon.
   Q_PROPERTY(bool drawing READ drawing NOTIFY drawingChanged)
+  /// Scale image to fill item height (mask editor layout).
   Q_PROPERTY(bool fillBounds READ fillBounds WRITE setFillBounds NOTIFY fillBoundsChanged)
+  /// Closed polygon drawn in display coordinates before keep/remove.
   Q_PROPERTY(QVariantList closedPolygonOverlay READ closedPolygonOverlay WRITE setClosedPolygonOverlay
                  NOTIFY closedPolygonOverlayChanged)
+  /// AppController (or test stub); receives polygonCommitted.
   Q_PROPERTY(QObject* maskController READ maskController WRITE setMaskController NOTIFY maskControllerChanged)
 
  public:
@@ -38,17 +47,26 @@ class RangeImageItem : public QQuickPaintedItem {
   void setRangeNativeWidth(int w);
   int rangeNativeHeight() const { return range_native_height_; }
   void setRangeNativeHeight(int h);
+  /// True while the user is placing vertices for an open polygon.
   bool drawing() const { return drawing_; }
+  /// When true, scale the image to fill the item height (mask editor layout).
   bool fillBounds() const { return fill_bounds_; }
   void setFillBounds(bool fill);
+  /// Vertices of a closed polygon drawn in display space (for overlay preview).
   QVariantList closedPolygonOverlay() const { return closed_polygon_overlay_; }
   void setClosedPolygonOverlay(const QVariantList& vertices);
+  /// AppController (or test double) that receives committed polygons.
   QObject* maskController() const { return mask_controller_; }
   void setMaskController(QObject* controller);
 
+  // QML keyboard / toolbar actions
+  /// Remove the last placed vertex of the open polygon.
   Q_INVOKABLE void undoVertex();
+  /// Finish the polygon and wait for keep/remove decision from the controller.
   Q_INVOKABLE void closePolygon();
+  /// Discard the open polygon without committing.
   Q_INVOKABLE void cancelPolygon();
+  /// Clear a closed polygon waiting for keep/remove.
   Q_INVOKABLE void clearPendingPolygon();
 
 #ifdef CLC_APP_TESTING
@@ -62,11 +80,13 @@ class RangeImageItem : public QQuickPaintedItem {
  signals:
   void imageChanged();
   void maskDataChanged();
+  /// NOTIFY for rangeNativeWidth and rangeNativeHeight.
   void rangeNativeSizeChanged();
   void drawingChanged();
   void fillBoundsChanged();
   void closedPolygonOverlayChanged();
   void maskControllerChanged();
+  /// Native range-image pixel coordinates; AppController connects this to commitMaskPolygon.
   void polygonCommitted(QVariantList nativeVertices);
 
  protected:

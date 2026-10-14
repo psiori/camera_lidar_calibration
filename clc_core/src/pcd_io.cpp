@@ -1,3 +1,5 @@
+// pcd_io.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/pcd_io.hpp>
 
 #include <algorithm>

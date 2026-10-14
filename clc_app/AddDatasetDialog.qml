@@ -1,3 +1,4 @@
+// Modal dialog to pick image, lidar folder/file, and intrinsics for a new calibration dataset.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

@@ -1,4 +1,5 @@
 add_library(clc_core SHARED
+  src/eigen_adapters.cpp
   src/pcd_io.cpp
   src/session.cpp
   src/calibration_service.cpp
@@ -33,14 +34,15 @@ else()
   set(_clc_pcl_target ${PCL_IO_LIBRARIES})
 endif()
 target_link_libraries(clc_core PUBLIC
+  clc_linalg
   ${_clc_vlcal_target}
   ${_clc_fusion_target}
-  Eigen3::Eigen
   ${_clc_pcl_target}
   opencv_core
   opencv_imgproc
   opencv_imgcodecs
 )
+target_link_libraries(clc_core PRIVATE Eigen3::Eigen)
 if(PCL_INCLUDE_DIRS)
   target_include_directories(clc_core SYSTEM PUBLIC ${PCL_INCLUDE_DIRS})
 endif()

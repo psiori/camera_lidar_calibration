@@ -1,4 +1,8 @@
+// nid_cloud_prep.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/nid_cloud_prep.hpp>
+
+#include <Eigen/Core>
 
 #include <algorithm>
 #include <cmath>
@@ -23,10 +27,11 @@ void equalize_intensities_for_nid(std::vector<double>& intensities) {
   intensities = std::move(equalized);
 }
 
-void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Eigen::Isometry3d& T_world_ref) {
-  const Eigen::Isometry3d T_ref_world = T_world_ref.inverse();
+void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Mat4d& T_world_ref) {
+  const Mat4d T_ref_world = inverseRigid(T_world_ref);
   for (auto& p : cloud.points) {
-    p = T_ref_world * p;
+    const Vec3d v = transformPoint(T_ref_world, {p.x(), p.y(), p.z()});
+    p = Eigen::Vector3d(v.x, v.y, v.z);
   }
 }
 

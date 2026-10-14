@@ -1,3 +1,5 @@
+// colormap.cpp — clc_core session, I/O, fusion, or calibration logic.
+
 #include <clc_core/colormap.hpp>
 
 #include <algorithm>
