@@ -9,6 +9,7 @@
 
 #include <clc_core/colormap.hpp>
 #include <clc_core/fusion_service.hpp>
+#include <clc_core/nid_cloud_prep.hpp>
 #include <clc_core/pcd_io.hpp>
 #include <clc_core/range_image.hpp>
 #include <clc_core/scan_geometry.hpp>
@@ -171,6 +172,15 @@ void test_fusion_single_scan_passthrough() {
   assert(!result.cloud.points.empty());
 }
 
+void test_equalize_intensities_for_nid() {
+  std::vector<double> intensities{100.0, 10.0, 50.0};
+  clc::equalize_intensities_for_nid(intensities);
+  assert(intensities.size() == 3);
+  assert(intensities[0] < intensities[1]);
+  assert(intensities[1] < intensities[2]);
+  assert(intensities.front() >= 0.0 && intensities.back() < 1.0);
+}
+
 void test_dense_pcd_round_trip_non_timestamp_name() {
   const std::filesystem::path path =
     std::filesystem::temp_directory_path() / "clc_fused_test_dataset.pcd";
@@ -208,6 +218,7 @@ int main() {
   test_fusion_k_neighbors_default();
   test_scan_geometry_empty_directory();
   test_fusion_single_scan_passthrough();
+  test_equalize_intensities_for_nid();
   test_dense_pcd_round_trip_non_timestamp_name();
   std::puts("clc_core_tests: ok");
   return 0;

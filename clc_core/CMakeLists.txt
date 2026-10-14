@@ -9,6 +9,7 @@ add_library(clc_core SHARED
   src/colormap.cpp
   src/range_image.cpp
   src/point_color_model.cpp
+  src/nid_cloud_prep.cpp
 )
 target_include_directories(clc_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
