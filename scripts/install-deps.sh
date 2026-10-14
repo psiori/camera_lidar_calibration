@@ -25,7 +25,7 @@
 #   CALIB_BRANCH       — Git branch for stack repos (default: feature/camera-lidar-calibration-libs).
 #   GITHUB_ORG         — GitHub org for cloning (default: psiori).
 #   CALIB_MARCH_NATIVE — Pass -march=native to builds (default: True).
-#   CALIB_UPDATE_REPOS — Pull latest on existing clones (default: true).
+#   CALIB_UPDATE_REPOS — Unused; dependency SHAs are fixed in clone-repos.sh.
 #
 set -euo pipefail
 
@@ -36,14 +36,12 @@ CALIB_BRANCH="${CALIB_BRANCH:-feature/camera-lidar-calibration-libs}"
 GITHUB_ORG="${GITHUB_ORG:-psiori}"
 CONAN_HOME="${CONAN_HOME:-$HOME/.calib-conan}"
 CALIB_MARCH_NATIVE="${CALIB_MARCH_NATIVE:-True}"
-CALIB_UPDATE_REPOS="${CALIB_UPDATE_REPOS:-true}"
 
 # Keep in sync with glim/conanfile.py and camera_lidar_calibration/conanfile.py
 GLIM_CONAN_VERSION="1.2.9"
 VLCAL_CONAN_VERSION="0.1.0"
 
 export CONAN_HOME
-export CALIB_UPDATE_REPOS
 
 ensure_conan() {
   if command -v conan >/dev/null 2>&1; then
@@ -100,7 +98,6 @@ CONAN_BUILD=(--build=missing)
 echo "Using CONAN_HOME=${CONAN_HOME}"
 echo "Building Conan packages from ${CALIB_SRC}"
 echo "Stack toolchain (OpenCV, OpenMP, Qt hints) comes from camera_lidar_calibration/conan/."
-
 conan create "${CALIB_SRC}/gtsam" --name=gtsam --version=4.3a1 \
   -s build_type=Release "${BUILD_PROFILE[@]}" "${PROFILE[@]}" "${MACOS_TOOLCHAIN_CONF[@]}" "${CONAN_BUILD[@]}" \
   -o "gtsam/*:build_with_march_native=${CALIB_MARCH_NATIVE}"

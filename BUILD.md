@@ -46,6 +46,7 @@ CALIB_SRC=~/source_builds CONAN_HOME=~/.calib-conan \
   bash ~/source_builds/camera_lidar_calibration/scripts/install-deps.sh
 ```
 
+Dependency SHAs for `gtsam`, `gtsam_points`, `glim`, and `direct_visual_lidar_calibration` live in `scripts/clone-repos.sh` (update those constants when you bump stack libs).
 
 Dependency order:
 

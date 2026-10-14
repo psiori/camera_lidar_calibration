@@ -82,8 +82,9 @@ void TrackballCamera::fitToBounds(const clc::Vec3f& min, const clc::Vec3f& max) 
 }
 
 void TrackballCamera::rotate(float dx, float dy) {
-  const float az_deg = dx * (-20.f / static_cast<float>(width_)) * motion_factor_;
-  const float el_deg = dy * (20.f / static_cast<float>(height_)) * motion_factor_;
+  const float az_deg = dx * (20.f / static_cast<float>(width_)) * motion_factor_;
+  // Positive screen Y is down; drag up (dy < 0) pitches forward (PCL/VTK feel).
+  const float el_deg = dy * (-20.f / static_cast<float>(height_)) * motion_factor_;
 
   clc::Vec3f up = view_up_;
   if (clc::lengthSquared(up) < 1e-12f) {
@@ -117,8 +118,9 @@ void TrackballCamera::rotate(float dx, float dy) {
 
 void TrackballCamera::pan(float dx, float dy) {
   const clc::Mat4f view = viewMatrix();
-  const clc::Vec3f right = {view(0, 0), view(1, 0), view(2, 0)};
-  const clc::Vec3f up = {view(0, 1), view(1, 1), view(2, 1)};
+  // lookAt stores s and u as rows 0/1 (not columns); column 0 would mix s.x, u.x, -f.x.
+  const clc::Vec3f right = {view(0, 0), view(0, 1), view(0, 2)};
+  const clc::Vec3f up = {view(1, 0), view(1, 1), view(1, 2)};
   const float scale = orbitDistance() * 0.001f;
   const clc::Vec3f delta = right * (-dx * scale) + up * (dy * scale);
   focal_ = focal_ + delta;
@@ -143,7 +145,7 @@ void TrackballCamera::spin(float dx, float dy) {
     return;
   }
   forward = clc::normalized(forward);
-  const float angle = (dx + dy) * 0.003f;
+  const float angle = -(dx + dy) * 0.003f;
   clc::rotateVectorInPlace(view_up_, forward, angle);
   orthogonalizeViewUp();
 }

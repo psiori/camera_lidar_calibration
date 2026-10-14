@@ -59,6 +59,9 @@ target_link_libraries(psiviz_scene_test PRIVATE psiviz psivizplugin Qt6::Quick Q
 qt_add_executable(psiviz_trackball_test tests/trackball_camera_test.cpp)
 target_link_libraries(psiviz_trackball_test PRIVATE psiviz Qt6::Test)
 
+qt_add_executable(psiviz_linalg_eigen_parity_test tests/linalg_eigen_parity_test.cpp)
+target_link_libraries(psiviz_linalg_eigen_parity_test PRIVATE psiviz Eigen3::Eigen Qt6::Test)
+
 qt_add_executable(psiviz_depth_picker_test tests/depth_picker_test.cpp)
 target_link_libraries(psiviz_depth_picker_test PRIVATE psiviz Qt6::Test)
 

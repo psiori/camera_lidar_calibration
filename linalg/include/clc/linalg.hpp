@@ -211,14 +211,16 @@ inline Mat4f lookAt(Vec3f eye, Vec3f center, Vec3f up) {
   s = normalized(s);
   const Vec3f u = cross(s, f);
   Mat4f view = Mat4f::identity();
+  // Row-wise upper 3×3 (legacy Eigen TrackballCamera layout). Matches GLSL `mvp * vec4` in psiviz;
+  // a column-wise s/u/-f basis is the transpose and breaks orbit/spin feel.
   view(0, 0) = s.x;
-  view(1, 0) = s.y;
-  view(2, 0) = s.z;
-  view(0, 1) = u.x;
+  view(0, 1) = s.y;
+  view(0, 2) = s.z;
+  view(1, 0) = u.x;
   view(1, 1) = u.y;
-  view(2, 1) = u.z;
-  view(0, 2) = -f.x;
-  view(1, 2) = -f.y;
+  view(1, 2) = u.z;
+  view(2, 0) = -f.x;
+  view(2, 1) = -f.y;
   view(2, 2) = -f.z;
   view(0, 3) = -dot(s, eye);
   view(1, 3) = -dot(u, eye);
