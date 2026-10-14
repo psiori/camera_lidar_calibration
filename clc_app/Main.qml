@@ -164,7 +164,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             visible: controller.activeDatasetIsSingleScan
-                            text: "Single scan loaded: scan-time and multi-scan fusion options are disabled; use voxel size and Run fusion for passthrough."
+                            text: "Single scan loaded: mask editing, fusion, and scan-time options are not used."
                             font.italic: true
                         }
                         GroupBox {
@@ -319,11 +319,12 @@ ApplicationWindow {
                                 }
                                 Button {
                                     text: "Run fusion"
-                                    enabled: !controller.fusionBlocked && !controller.busyWorking
+                                    enabled: !controller.activeDatasetIsSingleScan
+                                        && !controller.fusionBlocked && !controller.busyWorking
                                     onClicked: controller.runFusion()
                                     ToolTip.visible: hovered
                                     ToolTip.text: controller.activeDatasetIsSingleScan
-                                        ? "Downsample the single masked scan to the voxel size."
+                                        ? "Not used for a single scan (the loaded cloud is used as-is)."
                                         : "Merge scans for the active dataset using the global mask and scan-time settings."
                                     ToolTip.delay: root.tooltipDelayMs
                                 }
@@ -373,7 +374,16 @@ ApplicationWindow {
                             title: "Global mask"
                             Layout.fillWidth: true
                             RowLayout {
-                                Button { text: "Edit mask…"; onClicked: maskEditor.show() }
+                                Button {
+                                    text: "Edit mask…"
+                                    enabled: !controller.activeDatasetIsSingleScan
+                                    onClicked: maskEditor.show()
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: controller.activeDatasetIsSingleScan
+                                        ? "Mask editing is only for multi-scan fusion."
+                                        : "Paint the global range-image mask used during fusion."
+                                    ToolTip.delay: root.tooltipDelayMs
+                                }
                                 Button { text: "Load"; onClicked: controller.loadMask() }
                                 Button { text: "Browse…"; onClicked: controller.browseMaskFile() }
                                 Button { text: "Save"; onClicked: controller.saveMask() }
@@ -612,22 +622,24 @@ ApplicationWindow {
                     ColumnLayout {
                         width: inspectionScroll.availableWidth
                         Label { wrapMode: Text.WordWrap; Layout.fillWidth: true; text: "Inspection datasets (separate from calibration)." }
-                        TextField {
+                        DatasetInputFields {
                             Layout.fillWidth: true
-                            text: controller.imagePath
-                            placeholderText: "Image"
-                            onEditingFinished: controller.imagePath = text
-                        }
-                        TextField {
-                            Layout.fillWidth: true
-                            text: controller.pcdDirectory
-                            placeholderText: "PCD directory"
-                            onEditingFinished: controller.pcdDirectory = text
+                            useActiveDatasetBrowse: true
+                            imagePath: controller.imagePath
+                            lidarPath: controller.pcdDirectory
+                            onImagePathEdited: path => { controller.imagePath = path }
+                            onLidarPathEdited: path => { controller.pcdDirectory = path }
                         }
                         Button {
                             text: "Fuse inspection scans"
-                            enabled: !controller.fusionBlocked && !controller.busyWorking
+                            enabled: !controller.activeDatasetIsSingleScan
+                                && !controller.fusionBlocked && !controller.busyWorking
                             onClicked: controller.runFusion()
+                            ToolTip.visible: hovered
+                            ToolTip.text: controller.activeDatasetIsSingleScan
+                                ? "Not used for a single scan."
+                                : "Fuse inspection LiDAR scans using session fusion settings."
+                            ToolTip.delay: root.tooltipDelayMs
                         }
                         Button {
                             text: "Export colored PCD"

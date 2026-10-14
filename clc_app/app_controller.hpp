@@ -205,7 +205,8 @@ public:
   Q_INVOKABLE bool saveSession(const QString& directory);
   Q_INVOKABLE bool loadIntrinsicsFile(const QString& path);
   Q_INVOKABLE QString browseSessionDirectory();
-  Q_INVOKABLE QString browsePcdDirectory();
+  Q_INVOKABLE QString browsePcdFile();
+  Q_INVOKABLE QString browsePcdFolder();
   Q_INVOKABLE QString browseImageFile();
   Q_INVOKABLE void setRangeColormapMin(double v);
   Q_INVOKABLE void setRangeColormapMax(double v);
@@ -260,7 +261,8 @@ public:
   Q_INVOKABLE bool addCalibrationDatasetFromPaths(const QString& image_path, const QString& lidar_path,
                                                 const QString& intrinsics_path);
   Q_INVOKABLE QString pickAddDatasetImage(const QString& initial_dir);
-  Q_INVOKABLE QString pickAddDatasetLidar(const QString& initial_dir);
+  Q_INVOKABLE QString pickAddDatasetLidarFile(const QString& initial_dir);
+  Q_INVOKABLE QString pickAddDatasetLidarFolder(const QString& initial_dir);
   Q_INVOKABLE QString pickAddDatasetIntrinsics(const QString& initial_dir);
   Q_INVOKABLE void removeActiveCalibrationDataset();
   Q_INVOKABLE bool isCalibrationDatasetReady(int index) const;
@@ -367,7 +369,7 @@ private:
   double range_colormap_min_ = 0.0;
   double range_colormap_max_ = 50.0;
   int range_channel_ = 0;
-  double range_y_stretch_ = 1.0;
+  double range_y_stretch_ = 2.0;
   bool preview_upload_pending_ = false;
   bool viewer_scalar_bounds_valid_ = false;
   double viewer_colormap_min_ = 0.0;

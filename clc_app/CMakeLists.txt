@@ -15,6 +15,7 @@ qt_add_qml_module(clc_app
     CameraImageItem.qml
     PointCloudViewerPane.qml
     AddDatasetDialog.qml
+    DatasetInputFields.qml
   SOURCES
     range_image_item.cpp
 )
