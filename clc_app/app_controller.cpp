@@ -199,6 +199,7 @@ void AppController::setWorkerRunning(bool running) {
   const bool was = worker_running_.exchange(running);
   if (was != running) {
     emit busyWorkingChanged();
+    emit activeDatasetSelectionLockChanged();
     refreshViewerGizmoState();
   }
   if (!running) {
@@ -562,6 +563,9 @@ void AppController::setMainWorkTab(int tab) {
 
 /// Update Active Calibration Dataset Index (QML property backing).
 void AppController::setActiveCalibrationDatasetIndex(int index) {
+  if (!canChangeActiveCalibrationDataset()) {
+    return;
+  }
   if (session_.calibration_datasets.empty()) {
     return;
   }
@@ -573,15 +577,22 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   active_calibration_dataset_index_ = clamped;
   pending_correspondence_3d_.reset();
   selected_correspondence_row_ = -1;
-  syncSessionFusionToActiveDataset();
+  syncActiveDatasetFusionToSession();
   emit calibrationDatasetsChanged();
   emit sessionPathsChanged();
   emit scanTimeChanged();
   emit fusionParamsChanged();
   emit pcdCatalogChanged();
   refreshActiveDatasetVisuals();
-  refreshRangeImage();
+  if (!mask_editor_open_) {
+    refreshRangeImage();
+  }
   emit correspondencesChanged();
+}
+
+/// AppController::canChangeActiveCalibrationDataset implementation.
+bool AppController::canChangeActiveCalibrationDataset() const {
+  return !worker_running_ && !mask_editor_open_;
 }
 
 /// AppController::calibrationDatasetIds implementation.
@@ -651,14 +662,35 @@ void AppController::setMaskPreviewDatasetIndex(int index) {
   if (session_.calibration_datasets.empty()) {
     return;
   }
-  mask_preview_dataset_index_ = std::clamp(
+  const int clamped = std::clamp(
       index, 0, static_cast<int>(session_.calibration_datasets.size()) - 1);
+  if (mask_preview_dataset_index_ == clamped) {
+    return;
+  }
+  mask_preview_dataset_index_ = clamped;
+  emit maskPreviewDatasetIndexChanged();
+  if (mask_editor_open_) {
+    refreshRangeImage();
+  }
+}
 
-  const int prev = active_calibration_dataset_index_;
-  active_calibration_dataset_index_ = mask_preview_dataset_index_;
-
-  refreshRangeImage();
-  active_calibration_dataset_index_ = prev;
+/// AppController::setMaskEditorOpen implementation.
+void AppController::setMaskEditorOpen(bool open) {
+  if (mask_editor_open_ == open) {
+    return;
+  }
+  mask_editor_open_ = open;
+  if (open && !session_.calibration_datasets.empty()) {
+    mask_preview_dataset_index_ = std::clamp(
+        active_calibration_dataset_index_, 0,
+        static_cast<int>(session_.calibration_datasets.size()) - 1);
+    emit maskPreviewDatasetIndexChanged();
+    refreshRangeImage();
+  } else if (!open) {
+    refreshRangeImage();
+  }
+  emit maskEditorOpenChanged();
+  emit activeDatasetSelectionLockChanged();
 }
 
 /// AppController::activeDatasetIsSingleScan implementation.
@@ -859,9 +891,16 @@ void AppController::removeActiveCalibrationDataset() {
   active_calibration_dataset_index_ =
       std::min(active_calibration_dataset_index_,
                static_cast<int>(session_.calibration_datasets.size()) - 1);
+  mask_preview_dataset_index_ = std::clamp(
+      mask_preview_dataset_index_, 0,
+      static_cast<int>(session_.calibration_datasets.size()) - 1);
+  emit maskPreviewDatasetIndexChanged();
   emit calibrationDatasetsChanged();
   emit pcdCatalogChanged();
   emit sessionPathsChanged();
+  emit fusionParamsChanged();
+  emit scanTimeChanged();
+  syncActiveDatasetFusionToSession();
   refreshActiveDatasetVisuals();
   emit correspondencesChanged();
 }
@@ -875,17 +914,6 @@ void AppController::syncActiveDatasetFusionToSession() {
   session_.fusion_params = ds.fusion_params;
   session_.scan_time = ds.scan_time;
   session_.fusion_params.scan_time = ds.scan_time;
-}
-
-/// Copy Session Fusion To Active Dataset between session model and UI.
-void AppController::syncSessionFusionToActiveDataset() {
-  if (main_work_tab_ == 3 || session_.calibration_datasets.empty()) {
-    return;
-  }
-  auto &ds = activeDatasetEntry();
-  ds.fusion_params = session_.fusion_params;
-  ds.scan_time = session_.scan_time;
-  ds.fusion_params.scan_time = ds.scan_time;
 }
 
 /// AppController::correspondenceTable implementation.
@@ -1698,7 +1726,10 @@ void AppController::refreshActiveDatasetVisuals() {
     clearCalibrationDatasetVisuals();
     return;
   }
-  invalidateProjectionImageCache();
+  const std::string image_path = activeDatasetEntry().image_path;
+  if (projection_image_path_ != image_path) {
+    invalidateProjectionImageCache();
+  }
   if (!fused_cloud_dataset_index_.has_value() ||
       *fused_cloud_dataset_index_ != active_calibration_dataset_index_) {
     fused_cloud_ = {};
@@ -1787,7 +1818,7 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
   input.params = session_.calibration_params;
 
   auto load_fused_for_dataset =
-      [&](const clc::DatasetEntry &ds,
+      [&](int ds_index, const clc::DatasetEntry &ds,
           glim_cloud_fusion::DensePointCloud &out) -> bool {
     if (!ds.fused_cloud_path.empty()) {
       std::string err;
@@ -1795,9 +1826,8 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
         return !out.points.empty();
       }
     }
-    if (&ds == &activeDatasetEntry() && !fused_cloud_.points.empty() &&
-        fused_cloud_dataset_index_.has_value() &&
-        *fused_cloud_dataset_index_ == active_calibration_dataset_index_) {
+    if (fused_cloud_dataset_index_.has_value() &&
+        *fused_cloud_dataset_index_ == ds_index && !fused_cloud_.points.empty()) {
       out = fused_cloud_;
       return true;
     }
@@ -1817,7 +1847,9 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
     return false;
   };
 
-  for (const auto &ds : session_.calibration_datasets) {
+  for (int ds_index = 0; ds_index < static_cast<int>(session_.calibration_datasets.size());
+       ++ds_index) {
+    const auto &ds = session_.calibration_datasets[static_cast<std::size_t>(ds_index)];
     if (!clc::dataset_ready(ds)) {
       continue;
     }
@@ -1830,7 +1862,7 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
       return false;
     }
     glim_cloud_fusion::DensePointCloud dense;
-    if (!load_fused_for_dataset(ds, dense)) {
+    if (!load_fused_for_dataset(ds_index, ds, dense)) {
       error = "fused cloud missing for dataset: " + ds.id;
       return false;
     }
@@ -2210,9 +2242,29 @@ QString AppController::browseMaskFile() {
 /// Load First Readable Scan from disk or session.
 bool AppController::loadFirstReadableScan(clc::PointXYZITCloud &cloud,
                                           std::string &err) {
-  const bool check_filename_stamp =
-      activeDatasetEntry().pcd_paths.size() > 1;
-  for (const auto &path : activeDatasetEntry().pcd_paths) {
+  if (session_.calibration_datasets.empty()) {
+    err = "no calibration datasets";
+    return false;
+  }
+  return loadFirstReadableScanForDataset(active_calibration_dataset_index_, cloud,
+                                         err);
+}
+
+/// Load the first readable PCD from a calibration dataset catalog.
+bool AppController::loadFirstReadableScanForDataset(
+    int calibration_dataset_index, clc::PointXYZITCloud &cloud,
+    std::string &err) {
+  if (calibration_dataset_index < 0 ||
+      calibration_dataset_index >=
+          static_cast<int>(session_.calibration_datasets.size())) {
+    err = "invalid calibration dataset index";
+    return false;
+  }
+  const auto &dataset =
+      session_.calibration_datasets[static_cast<std::size_t>(
+          calibration_dataset_index)];
+  const bool check_filename_stamp = dataset.pcd_paths.size() > 1;
+  for (const auto &path : dataset.pcd_paths) {
     if (clc::load_pcd_xyzit(path, cloud, err, check_filename_stamp)) {
       return true;
     }
@@ -2225,17 +2277,40 @@ bool AppController::loadFirstReadableScan(clc::PointXYZITCloud &cloud,
 
 /// Recompute and push Range Image to the UI or viewer.
 void AppController::refreshRangeImage() {
+  if (session_.calibration_datasets.empty()) {
+    refreshRangeImageForDataset(-1);
+    return;
+  }
+  int index = active_calibration_dataset_index_;
+  if (mask_editor_open_) {
+    index = mask_preview_dataset_index_;
+  }
+  refreshRangeImageForDataset(index);
+}
+
+/// Build range_image_ from the first scan of the given calibration dataset.
+void AppController::refreshRangeImageForDataset(int calibration_dataset_index) {
   const int previous_width = range_image_.width;
   const int previous_height = range_image_.height;
   range_image_ = {};
   range_image_display_ = {};
-  if (activeDatasetEntry().pcd_paths.empty() || fusion_blocked_) {
+  if (calibration_dataset_index < 0 ||
+      calibration_dataset_index >=
+          static_cast<int>(session_.calibration_datasets.size()) ||
+      fusion_blocked_) {
+    emit rangeImageChanged();
+    return;
+  }
+  const auto &dataset =
+      session_.calibration_datasets[static_cast<std::size_t>(
+          calibration_dataset_index)];
+  if (dataset.pcd_paths.empty()) {
     emit rangeImageChanged();
     return;
   }
   clc::PointXYZITCloud cloud;
   std::string err;
-  if (!loadFirstReadableScan(cloud, err)) {
+  if (!loadFirstReadableScanForDataset(calibration_dataset_index, cloud, err)) {
     setStatus(QString::fromStdString(err));
     emit rangeImageChanged();
     return;
@@ -3031,10 +3106,14 @@ void AppController::runFusion() {
   int ref_h = 0;
   clc::session_structured_scan_reference(session_, ref_w, ref_h);
   syncActiveDatasetFusionToSession();
+  const int fusion_dataset_index = active_calibration_dataset_index_;
+  const std::string fusion_dataset_id = activeDatasetEntry().id;
   const auto fusion_params = activeDatasetEntry().fusion_params;
   const std::vector<std::uint8_t> mask_pixels = global_mask_pixels_;
   worker_ = std::make_unique<std::thread>([this, catalog, ref_w, ref_h,
-                                           fusion_params, mask_pixels]() {
+                                           fusion_params, mask_pixels,
+                                           fusion_dataset_index,
+                                           fusion_dataset_id]() {
     auto params = fusion_params;
     params.scan_time = fusion_params.scan_time;
     const int total_scans = static_cast<int>(catalog.size());
@@ -3105,7 +3184,7 @@ void AppController::runFusion() {
 
     QMetaObject::invokeMethod(
         this,
-        [this, result]() {
+        [this, result, fusion_dataset_index, fusion_dataset_id]() {
           setWorkerRunning(false);
           if (result.error == glim_cloud_fusion::FusionError::Cancelled) {
             setStatus(QStringLiteral("Fusion cancelled"));
@@ -3117,19 +3196,29 @@ void AppController::runFusion() {
             emit fusionFinished(false, QString::fromStdString(result.message));
             return;
           }
+          if (fusion_dataset_index < 0 ||
+              fusion_dataset_index >=
+                  static_cast<int>(session_.calibration_datasets.size())) {
+            setStatus(QStringLiteral("Fusion finished but target dataset is gone"));
+            emit fusionFinished(false,
+                                QStringLiteral("Target dataset no longer exists"));
+            return;
+          }
           fused_cloud_ = result.cloud;
           if (!result.scan_poses.empty()) {
             clc::transform_dense_cloud_from_world(
                 fused_cloud_,
                 clc::mat4dFromColumnMajor(result.scan_poses.front().matrix().data()));
           }
-          fused_cloud_dataset_index_ = active_calibration_dataset_index_;
-          auto &ds = activeDatasetEntry();
+          fused_cloud_dataset_index_ = fusion_dataset_index;
+          auto &ds = session_.calibration_datasets[static_cast<std::size_t>(
+              fusion_dataset_index)];
           ds.fusion_complete = true;
-          if (!session_directory_.isEmpty() && !ds.id.empty()) {
+          if (!session_directory_.isEmpty() && !fusion_dataset_id.empty()) {
             const QString fused_path =
                 session_directory_ + QStringLiteral("/fused_") +
-                QString::fromStdString(ds.id) + QStringLiteral(".pcd");
+                QString::fromStdString(fusion_dataset_id) +
+                QStringLiteral(".pcd");
             std::string save_err;
             if (clc::save_dense_pcd(fused_path.toStdString(), fused_cloud_,
                                     save_err)) {
@@ -3170,27 +3259,20 @@ void AppController::runAlignment() {
                              "sets or complete initial alignment)"));
     return;
   }
+  clc::AlignmentInput input;
+  std::string build_err;
+  if (!buildAlignmentInput(input, build_err)) {
+    setStatus(QString::fromStdString(build_err));
+    emit alignmentFinished(false, QString::fromStdString(build_err));
+    return;
+  }
   worker_cancel_requested_ = false;
   setWorkerRunning(true);
   setStatus(QStringLiteral("Alignment running..."));
   refreshViewerGizmoState();
   joinWorker();
-  worker_ = std::make_unique<std::thread>([this]() {
+  worker_ = std::make_unique<std::thread>([this, input = std::move(input)]() {
     const auto is_cancelled = [this]() { return worker_cancel_requested_.load(); };
-    clc::AlignmentInput input;
-    std::string build_err;
-    if (!buildAlignmentInput(input, build_err)) {
-      QMetaObject::invokeMethod(
-          this,
-          [this, build_err]() {
-            setWorkerRunning(false);
-            refreshViewerGizmoState();
-            setStatus(QString::fromStdString(build_err));
-            emit alignmentFinished(false, QString::fromStdString(build_err));
-          },
-          Qt::QueuedConnection);
-      return;
-    }
 
     const auto result = clc::run_alignment(
         input,

@@ -10,7 +10,10 @@ ApplicationWindow {
     visible: true
     title: "Camera-LiDAR Calibration"
 
-    MaskEditorWindow { id: maskEditor }
+    MaskEditorWindow {
+        id: maskEditor
+        transientParent: root
+    }
 
     AddDatasetDialog {
         id: addDatasetDialog
@@ -115,7 +118,8 @@ ApplicationWindow {
                     text: modelData
                     checkable: true
                     checked: controller.activeCalibrationDatasetIndex === index
-                    enabled: controller.mainWorkTab === 0 || controller.isCalibrationDatasetReady(index)
+                    enabled: controller.canChangeActiveCalibrationDataset
+                        && (controller.mainWorkTab === 0 || controller.isCalibrationDatasetReady(index))
                     ToolTip.visible: hovered && !enabled
                     ToolTip.text: controller.calibrationDatasetTooltip(index)
                     ToolTip.delay: root.tooltipDelayMs

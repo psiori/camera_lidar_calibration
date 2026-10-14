@@ -145,6 +145,14 @@ class AppController : public QObject {
   Q_PROPERTY(bool activeDatasetReady READ activeDatasetReady NOTIFY calibrationDatasetsChanged)
   /// True when the user may add 2D/3D correspondence pairs.
   Q_PROPERTY(bool canPickCorrespondences READ canPickCorrespondences NOTIFY calibrationDatasetsChanged)
+  /// False while fusion/alignment runs or the modal mask editor is open.
+  Q_PROPERTY(bool canChangeActiveCalibrationDataset READ canChangeActiveCalibrationDataset
+                 NOTIFY activeDatasetSelectionLockChanged)
+  /// True while the global mask editor window is visible (main window is blocked).
+  Q_PROPERTY(bool maskEditorOpen READ maskEditorOpen NOTIFY maskEditorOpenChanged)
+  /// Which calibration dataset drives the range image inside the mask editor.
+  Q_PROPERTY(int maskPreviewDatasetIndex READ maskPreviewDatasetIndex WRITE setMaskPreviewDatasetIndex
+                 NOTIFY maskPreviewDatasetIndexChanged)
   /// True when the active catalog is a single PCD (fusion is a no-op passthrough).
   Q_PROPERTY(bool activeDatasetIsSingleScan READ activeDatasetIsSingleScan NOTIFY pcdCatalogChanged)
   /// Default file dialog start paths for Add Dataset (fixed for app lifetime).
@@ -237,6 +245,9 @@ public:
   QStringList calibrationDatasetIds() const;
   bool activeDatasetReady() const;
   bool canPickCorrespondences() const;
+  bool canChangeActiveCalibrationDataset() const;
+  bool maskEditorOpen() const { return mask_editor_open_; }
+  int maskPreviewDatasetIndex() const { return mask_preview_dataset_index_; }
   bool activeDatasetIsSingleScan() const;
   QString addDatasetDefaultImagePath() const;
   QString addDatasetDefaultLidarPath() const;
@@ -334,6 +345,8 @@ public:
   Q_INVOKABLE void deleteCorrespondenceRow(int global_row);
   Q_INVOKABLE void setInitialAlignmentMethod(int method);
   Q_INVOKABLE void setMaskPreviewDatasetIndex(int index);
+  /// Called from MaskEditorWindow when shown or closed (modal lifecycle).
+  Q_INVOKABLE void setMaskEditorOpen(bool open);
   Q_INVOKABLE void runFusion();
   Q_INVOKABLE void runAlignment();
   Q_INVOKABLE void cancelWorker();
@@ -370,6 +383,9 @@ signals:
   void inspectionModeChanged();
   void mainWorkTabChanged();
   void calibrationDatasetsChanged();
+  void activeDatasetSelectionLockChanged();
+  void maskEditorOpenChanged();
+  void maskPreviewDatasetIndexChanged();
   void initialAlignmentMethodChanged();
   void correspondencesChanged();
   void cameraPreviewChanged();
@@ -390,7 +406,11 @@ private:
   void refreshPcdCatalog();                /// Rescan PCD paths for the active dataset.
   /// Re-scan cloud_directory when the in-memory catalog was cleared (e.g. after fusion).
   bool repopulateActiveDatasetPcdCatalogIfEmpty();
-  void refreshRangeImage();                /// Rebuild range_image_ from the first scan of the mask preview dataset.
+  void refreshRangeImage();                /// Rebuild range_image_ for mask editor or active dataset.
+  void refreshRangeImageForDataset(int calibration_dataset_index);
+  bool loadFirstReadableScanForDataset(int calibration_dataset_index,
+                                       clc::PointXYZITCloud& cloud,
+                                       std::string& err);
   void uploadPreviewScanToViewer(bool preserve_view_state = false);
   void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud, bool preserve_view_state = false);
   void uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, bool preserve_view_state = false);
@@ -411,7 +431,6 @@ private:
   void refreshViewerGizmoState();        /// Enable/disable gizmo and picking while worker runs.
   void loadActiveDatasetCloudToViewer();
   void syncActiveDatasetFusionToSession();
-  void syncSessionFusionToActiveDataset();
   void emitSessionUiState();             /// Emit all path/catalog related signals.
   void syncColorModelFromSession();      /// Reload PointColorModel from intrinsics + image.
   bool ensureProjectionImageForActiveDataset();
@@ -463,7 +482,8 @@ private:
   bool fusion_blocked_ = false;                           /// True when catalog is invalid for fusion.
   int main_work_tab_ = 0;                                 /// 0=calibration tabs, 3=inspection.
   int active_calibration_dataset_index_ = 0;
-  int mask_preview_dataset_index_ = 0;                    /// Which scan drives range image in mask UI.
+  int mask_preview_dataset_index_ = 0;                    /// Range-image source while mask editor is open.
+  bool mask_editor_open_ = false;
   int initial_alignment_method_ = 0;
   int selected_correspondence_row_ = -1;
   std::optional<clc::Vec3d> pending_correspondence_3d_;   /// Lidar pick waiting for image click.

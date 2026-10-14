@@ -12,6 +12,7 @@ Window {
     minimumWidth: 480
     minimumHeight: 360
     color: palette.window
+    modality: Qt.ApplicationModal
 
     readonly property int tooltipDelayMs: 1000
 
@@ -22,6 +23,7 @@ Window {
     }
 
     onVisibleChanged: {
+        controller.setMaskEditorOpen(visible)
         if (!visible)
             resetPendingPolygonIfNeeded()
     }
@@ -38,7 +40,7 @@ Window {
             ComboBox {
                 Layout.fillWidth: true
                 model: controller.calibrationDatasetIds
-                currentIndex: controller.activeCalibrationDatasetIndex
+                currentIndex: controller.maskPreviewDatasetIndex
                 onActivated: controller.setMaskPreviewDatasetIndex(currentIndex)
             }
         }
