@@ -102,6 +102,20 @@ nlohmann::json fusion_params_to_json(const glim_cloud_fusion::FusionParams& para
   j["integrator_lm_outer_loops"] = params.integrator_lm_outer_loops;
   j["integrator_debug"] = params.integrator_debug;
   j["scan_time"] = scan_time_to_json(params.scan_time);
+  const auto& sm = params.slam_mapping;
+  j["slam_mapping"] = {
+    {"submap_max_num_keyframes", sm.submap_max_num_keyframes},
+    {"keyframe_update_strategy", sm.keyframe_update_strategy},
+    {"max_keyframe_overlap", sm.max_keyframe_overlap},
+    {"keyframe_update_interval_trans", sm.keyframe_update_interval_trans},
+    {"keyframe_update_interval_rot", sm.keyframe_update_interval_rot},
+    {"submap_downsample_resolution", sm.submap_downsample_resolution},
+    {"global_min_implicit_loop_overlap", sm.global_min_implicit_loop_overlap},
+    {"global_max_implicit_loop_distance", sm.global_max_implicit_loop_distance},
+    {"enable_odometry_smoother", sm.enable_odometry_smoother},
+    {"odometry_smoother_lag_cap", sm.odometry_smoother_lag_cap},
+    {"export_full_resolution", sm.export_full_resolution},
+  };
   return j;
 }
 
@@ -143,6 +157,22 @@ bool fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionP
   params.integrator_ivox_lru_thresh = j.value("integrator_ivox_lru_thresh", params.integrator_ivox_lru_thresh);
   params.integrator_lm_outer_loops = j.value("integrator_lm_outer_loops", params.integrator_lm_outer_loops);
   params.integrator_debug = j.value("integrator_debug", params.integrator_debug);
+  if (j.contains("slam_mapping") && j["slam_mapping"].is_object()) {
+    const auto& sm = j["slam_mapping"];
+    auto& out = params.slam_mapping;
+    out.submap_max_num_keyframes = sm.value("submap_max_num_keyframes", out.submap_max_num_keyframes);
+    out.keyframe_update_strategy = sm.value("keyframe_update_strategy", out.keyframe_update_strategy);
+    out.max_keyframe_overlap = sm.value("max_keyframe_overlap", out.max_keyframe_overlap);
+    out.keyframe_update_interval_trans = sm.value("keyframe_update_interval_trans", out.keyframe_update_interval_trans);
+    out.keyframe_update_interval_rot = sm.value("keyframe_update_interval_rot", out.keyframe_update_interval_rot);
+    out.submap_downsample_resolution = sm.value("submap_downsample_resolution", out.submap_downsample_resolution);
+    out.global_min_implicit_loop_overlap = sm.value("global_min_implicit_loop_overlap", out.global_min_implicit_loop_overlap);
+    out.global_max_implicit_loop_distance = sm.value("global_max_implicit_loop_distance", out.global_max_implicit_loop_distance);
+    out.enable_odometry_smoother = sm.value("enable_odometry_smoother", out.enable_odometry_smoother);
+    out.odometry_smoother_lag_cap = sm.value("odometry_smoother_lag_cap", out.odometry_smoother_lag_cap);
+    out.export_full_resolution = sm.value("export_full_resolution", out.export_full_resolution);
+    out.odometry_target_num_points = sm.value("odometry_target_num_points", out.odometry_target_num_points);
+  }
   return true;
 }
 
@@ -491,6 +521,11 @@ void print_fusion_params(std::ostream& out, const glim_cloud_fusion::FusionParam
   } else {
     out << "  scan_time.scan_duration: (required, not set)\n";
   }
+  const auto& sm = params.slam_mapping;
+  out << "  slam_mapping.submap_max_num_keyframes: " << sm.submap_max_num_keyframes << "\n"
+      << "  slam_mapping.keyframe_update_strategy: " << sm.keyframe_update_strategy << "\n"
+      << "  slam_mapping.max_keyframe_overlap: " << sm.max_keyframe_overlap << "\n"
+      << "  slam_mapping.global_min_implicit_loop_overlap: " << sm.global_min_implicit_loop_overlap << "\n";
 }
 
 }  // namespace clc
