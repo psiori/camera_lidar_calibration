@@ -34,8 +34,3 @@ Implementation was completed **before** this OpenSpec change was opened (posthum
 - [x] 5.1 Build `clc_core`, `psiviz`, `clc_app` (dev tree `CLC_DEV_BUILD=ON`)
 - [x] 5.2 Run `clc_core_tests`, `psiviz_trackball_test`, `ctest`
 - [x] 5.3 Smoke-launch `clc_app` (few seconds)
-
-## 6. Optional follow-ups (not done)
-
-- [ ] 6.1 Move vlcal `Isometry3d` → `Mat4d` conversion out of `app_controller.cpp` into `clc_core` seam helper
-- [ ] 6.2 Record incremental compile benchmark (Eigen in headers before vs after) in BUILD.md
