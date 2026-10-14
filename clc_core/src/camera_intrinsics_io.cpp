@@ -5,9 +5,27 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/persistence.hpp>
 
+#include <unordered_set>
+
 namespace clc {
 
 namespace {
+
+/// Returns true if the string is a projection/distortion model name understood by vlcal.
+bool is_vlcal_projection_model(const std::string& model) {
+  static const std::unordered_set<std::string> k_models = {
+      "plumb_bob",
+      "pinhole",
+      "opencv",
+      "fisheye",
+      "equidistant",
+      "atan",
+      "omnidir",
+      "equirectangular",
+      "rational_polynomial",
+  };
+  return k_models.count(model) > 0;
+}
 
 bool read_string_node(cv::FileNode node, std::string& out) {
   if (node.empty()) {
@@ -56,11 +74,31 @@ bool node_to_distortion(const cv::FileNode& node, std::vector<double>& distortio
   return false;
 }
 
+/// Map aliases to vlcal model names; unknown strings are not changed here.
 std::string normalize_camera_model(std::string model) {
   if (model == "pinhole" || model == "opencv" || model.empty()) {
     return "plumb_bob";
   }
   return model;
+}
+
+/**
+ * Choose the vlcal projection model from YAML fields.
+ * `camera_model` is often a hardware label for documentation; `distortion_model` is the OpenCV model name.
+ */
+std::string resolve_projection_model(const std::string& camera_model_field,
+                                     const std::string& distortion_model_field,
+                                     const std::string& nested_camera_model_field) {
+  if (!camera_model_field.empty() && is_vlcal_projection_model(camera_model_field)) {
+    return normalize_camera_model(camera_model_field);
+  }
+  if (!distortion_model_field.empty()) {
+    return normalize_camera_model(distortion_model_field);
+  }
+  if (!nested_camera_model_field.empty() && is_vlcal_projection_model(nested_camera_model_field)) {
+    return normalize_camera_model(nested_camera_model_field);
+  }
+  return "plumb_bob";
 }
 
 }  // namespace
@@ -72,13 +110,13 @@ bool load_camera_intrinsics_file(const std::string& path, CameraIntrinsics& came
     return false;
   }
 
-  std::string model;
-  if (read_string_node(fs["camera_model"], model) || read_string_node(fs["distortion_model"], model) ||
-      read_string_node(fs["camera"]["camera_model"], model)) {
-    camera.model = normalize_camera_model(model);
-  } else {
-    camera.model = "plumb_bob";
-  }
+  std::string camera_model_field;
+  std::string distortion_model_field;
+  std::string nested_camera_model_field;
+  read_string_node(fs["camera_model"], camera_model_field);
+  read_string_node(fs["distortion_model"], distortion_model_field);
+  read_string_node(fs["camera"]["camera_model"], nested_camera_model_field);
+  camera.model = resolve_projection_model(camera_model_field, distortion_model_field, nested_camera_model_field);
 
   cv::Mat k;
   if (!fs["camera_matrix"].empty()) {
