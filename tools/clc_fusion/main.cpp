@@ -51,7 +51,15 @@ void print_usage(const char* prog) {
     << "Preprocess:\n"
     << "  --k-neighbors N             kNN count for per-point covariances (default: 20)\n"
     << "  --threads N                 OpenMP worker threads (default: 16 for integrator)\n\n"
-    << "CT-GICP SLAM (--fusion-backend slam):\n"
+    << "CT-GICP SLAM (--fusion-backend slam): per-scan odometry, then sub/global mapping + deskewed merge\n"
+    << "  Progress stages: slam_odometry (per scan), slam_sub_mapping + slam_global_mapping (once at end)\n"
+    << "  Submaps split mid-sequence when keyframe count hits --slam-submap-max-keyframes (default 500);\n"
+    << "  keyframe overlap/displacement only controls keyframes inside a submap, not submap boundaries.\n"
+    << "  --slam-submap-max-keyframes N   Keyframes per submap before finalize (GLIM default 15; batch default 500)\n"
+    << "  --slam-keyframe-max-overlap R   OVERLAP strategy threshold 0–1 (default 0.6)\n"
+    << "  --slam-keyframe-strategy S      OVERLAP or DISPLACEMENT (default OVERLAP)\n"
+    << "  --slam-submap-downsample M      Merged submap voxel downsample (m, default 0.05)\n"
+    << "  --slam-global-min-loop-overlap R  Min submap overlap for global constraints (default 0.2)\n"
     << "  --max-correspondence-dist M Max correspondence distance in meters\n"
     << "  --ivox-resolution M         Scan-to-model iVox leaf size in meters\n"
     << "  --ivox-min-points-dist M    Min distance between points in an iVox cell\n"
@@ -74,26 +82,6 @@ void print_usage(const char* prog) {
     << "  --integrator-ivox-min-points-dist M  Min spacing in integrator iVox cells (m, default: 0.05)\n"
     << "  --integrator-debug          Per-scan deskew/LM/pose stats (stderr)\n"
     << "  -h, --help                  Show this help\n";
-}
-
-std::vector<std::string> sort_pcd_paths_by_timestamp(const std::vector<std::string>& paths) {
-  std::vector<std::pair<double, std::string>> keyed;
-  keyed.reserve(paths.size());
-  for (const auto& path : paths) {
-    double stamp = 0.0;
-    const auto name = std::filesystem::path(path).filename().string();
-    if (!clc::parse_pcd_filename_stamp(name, stamp)) {
-      throw std::runtime_error("cannot parse timestamp from " + name);
-    }
-    keyed.emplace_back(stamp, path);
-  }
-  std::sort(keyed.begin(), keyed.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-  std::vector<std::string> sorted;
-  sorted.reserve(keyed.size());
-  for (const auto& [_, path] : keyed) {
-    sorted.push_back(path);
-  }
-  return sorted;
 }
 
 struct Options {
@@ -121,6 +109,11 @@ struct Options {
   std::optional<double> min_distance;
   std::optional<double> integrator_ivox_resolution;
   std::optional<double> integrator_ivox_min_points_dist;
+  std::optional<int> slam_submap_max_keyframes;
+  std::optional<double> slam_keyframe_max_overlap;
+  std::optional<std::string> slam_keyframe_strategy;
+  std::optional<double> slam_submap_downsample;
+  std::optional<double> slam_global_min_loop_overlap;
   std::string output_path = "out.pcd";
   std::string glim_config_dir;
   std::string params_json_path;
@@ -206,6 +199,21 @@ void apply_cli_overrides(const Options& opt, glim_cloud_fusion::FusionParams& pa
   if (opt.integrator_debug) {
     params.integrator_debug = true;
   }
+  if (opt.slam_submap_max_keyframes.has_value()) {
+    params.slam_mapping.submap_max_num_keyframes = *opt.slam_submap_max_keyframes;
+  }
+  if (opt.slam_keyframe_max_overlap.has_value()) {
+    params.slam_mapping.max_keyframe_overlap = *opt.slam_keyframe_max_overlap;
+  }
+  if (opt.slam_keyframe_strategy.has_value()) {
+    params.slam_mapping.keyframe_update_strategy = *opt.slam_keyframe_strategy;
+  }
+  if (opt.slam_submap_downsample.has_value()) {
+    params.slam_mapping.submap_downsample_resolution = *opt.slam_submap_downsample;
+  }
+  if (opt.slam_global_min_loop_overlap.has_value()) {
+    params.slam_mapping.global_min_implicit_loop_overlap = *opt.slam_global_min_loop_overlap;
+  }
 }
 
 std::optional<Options> parse_args(int argc, char** argv) {
@@ -257,6 +265,26 @@ std::optional<Options> parse_args(int argc, char** argv) {
     }
     if (arg == "--integrator-debug") {
       opt.integrator_debug = true;
+      continue;
+    }
+    if (arg == "--slam-submap-max-keyframes" && i + 1 < argc) {
+      opt.slam_submap_max_keyframes = std::stoi(argv[++i]);
+      continue;
+    }
+    if (arg == "--slam-keyframe-max-overlap" && i + 1 < argc) {
+      opt.slam_keyframe_max_overlap = std::stod(argv[++i]);
+      continue;
+    }
+    if (arg == "--slam-keyframe-strategy" && i + 1 < argc) {
+      opt.slam_keyframe_strategy = argv[++i];
+      continue;
+    }
+    if (arg == "--slam-submap-downsample" && i + 1 < argc) {
+      opt.slam_submap_downsample = std::stod(argv[++i]);
+      continue;
+    }
+    if (arg == "--slam-global-min-loop-overlap" && i + 1 < argc) {
+      opt.slam_global_min_loop_overlap = std::stod(argv[++i]);
       continue;
     }
     if (arg == "--threads" && i + 1 < argc) {
@@ -445,7 +473,11 @@ int main(int argc, char** argv) {
     }
 
     auto paths = clc::list_pcd_files(opt.directory);
-    paths = sort_pcd_paths_by_timestamp(paths);
+    std::string order_err;
+    if (!clc::finalize_pcd_catalog_paths(paths, order_err)) {
+      std::cerr << order_err << "\n";
+      return 1;
+    }
     if (paths.empty()) {
       std::cerr << "No PCD files under: " << opt.directory << "\n";
       return 1;
@@ -468,10 +500,11 @@ int main(int argc, char** argv) {
     scans.reserve(paths.size());
 
     const auto load_start = Clock::now();
+    const bool check_filename_stamp = paths.size() > 1;
     for (size_t i = 0; i < paths.size(); ++i) {
       clc::PointXYZITCloud cloud;
       std::string err;
-      if (!clc::load_pcd_xyzit(paths[i], cloud, err)) {
+      if (!clc::load_pcd_xyzit(paths[i], cloud, err, check_filename_stamp)) {
         std::cerr << "Failed to load " << paths[i] << ": " << err << "\n";
         return 1;
       }
