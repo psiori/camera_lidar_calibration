@@ -273,6 +273,7 @@ public:
   Q_INVOKABLE void setMaskPreviewDatasetIndex(int index);
   Q_INVOKABLE void runFusion();
   Q_INVOKABLE void runAlignment();
+  Q_INVOKABLE void cancelWorker();
   Q_INVOKABLE void estimateInitialGuessFromCorrespondences();
   Q_INVOKABLE void clearCorrespondences();
   Q_INVOKABLE void pickImageCorrespondence(double u, double v);
@@ -343,6 +344,7 @@ private:
   bool ensureProjectionImageForActiveDataset();
   void invalidateProjectionImageCache();
   void clearCalibrationDatasetVisuals();
+  void resetSessionStructuredScanState();
   void refreshActiveDatasetVisuals();
   void reprojectViewerCameraRgb();
   void syncCorrespondenceMarkers();
@@ -395,6 +397,7 @@ private:
   std::optional<std::pair<double, double>> pending_correspondence_2d_;
   QImage camera_preview_;
   std::atomic<bool> worker_running_{false};
+  std::atomic<bool> worker_cancel_requested_{false};
   std::unique_ptr<std::thread> worker_;
   class QObject* viewer_{nullptr};
 };

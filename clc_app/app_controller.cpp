@@ -169,7 +169,10 @@ AppController::AppController(QObject *parent) : QObject(parent) {
           &AppController::syncCorrespondenceMarkers);
 }
 
-AppController::~AppController() { joinWorker(); }
+AppController::~AppController() {
+  worker_cancel_requested_ = true;
+  joinWorker();
+}
 
 void AppController::joinWorker() {
   if (worker_ && worker_->joinable()) {
@@ -184,6 +187,17 @@ void AppController::setWorkerRunning(bool running) {
     emit busyWorkingChanged();
     refreshViewerGizmoState();
   }
+  if (!running) {
+    worker_cancel_requested_ = false;
+  }
+}
+
+void AppController::cancelWorker() {
+  if (!worker_running_.load()) {
+    return;
+  }
+  worker_cancel_requested_ = true;
+  setStatus(QStringLiteral("Cancelling..."));
 }
 
 double AppController::scanDuration() const {
@@ -673,9 +687,15 @@ bool AppController::addCalibrationDatasetFromPaths(
     return false;
   }
 
-  const auto scan = clc::scan_pcd_source(lidar_path.toStdString(),
-                                         session_.reference_scan_width,
-                                         session_.reference_scan_height);
+  if (!clc::session_has_calibration_datasets(session_)) {
+    resetSessionStructuredScanState();
+  }
+
+  int ref_w = 0;
+  int ref_h = 0;
+  clc::session_structured_scan_reference(session_, ref_w, ref_h);
+  const auto scan =
+      clc::scan_pcd_source(lidar_path.toStdString(), ref_w, ref_h);
   if (!scan.error.empty()) {
     setStatus(QString::fromStdString(scan.error));
     return false;
@@ -710,16 +730,17 @@ bool AppController::addCalibrationDatasetFromPaths(
     entry.scan_time = session_.scan_time;
     entry.fusion_params.scan_time = entry.scan_time;
   }
-  if (session_.reference_scan_width <= 0) {
-    session_.reference_scan_width = scan.reference_width;
-    session_.reference_scan_height = scan.reference_height;
-  } else if (scan.reference_width != session_.reference_scan_width ||
-             scan.reference_height != session_.reference_scan_height) {
-    setStatus(
-        QStringLiteral("Scan geometry does not match session reference (%1×%2)")
-            .arg(session_.reference_scan_width)
-            .arg(session_.reference_scan_height));
-    return false;
+  if (scan.paths.size() > 1) {
+    if (ref_w <= 0) {
+      session_.reference_scan_width = scan.reference_width;
+      session_.reference_scan_height = scan.reference_height;
+    } else if (scan.reference_width != ref_w || scan.reference_height != ref_h) {
+      setStatus(
+          QStringLiteral("Scan geometry does not match session reference (%1×%2)")
+              .arg(ref_w)
+              .arg(ref_h));
+      return false;
+    }
   }
 
   session_.calibration_datasets.erase(
@@ -728,6 +749,7 @@ bool AppController::addCalibrationDatasetFromPaths(
                      clc::calibration_dataset_is_placeholder),
       session_.calibration_datasets.end());
   session_.calibration_datasets.push_back(entry);
+  clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   active_calibration_dataset_index_ =
       static_cast<int>(session_.calibration_datasets.size()) - 1;
   fusion_blocked_ = false;
@@ -749,6 +771,7 @@ void AppController::removeActiveCalibrationDataset() {
   }
   session_.calibration_datasets.erase(session_.calibration_datasets.begin() +
                                       active_calibration_dataset_index_);
+  clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   fused_cloud_ = {};
   fused_cloud_dataset_index_.reset();
   pending_correspondence_3d_.reset();
@@ -757,7 +780,7 @@ void AppController::removeActiveCalibrationDataset() {
   if (session_.calibration_datasets.empty()) {
     active_calibration_dataset_index_ = 0;
     empty_calibration_dataset_scratch_ = {};
-    fusion_blocked_ = false;
+    resetSessionStructuredScanState();
     emit calibrationDatasetsChanged();
     emit pcdCatalogChanged();
     emit sessionPathsChanged();
@@ -961,9 +984,10 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
     return false;
   }
 
-  const auto scan = clc::scan_pcd_source(dataset.cloud_directory,
-                                         session_.reference_scan_width,
-                                         session_.reference_scan_height);
+  int ref_w = 0;
+  int ref_h = 0;
+  clc::session_structured_scan_reference(session_, ref_w, ref_h);
+  const auto scan = clc::scan_pcd_source(dataset.cloud_directory, ref_w, ref_h);
   if (!scan.error.empty()) {
     dataset.pcd_paths.clear();
     dataset.geometry_error = true;
@@ -980,8 +1004,12 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
     dataset.id = clc::dataset_id_from_first_scan(dataset.pcd_paths);
   }
   clc::sync_dataset_fusion_status(dataset);
-  session_.reference_scan_width = scan.reference_width;
-  session_.reference_scan_height = scan.reference_height;
+  if (dataset.pcd_paths.size() > 1) {
+    session_.reference_scan_width = scan.reference_width;
+    session_.reference_scan_height = scan.reference_height;
+  } else {
+    clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
+  }
   emit pcdCatalogChanged();
   emit calibrationDatasetsChanged();
   return !dataset.pcd_paths.empty();
@@ -1520,6 +1548,16 @@ void AppController::clearCalibrationDatasetVisuals() {
   }
   refreshCameraPreview();
   refreshViewerGizmoState();
+}
+
+void AppController::resetSessionStructuredScanState() {
+  clc::reset_session_structured_scan_reference(session_);
+  fusion_blocked_ = false;
+  mask_ops_.clear();
+  pending_mask_polygon_ = {};
+  setMaskPolygonPending(false);
+  global_mask_pixels_.clear();
+  emit maskChanged();
 }
 
 void AppController::refreshActiveDatasetVisuals() {
@@ -2807,11 +2845,13 @@ void AppController::runFusion() {
         "Set scan duration (seconds) in Scan time before fusion"));
     return;
   }
+  worker_cancel_requested_ = false;
   setWorkerRunning(true);
   setStatus(QStringLiteral("Fusion running..."));
   joinWorker();
-  const int ref_w = session_.reference_scan_width;
-  const int ref_h = session_.reference_scan_height;
+  int ref_w = 0;
+  int ref_h = 0;
+  clc::session_structured_scan_reference(session_, ref_w, ref_h);
   syncActiveDatasetFusionToSession();
   const auto fusion_params = activeDatasetEntry().fusion_params;
   const std::vector<std::uint8_t> mask_pixels = global_mask_pixels_;
@@ -2822,8 +2862,21 @@ void AppController::runFusion() {
     const int total_scans = static_cast<int>(catalog.size());
     const bool check_filename_stamp = catalog.size() > 1;
 
+    const auto is_cancelled = [this]() { return worker_cancel_requested_.load(); };
+
     std::vector<glim_cloud_fusion::LidarScan> scans;
     for (const auto &path : catalog) {
+      if (is_cancelled()) {
+        QMetaObject::invokeMethod(
+            this,
+            [this]() {
+              setWorkerRunning(false);
+              setStatus(QStringLiteral("Fusion cancelled"));
+              emit fusionFinished(false, QStringLiteral("Fusion cancelled"));
+            },
+            Qt::QueuedConnection);
+        return;
+      }
       clc::PointXYZITCloud cloud;
       std::string err;
       if (!clc::load_pcd_xyzit(path, cloud, err, check_filename_stamp)) {
@@ -2869,12 +2922,18 @@ void AppController::runFusion() {
                               .arg(QString::fromStdString(p.stage)));
               },
               Qt::QueuedConnection);
-        });
+        },
+        is_cancelled);
 
     QMetaObject::invokeMethod(
         this,
         [this, result]() {
           setWorkerRunning(false);
+          if (result.error == glim_cloud_fusion::FusionError::Cancelled) {
+            setStatus(QStringLiteral("Fusion cancelled"));
+            emit fusionFinished(false, QStringLiteral("Fusion cancelled"));
+            return;
+          }
           if (result.error != glim_cloud_fusion::FusionError::Ok) {
             setStatus(QString::fromStdString(result.message));
             emit fusionFinished(false, QString::fromStdString(result.message));
@@ -2931,11 +2990,13 @@ void AppController::runAlignment() {
                              "sets or complete initial alignment)"));
     return;
   }
+  worker_cancel_requested_ = false;
   setWorkerRunning(true);
   setStatus(QStringLiteral("Alignment running..."));
   refreshViewerGizmoState();
   joinWorker();
   worker_ = std::make_unique<std::thread>([this]() {
+    const auto is_cancelled = [this]() { return worker_cancel_requested_.load(); };
     clc::AlignmentInput input;
     std::string build_err;
     if (!buildAlignmentInput(input, build_err)) {
@@ -2951,8 +3012,9 @@ void AppController::runAlignment() {
       return;
     }
 
-    const auto result =
-        clc::run_alignment(input, [this](const vlcal::CalibrationProgress &p) {
+    const auto result = clc::run_alignment(
+        input,
+        [this](const vlcal::CalibrationProgress &p) {
           QMetaObject::invokeMethod(
               this,
               [this, p]() {
@@ -2965,13 +3027,19 @@ void AppController::runAlignment() {
                               .arg(p.inner_iteration));
               },
               Qt::QueuedConnection);
-        });
+        },
+        is_cancelled);
 
     QMetaObject::invokeMethod(
         this,
         [this, result]() {
           setWorkerRunning(false);
           refreshViewerGizmoState();
+          if (result.error == vlcal::CalibrationError::Cancelled) {
+            setStatus(QStringLiteral("Alignment cancelled"));
+            emit alignmentFinished(false, QStringLiteral("Alignment cancelled"));
+            return;
+          }
           if (result.error != vlcal::CalibrationError::Ok) {
             setStatus(QString::fromStdString(result.message));
             emit alignmentFinished(false,

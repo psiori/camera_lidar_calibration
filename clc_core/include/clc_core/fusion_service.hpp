@@ -9,11 +9,13 @@
 namespace clc {
 
 using FusionProgressCallback = std::function<void(const glim_cloud_fusion::FusionProgress&)>;
+using FusionCancellationCheck = glim_cloud_fusion::FusionCancellationCheck;
 
 glim_cloud_fusion::FusionResult run_fusion(
   const std::vector<glim_cloud_fusion::LidarScan>& scans,
   const glim_cloud_fusion::FusionParams& params,
-  FusionProgressCallback on_progress = nullptr);
+  FusionProgressCallback on_progress = nullptr,
+  FusionCancellationCheck is_cancelled = nullptr);
 
 bool save_dense_pcd(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud, std::string& error);
 

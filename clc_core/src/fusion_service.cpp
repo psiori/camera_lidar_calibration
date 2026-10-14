@@ -8,8 +8,9 @@ namespace clc {
 glim_cloud_fusion::FusionResult run_fusion(
   const std::vector<glim_cloud_fusion::LidarScan>& scans,
   const glim_cloud_fusion::FusionParams& params,
-  FusionProgressCallback on_progress) {
-  return glim_cloud_fusion::fuse_scans(scans, params, on_progress);
+  FusionProgressCallback on_progress,
+  FusionCancellationCheck is_cancelled) {
+  return glim_cloud_fusion::fuse_scans(scans, params, on_progress, is_cancelled);
 }
 
 bool save_dense_pcd(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud, std::string& error) {

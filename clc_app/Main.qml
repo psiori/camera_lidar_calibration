@@ -55,6 +55,14 @@ ApplicationWindow {
                 visible: controller.busyWorking
                 Layout.preferredWidth: visible ? 28 : 0
             }
+            Button {
+                text: qsTr("Cancel")
+                visible: controller.busyWorking
+                onClicked: controller.cancelWorker()
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Stop fusion or alignment in progress.")
+                ToolTip.delay: root.tooltipDelayMs
+            }
             Label {
                 Layout.fillWidth: true
                 text: controller.statusMessage

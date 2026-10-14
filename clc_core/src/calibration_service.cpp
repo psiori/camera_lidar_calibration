@@ -7,7 +7,10 @@
 
 namespace clc {
 
-vlcal::CalibrationResult run_alignment(const AlignmentInput& input, AlignmentProgressCallback on_progress) {
+vlcal::CalibrationResult run_alignment(
+  const AlignmentInput& input,
+  AlignmentProgressCallback on_progress,
+  AlignmentCancellationCheck is_cancelled) {
   if (!input.camera || input.images.empty() || input.clouds.empty()) {
     vlcal::CalibrationResult result;
     result.error = vlcal::CalibrationError::EmptyDataset;
@@ -23,6 +26,7 @@ vlcal::CalibrationResult run_alignment(const AlignmentInput& input, AlignmentPro
 
   vlcal::VisualCameraCalibrationParams params = input.params;
   params.on_progress = on_progress;
+  params.is_cancelled = is_cancelled;
   vlcal::VisualCameraCalibration calib(input.camera, dataset, params);
   return calib.calibrate(input.init_T_camera_lidar);
 }

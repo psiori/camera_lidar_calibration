@@ -12,6 +12,21 @@ std::string dataset_id_from_first_scan(const std::vector<std::string>& sorted_pc
 /// True when the catalog is exactly one PCD (fusion passthrough is implicit).
 bool dataset_is_single_scan(const DatasetEntry& dataset);
 
+/// True when any calibration dataset has more than one scan (structured multi-scan fusion).
+bool session_has_multi_scan_dataset(const SessionData& session);
+
+/// Session reference WxH for validating structured scan folders; (0,0) if none apply (e.g. only single scans).
+void session_structured_scan_reference(const SessionData& session, int& width, int& height);
+
+/// Clears `reference_scan_*` when no multi-scan calibration datasets remain.
+void clear_session_structured_scan_reference_if_no_multi_scan(SessionData& session);
+
+/// Clears structured-scan session reference and global mask metadata (no datasets / fresh catalog).
+void reset_session_structured_scan_reference(SessionData& session);
+
+/// True when at least one non-placeholder calibration dataset exists.
+bool session_has_calibration_datasets(const SessionData& session);
+
 /// Updates `fusion_complete` from fused path / scan count (single scan counts as fused).
 void sync_dataset_fusion_status(DatasetEntry& dataset);
 

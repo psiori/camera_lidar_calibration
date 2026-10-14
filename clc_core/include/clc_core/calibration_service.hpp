@@ -21,8 +21,12 @@ struct AlignmentInput {
 };
 
 using AlignmentProgressCallback = std::function<void(const vlcal::CalibrationProgress&)>;
+using AlignmentCancellationCheck = std::function<bool()>;
 
-vlcal::CalibrationResult run_alignment(const AlignmentInput& input, AlignmentProgressCallback on_progress = nullptr);
+vlcal::CalibrationResult run_alignment(
+  const AlignmentInput& input,
+  AlignmentProgressCallback on_progress = nullptr,
+  AlignmentCancellationCheck is_cancelled = nullptr);
 
 enum class InitialGuessMethod { ManualCorrespondences, FeatureMatchStub };
 

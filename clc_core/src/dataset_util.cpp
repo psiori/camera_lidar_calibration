@@ -23,6 +23,38 @@ bool dataset_is_single_scan(const DatasetEntry& dataset) {
   return dataset.pcd_paths.size() == 1;
 }
 
+bool session_has_multi_scan_dataset(const SessionData& session) {
+  return std::any_of(session.calibration_datasets.begin(), session.calibration_datasets.end(),
+                     [](const DatasetEntry& ds) { return ds.pcd_paths.size() > 1; });
+}
+
+void session_structured_scan_reference(const SessionData& session, int& width, int& height) {
+  width = 0;
+  height = 0;
+  if (!session_has_multi_scan_dataset(session)) {
+    return;
+  }
+  width = session.reference_scan_width;
+  height = session.reference_scan_height;
+}
+
+void clear_session_structured_scan_reference_if_no_multi_scan(SessionData& session) {
+  if (!session_has_multi_scan_dataset(session)) {
+    reset_session_structured_scan_reference(session);
+  }
+}
+
+void reset_session_structured_scan_reference(SessionData& session) {
+  session.reference_scan_width = 0;
+  session.reference_scan_height = 0;
+  session.global_mask = {};
+}
+
+bool session_has_calibration_datasets(const SessionData& session) {
+  return std::any_of(session.calibration_datasets.begin(), session.calibration_datasets.end(),
+                     [](const DatasetEntry& ds) { return !calibration_dataset_is_placeholder(ds); });
+}
+
 void sync_dataset_fusion_status(DatasetEntry& dataset) {
   if (dataset.geometry_error) {
     return;

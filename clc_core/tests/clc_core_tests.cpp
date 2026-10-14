@@ -60,6 +60,37 @@ void test_multi_scan_not_ready_until_fused() {
   assert(clc::dataset_ready(ds));
 }
 
+void test_structured_scan_reference_ignores_single_scan_only() {
+  clc::SessionData session;
+  session.reference_scan_width = 100;
+  session.reference_scan_height = 1;
+  clc::DatasetEntry single;
+  single.pcd_paths = {"/tmp/one.pcd"};
+  session.calibration_datasets.push_back(single);
+  int w = 0;
+  int h = 0;
+  clc::session_structured_scan_reference(session, w, h);
+  assert(w == 0 && h == 0);
+  assert(!clc::session_has_multi_scan_dataset(session));
+  clc::clear_session_structured_scan_reference_if_no_multi_scan(session);
+  assert(session.reference_scan_width == 0);
+  assert(session.reference_scan_height == 0);
+  session.global_mask.path = "/tmp/mask.png";
+  session.global_mask.width = 64;
+  clc::reset_session_structured_scan_reference(session);
+  assert(session.global_mask.path.empty());
+  assert(session.global_mask.width == 0);
+
+  clc::DatasetEntry multi;
+  multi.pcd_paths = {"/tmp/a.pcd", "/tmp/b.pcd"};
+  session.calibration_datasets.push_back(multi);
+  session.reference_scan_width = 64;
+  session.reference_scan_height = 32;
+  clc::session_structured_scan_reference(session, w, h);
+  assert(w == 64 && h == 32);
+  assert(clc::session_has_multi_scan_dataset(session));
+}
+
 void test_prune_placeholder_calibration_datasets() {
   clc::SessionData session;
   session.calibration_datasets.emplace_back();
@@ -212,6 +243,7 @@ int main() {
   test_mask_rasterize();
   test_dataset_pickable_without_fusion();
   test_multi_scan_not_ready_until_fused();
+  test_structured_scan_reference_ignores_single_scan_only();
   test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
   test_calibration_params_defaults_and_round_trip();
