@@ -451,7 +451,8 @@ int main(int argc, char** argv) {
     std::vector<std::uint8_t> mask_pixels;
     if (!opt.params_json_path.empty()) {
       clc::SessionData session;
-      if (clc::load_session(opt.params_json_path, session) && !session.global_mask.path.empty() &&
+      std::string session_err;
+      if (clc::load_session(opt.params_json_path, session, session_err) && !session.global_mask.path.empty() &&
           session.global_mask.width > 0 && session.global_mask.height > 0) {
         std::string mask_err;
         clc::load_mask_png(

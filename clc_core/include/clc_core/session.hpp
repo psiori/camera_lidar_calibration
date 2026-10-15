@@ -73,7 +73,8 @@ struct SessionData {
 };
 
 bool save_session(const std::string& path, const SessionData& session);
-bool load_session(const std::string& path, SessionData& session);
+/// Loads session state from `session.json`. On failure, `error` describes what went wrong.
+bool load_session(const std::string& path, SessionData& session, std::string& error);
 
 /// Default fusion thread count (hardware concurrency, minimum 1).
 int default_fusion_num_threads();

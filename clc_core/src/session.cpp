@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 #include <thread>
 
 #include <nlohmann/json.hpp>
@@ -183,6 +184,7 @@ bool fusion_params_from_json(const nlohmann::json& j, glim_cloud_fusion::FusionP
   return true;
 }
 
+/// JSON for a calibration dataset (fusion_params required on load).
 nlohmann::json dataset_to_json(const DatasetEntry& d) {
   nlohmann::json j;
   j["id"] = d.id;
@@ -200,7 +202,50 @@ nlohmann::json dataset_to_json(const DatasetEntry& d) {
   return j;
 }
 
-bool dataset_from_json(const nlohmann::json& j, DatasetEntry& d) {
+/// JSON for inspection data (image + scans only; no per-dataset fusion settings).
+nlohmann::json inspection_dataset_to_json(const DatasetEntry& d) {
+  nlohmann::json j;
+  j["id"] = d.id;
+  j["image_path"] = d.image_path;
+  j["cloud_directory"] = d.cloud_directory;
+  j["fused_cloud_path"] = d.fused_cloud_path;
+  j["pcd_paths"] = d.pcd_paths;
+  if (d.fusion_complete) {
+    j["fusion_complete"] = true;
+  }
+  if (d.geometry_error) {
+    j["geometry_error"] = true;
+  }
+  if (!d.correspondences.empty()) {
+    j["correspondences"] = nlohmann::json::array();
+    for (const auto& c : d.correspondences) {
+      j["correspondences"].push_back({{"uv", {c.u, c.v}}, {"xyz", {c.x, c.y, c.z}}});
+    }
+  }
+  return j;
+}
+
+void read_dataset_correspondences(const nlohmann::json& j, DatasetEntry& d) {
+  if (!j.contains("correspondences") || !j["correspondences"].is_array()) {
+    return;
+  }
+  for (const auto& c : j["correspondences"]) {
+    PointCorrespondence corr;
+    if (c.contains("uv") && c["uv"].is_array() && c["uv"].size() >= 2) {
+      corr.u = c["uv"][0];
+      corr.v = c["uv"][1];
+    }
+    if (c.contains("xyz") && c["xyz"].is_array() && c["xyz"].size() >= 3) {
+      corr.x = c["xyz"][0];
+      corr.y = c["xyz"][1];
+      corr.z = c["xyz"][2];
+    }
+    d.correspondences.push_back(corr);
+  }
+}
+
+bool dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& error) {
+  error.clear();
   d = DatasetEntry{};
   d.id = j.value("id", "");
   d.image_path = j.value("image_path", "");
@@ -209,32 +254,44 @@ bool dataset_from_json(const nlohmann::json& j, DatasetEntry& d) {
   d.pcd_paths = j.value("pcd_paths", std::vector<std::string>{});
   d.fusion_complete = j.value("fusion_complete", false);
   d.geometry_error = j.value("geometry_error", false);
+
   if (!j.contains("fusion_params") || !fusion_params_from_json(j["fusion_params"], d.fusion_params)) {
+    error = "invalid or missing fusion_params";
     return false;
   }
+
   if (j.contains("scan_time")) {
     if (!scan_time_from_json(j["scan_time"], d.scan_time)) {
+      error = "invalid scan_time";
       return false;
     }
     d.fusion_params.scan_time = d.scan_time;
   } else {
     d.scan_time = d.fusion_params.scan_time;
   }
-  if (j.contains("correspondences") && j["correspondences"].is_array()) {
-    for (const auto& c : j["correspondences"]) {
-      PointCorrespondence corr;
-      if (c.contains("uv") && c["uv"].is_array() && c["uv"].size() >= 2) {
-        corr.u = c["uv"][0];
-        corr.v = c["uv"][1];
-      }
-      if (c.contains("xyz") && c["xyz"].is_array() && c["xyz"].size() >= 3) {
-        corr.x = c["xyz"][0];
-        corr.y = c["xyz"][1];
-        corr.z = c["xyz"][2];
-      }
-      d.correspondences.push_back(corr);
-    }
-  }
+  read_dataset_correspondences(j, d);
+  return true;
+}
+
+bool calibration_dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& error) {
+  return dataset_from_json(j, d, error);
+}
+
+/// Inspection rows only need image + scan paths; ignore legacy fusion_params in JSON.
+bool inspection_dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& error) {
+  error.clear();
+  d = DatasetEntry{};
+  d.id = j.value("id", "");
+  d.image_path = j.value("image_path", "");
+  d.cloud_directory = j.value("cloud_directory", "");
+  d.fused_cloud_path = j.value("fused_cloud_path", "");
+  d.pcd_paths = j.value("pcd_paths", std::vector<std::string>{});
+  d.fusion_complete = j.value("fusion_complete", false);
+  d.geometry_error = j.value("geometry_error", false);
+  apply_default_fusion_params(d.fusion_params);
+  apply_default_scan_time_params(d.scan_time);
+  apply_default_scan_time_params(d.fusion_params.scan_time);
+  read_dataset_correspondences(j, d);
   return true;
 }
 
@@ -378,7 +435,7 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   }
   j["inspection_datasets"] = nlohmann::json::array();
   for (const auto& d : session.inspection_datasets) {
-    j["inspection_datasets"].push_back(dataset_to_json(d));
+    j["inspection_datasets"].push_back(inspection_dataset_to_json(d));
   }
   j["scan_time"] = scan_time_to_json(session.scan_time);
   save_pose(j, "T_camera_lidar", session.T_camera_lidar);
@@ -392,75 +449,123 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   return true;
 }
 
-bool load_session(const std::string& path, SessionData& session) {
+bool load_session(const std::string& path, SessionData& session, std::string& error) {
+  error.clear();
   std::ifstream ifs(path);
   if (!ifs) {
+    error = "cannot open file: " + path;
     return false;
   }
   nlohmann::json j;
-  ifs >> j;
-  session.camera.model = j["camera"]["model"];
-  session.camera.intrinsics = j["camera"]["intrinsics"].get<std::vector<double>>();
-  session.camera.distortion_coeffs = j["camera"]["distortion_coeffs"].get<std::vector<double>>();
-  session.intrinsics_path = j.value("intrinsics_path", "");
-  if (j.contains("reference_scan")) {
-    session.reference_scan_width = j["reference_scan"].value("width", 0);
-    session.reference_scan_height = j["reference_scan"].value("height", 0);
-  } else {
-    session.reference_scan_width = 0;
-    session.reference_scan_height = 0;
-  }
-  if (j.contains("global_mask")) {
-    session.global_mask.path = j["global_mask"].value("path", "");
-    session.global_mask.width = j["global_mask"].value("width", 0);
-    session.global_mask.height = j["global_mask"].value("height", 0);
-    session.global_mask.keep_inside = j["global_mask"].value("keep_inside", false);
-  } else {
-    session.global_mask = {};
-  }
-  session.calibration_datasets.clear();
-  if (j.contains("calibration_datasets") && j["calibration_datasets"].is_array()) {
-    for (const auto& d : j["calibration_datasets"]) {
-      DatasetEntry entry;
-      if (!dataset_from_json(d, entry)) {
-        return false;
-      }
-      session.calibration_datasets.push_back(std::move(entry));
-    }
-  }
-  session.inspection_datasets.clear();
-  if (j.contains("inspection_datasets") && j["inspection_datasets"].is_array()) {
-    for (const auto& d : j["inspection_datasets"]) {
-      DatasetEntry entry;
-      if (!dataset_from_json(d, entry)) {
-        return false;
-      }
-      session.inspection_datasets.push_back(std::move(entry));
-    }
-  }
-  prune_placeholder_calibration_datasets(session);
-  apply_default_fusion_params(session.fusion_params);
-  if (!j.contains("scan_time") || !scan_time_from_json(j["scan_time"], session.scan_time)) {
+  try {
+    ifs >> j;
+  } catch (const std::exception& e) {
+    error = std::string("JSON parse error: ") + e.what();
     return false;
   }
-  load_pose(j, "T_camera_lidar", session.T_camera_lidar);
-  load_pose(j, "T_camera_lidar_initial", session.T_camera_lidar_initial);
-  apply_default_calibration_params(session.calibration_params);
-  if (j.contains("calibration_params")) {
-    calibration_params_from_json(j["calibration_params"], session.calibration_params);
-  }
-  session.fusion_params.scan_time = session.scan_time;
-  for (auto& d : session.calibration_datasets) {
-    d.scan_time = d.fusion_params.scan_time;
-    if (d.fusion_params.num_threads <= 0) {
-      apply_default_fusion_params(d.fusion_params);
-      d.fusion_params.scan_time = d.scan_time;
+
+  SessionData parsed;
+  try {
+    if (!j.contains("camera") || !j["camera"].is_object()) {
+      error = "missing or invalid \"camera\" object";
+      return false;
     }
-    if (d.id.empty() && !d.pcd_paths.empty()) {
-      d.id = dataset_id_from_first_scan(d.pcd_paths);
+    const auto& cam = j["camera"];
+    if (!cam.contains("model") || !cam.contains("intrinsics") || !cam.contains("distortion_coeffs")) {
+      error = "camera object missing model, intrinsics, or distortion_coeffs";
+      return false;
     }
-    sync_dataset_fusion_status(d);
+    parsed.camera.model = cam["model"].get<std::string>();
+    parsed.camera.intrinsics = cam["intrinsics"].get<std::vector<double>>();
+    parsed.camera.distortion_coeffs = cam["distortion_coeffs"].get<std::vector<double>>();
+    parsed.intrinsics_path = j.value("intrinsics_path", "");
+    if (j.contains("reference_scan")) {
+      parsed.reference_scan_width = j["reference_scan"].value("width", 0);
+      parsed.reference_scan_height = j["reference_scan"].value("height", 0);
+    } else {
+      parsed.reference_scan_width = 0;
+      parsed.reference_scan_height = 0;
+    }
+    if (j.contains("global_mask")) {
+      parsed.global_mask.path = j["global_mask"].value("path", "");
+      parsed.global_mask.width = j["global_mask"].value("width", 0);
+      parsed.global_mask.height = j["global_mask"].value("height", 0);
+      parsed.global_mask.keep_inside = j["global_mask"].value("keep_inside", false);
+    } else {
+      parsed.global_mask = {};
+    }
+    parsed.calibration_datasets.clear();
+    if (j.contains("calibration_datasets") && j["calibration_datasets"].is_array()) {
+      const auto& arr = j["calibration_datasets"];
+      for (std::size_t i = 0; i < arr.size(); ++i) {
+        DatasetEntry entry;
+        std::string ds_error;
+        if (!calibration_dataset_from_json(arr[i], entry, ds_error)) {
+          std::ostringstream oss;
+          oss << "calibration_datasets[" << i << "]: " << ds_error;
+          error = oss.str();
+          return false;
+        }
+        parsed.calibration_datasets.push_back(std::move(entry));
+      }
+    }
+    parsed.inspection_datasets.clear();
+    if (j.contains("inspection_datasets") && j["inspection_datasets"].is_array()) {
+      const auto& arr = j["inspection_datasets"];
+      for (std::size_t i = 0; i < arr.size(); ++i) {
+        DatasetEntry entry;
+        std::string ds_error;
+        if (!inspection_dataset_from_json(arr[i], entry, ds_error)) {
+          std::ostringstream oss;
+          oss << "inspection_datasets[" << i << "]: " << ds_error;
+          error = oss.str();
+          return false;
+        }
+        parsed.inspection_datasets.push_back(std::move(entry));
+      }
+    }
+    prune_placeholder_calibration_datasets(parsed);
+    apply_default_fusion_params(parsed.fusion_params);
+    if (!j.contains("scan_time")) {
+      error = "missing top-level scan_time";
+      return false;
+    }
+    if (!scan_time_from_json(j["scan_time"], parsed.scan_time)) {
+      error = "invalid top-level scan_time (need positive finite scan_duration)";
+      return false;
+    }
+    load_pose(j, "T_camera_lidar", parsed.T_camera_lidar);
+    load_pose(j, "T_camera_lidar_initial", parsed.T_camera_lidar_initial);
+    apply_default_calibration_params(parsed.calibration_params);
+    if (j.contains("calibration_params")) {
+      calibration_params_from_json(j["calibration_params"], parsed.calibration_params);
+    }
+    parsed.fusion_params.scan_time = parsed.scan_time;
+    for (auto& d : parsed.calibration_datasets) {
+      d.scan_time = d.fusion_params.scan_time;
+      if (d.fusion_params.num_threads <= 0) {
+        apply_default_fusion_params(d.fusion_params);
+        d.fusion_params.scan_time = d.scan_time;
+      }
+      if (d.id.empty() && !d.pcd_paths.empty()) {
+        d.id = dataset_id_from_first_scan(d.pcd_paths);
+      }
+      sync_dataset_fusion_status(d);
+    }
+    for (auto& d : parsed.inspection_datasets) {
+      d.fusion_params.scan_time = parsed.scan_time;
+      d.scan_time = parsed.scan_time;
+      if (d.id.empty() && !d.pcd_paths.empty()) {
+        d.id = dataset_id_from_first_scan(d.pcd_paths);
+      }
+      sync_dataset_fusion_status(d);
+    }
+  } catch (const std::exception& e) {
+    error = std::string("session parse error: ") + e.what();
+    return false;
   }
+
+  session = std::move(parsed);
   return true;
 }
 

@@ -17,6 +17,8 @@
 #include <clc_core/dataset_util.hpp>
 #include <clc_core/session.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <vlcal/calib/visual_camera_calibration.hpp>
 
 namespace {
@@ -168,7 +170,8 @@ void test_session_round_trip() {
   const auto path = std::filesystem::temp_directory_path() / "clc_session_test.json";
   assert(clc::save_session(path.string(), session));
   clc::SessionData loaded;
-  assert(clc::load_session(path.string(), loaded));
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
   assert(loaded.calibration_datasets.front().image_path == ds.image_path);
   assert(loaded.calibration_datasets.front().cloud_directory == ds.cloud_directory);
   assert(loaded.reference_scan_width == 64);
@@ -204,7 +207,8 @@ void test_calibration_params_defaults_and_round_trip() {
   const auto path = std::filesystem::temp_directory_path() / "clc_session_nid_params.json";
   assert(clc::save_session(path.string(), session));
   clc::SessionData loaded;
-  assert(clc::load_session(path.string(), loaded));
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
   assert(loaded.calibration_params.max_outer_iterations == 3);
   assert(loaded.calibration_params.nid_bins == 24);
   assert(loaded.calibration_params.registration_type == vlcal::RegistrationType::NID_NELDER_MEAD);
@@ -234,6 +238,78 @@ void test_scan_geometry_empty_directory() {
   assert(scan.paths.empty());
 }
 
+void test_session_inspection_load_without_fusion_params() {
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_insp_minimal.json";
+  const std::string json_text = R"({
+  "camera": {
+    "model": "plumb_bob",
+    "intrinsics": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+    "distortion_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+  },
+  "calibration_datasets": [],
+  "inspection_datasets": [
+    {
+      "image_path": "/tmp/insp2.png",
+      "cloud_directory": "/tmp/insp2",
+      "pcd_paths": ["/tmp/insp2/s.pcd"]
+    }
+  ],
+  "scan_time": { "time_unit": 0, "time_origin": 0, "scan_duration": 0.1 },
+  "T_camera_lidar": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+  "T_camera_lidar_initial": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+})";
+  {
+    std::ofstream out(path);
+    out << json_text;
+  }
+
+  clc::SessionData loaded;
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
+  assert(loaded.inspection_datasets.size() == 1);
+  assert(loaded.inspection_datasets.front().image_path == "/tmp/insp2.png");
+  assert(loaded.inspection_datasets.front().pcd_paths.size() == 1);
+  std::filesystem::remove(path);
+}
+
+void test_session_inspection_ignores_invalid_fusion_params() {
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_insp_bad_fusion.json";
+  const std::string json_text = R"({
+  "camera": {
+    "model": "plumb_bob",
+    "intrinsics": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+    "distortion_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+  },
+  "calibration_datasets": [],
+  "inspection_datasets": [
+    {
+      "image_path": "/tmp/insp.png",
+      "cloud_directory": "/tmp/insp",
+      "pcd_paths": ["/tmp/insp/a.pcd"],
+      "fusion_params": { "backend": "not_a_real_backend" }
+    }
+  ],
+  "scan_time": { "time_unit": 0, "time_origin": 0, "scan_duration": 0.1 },
+  "T_camera_lidar": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+  "T_camera_lidar_initial": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+})";
+  {
+    std::ofstream out(path);
+    out << json_text;
+  }
+
+  clc::SessionData before;
+  before.ensurePrimaryCalibration();
+  before.calibration_datasets.front().image_path = "/tmp/keep.png";
+
+  clc::SessionData loaded = before;
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
+  assert(loaded.inspection_datasets.size() == 1);
+  assert(loaded.inspection_datasets.front().image_path == "/tmp/insp.png");
+  std::filesystem::remove(path);
+}
+
 void test_session_fusion_ivox_and_voxel_round_trip() {
   clc::SessionData session;
   session.ensurePrimaryCalibration();
@@ -248,7 +324,8 @@ void test_session_fusion_ivox_and_voxel_round_trip() {
   const auto path = std::filesystem::temp_directory_path() / "clc_session_fusion_ivox_voxel.json";
   assert(clc::save_session(path.string(), session));
   clc::SessionData loaded;
-  assert(clc::load_session(path.string(), loaded));
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
   const auto& loaded_fusion = loaded.calibration_datasets.front().fusion_params;
   assert(std::abs(loaded_fusion.integrator_ivox_resolution - 0.75) < 1e-12);
   assert(std::abs(loaded_fusion.voxel_resolution - 0.03) < 1e-12);
@@ -357,6 +434,8 @@ int main() {
   test_structured_scan_reference_ignores_single_scan_only();
   test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
+  test_session_inspection_load_without_fusion_params();
+  test_session_inspection_ignores_invalid_fusion_params();
   test_calibration_params_defaults_and_round_trip();
   test_fusion_k_neighbors_default();
   test_scan_geometry_empty_directory();

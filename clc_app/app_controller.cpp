@@ -2610,10 +2610,20 @@ bool AppController::loadSession(const QString &directory) {
     return false;
   }
   const QString path = dir + QStringLiteral("/session.json");
-  if (!clc::load_session(path.toStdString(), session_)) {
-    setStatus(QStringLiteral("Failed to load session from %1").arg(path));
+  clc::SessionData loaded;
+  std::string load_error;
+  if (!clc::load_session(path.toStdString(), loaded, load_error)) {
+    const QString detail =
+        load_error.empty() ? QString() : QStringLiteral(": %1").arg(QString::fromStdString(load_error));
+    setStatus(QStringLiteral("Failed to load session from %1%2").arg(path, detail));
+    qCWarning(lcClcDataset).noquote()
+        << QStringLiteral("session load failed (%1): %2")
+               .arg(path)
+               .arg(QString::fromStdString(load_error));
+    clearCalibrationDatasetVisuals();
     return false;
   }
+  session_ = std::move(loaded);
   clc::prune_placeholder_calibration_datasets(session_);
   invalidateProjectionImageCache();
   clearFusedCloudCache();
@@ -2641,8 +2651,12 @@ bool AppController::loadSession(const QString &directory) {
   }
   if (!session_.intrinsics_path.empty()) {
     std::string error;
-    clc::load_camera_intrinsics_file(session_.intrinsics_path, session_.camera,
-                                     error);
+    if (!clc::load_camera_intrinsics_file(session_.intrinsics_path, session_.camera, error)) {
+      qCWarning(lcClcDataset).noquote()
+          << QStringLiteral("session intrinsics load failed (%1): %2")
+                 .arg(QString::fromStdString(session_.intrinsics_path))
+                 .arg(QString::fromStdString(error));
+    }
   }
   mask_ops_.clear();
   pending_mask_polygon_ = {};
@@ -2651,8 +2665,13 @@ bool AppController::loadSession(const QString &directory) {
   if (!session_.global_mask.path.empty() && session_.global_mask.width > 0 &&
       session_.global_mask.height > 0) {
     std::string error;
-    clc::load_mask_png(session_.global_mask.path, session_.global_mask.width,
-                       session_.global_mask.height, global_mask_pixels_, error);
+    if (!clc::load_mask_png(session_.global_mask.path, session_.global_mask.width,
+                            session_.global_mask.height, global_mask_pixels_, error)) {
+      qCWarning(lcClcDataset).noquote()
+          << QStringLiteral("session global mask load failed (%1): %2")
+                 .arg(QString::fromStdString(session_.global_mask.path))
+                 .arg(QString::fromStdString(error));
+    }
   }
   refreshCameraPreview();
   setStatus(QStringLiteral("Session loaded"));
