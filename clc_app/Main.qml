@@ -22,6 +22,19 @@ ApplicationWindow {
 
     readonly property int tooltipDelayMs: 1000
 
+    /// Result of the last session Load/Save (cleared when any session-row button is pressed).
+    property string sessionIoStatus: ""
+    property bool sessionIoError: false
+
+    function clearSessionIoStatus() {
+        sessionIoStatus = ""
+        sessionIoError = false
+    }
+
+    function resolveSessionDirectory() {
+        return sessionDir.text.length > 0 ? sessionDir.text : controller.sessionDirectory
+    }
+
     component TipRow: RowLayout {
         property string tip: ""
         HoverHandler { id: tipHover }
@@ -54,14 +67,28 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            BusyIndicator {
-                running: controller.busyWorking
-                visible: controller.busyWorking
-                Layout.preferredWidth: visible ? 28 : 0
+            spacing: 8
+            // Fixed slot so the spinner stays circular and the row height does not jump.
+            Item {
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                Layout.minimumWidth: 28
+                Layout.minimumHeight: 28
+                Layout.maximumWidth: 28
+                Layout.maximumHeight: 28
+                Layout.alignment: Qt.AlignVCenter
+                BusyIndicator {
+                    width: 28
+                    height: 28
+                    anchors.centerIn: parent
+                    running: controller.busyWorking
+                    visible: controller.busyWorking
+                }
             }
             Button {
                 text: qsTr("Cancel")
                 visible: controller.busyWorking
+                Layout.alignment: Qt.AlignVCenter
                 onClicked: controller.cancelWorker()
                 ToolTip.visible: hovered
                 ToolTip.text: qsTr("Stop fusion or alignment in progress.")
@@ -69,6 +96,7 @@ ApplicationWindow {
             }
             Label {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 text: controller.statusMessage
             }
         }
@@ -112,18 +140,32 @@ ApplicationWindow {
             Label { text: "Calibration datasets:" }
             Repeater {
                 model: controller.calibrationDatasetIds
-                delegate: Button {
+                delegate: RowLayout {
                     required property int index
                     required property string modelData
-                    text: modelData
-                    checkable: true
-                    checked: controller.activeCalibrationDatasetIndex === index
-                    enabled: controller.canChangeActiveCalibrationDataset
-                        && (controller.mainWorkTab === 0 || controller.isCalibrationDatasetReady(index))
-                    ToolTip.visible: hovered && !enabled
-                    ToolTip.text: controller.calibrationDatasetTooltip(index)
-                    ToolTip.delay: root.tooltipDelayMs
-                    onClicked: controller.setActiveCalibrationDatasetIndex(index)
+                    readonly property bool datasetReady: controller.isCalibrationDatasetReady(index)
+                    spacing: 4
+                    Label {
+                        text: datasetReady ? "\u2713" : "\u2717"
+                        color: datasetReady ? "#3dba5c" : "#d94444"
+                        font.bold: true
+                        font.pixelSize: 13
+                        HoverHandler { id: datasetStatusHover }
+                        ToolTip.visible: datasetStatusHover.hovered
+                        ToolTip.text: controller.calibrationDatasetTooltip(index)
+                        ToolTip.delay: root.tooltipDelayMs
+                    }
+                    Button {
+                        text: modelData
+                        checkable: true
+                        checked: controller.activeCalibrationDatasetIndex === index
+                        enabled: controller.canChangeActiveCalibrationDataset
+                            && (controller.mainWorkTab === 0 || datasetReady)
+                        ToolTip.visible: hovered && !enabled
+                        ToolTip.text: controller.calibrationDatasetTooltip(index)
+                        ToolTip.delay: root.tooltipDelayMs
+                        onClicked: controller.setActiveCalibrationDatasetIndex(index)
+                    }
                 }
             }
             Button {
@@ -411,50 +453,53 @@ ApplicationWindow {
                     }
                 }
 
-                // Initial alignment — image + correspondence (3D view shared)
+                // Initial alignment — image + correspondence (3D view is shared on the right)
                 SplitView {
                     orientation: Qt.Horizontal
-                    SplitView.fillWidth: true
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     CameraImageItem {
                         SplitView.minimumWidth: 240
                         SplitView.preferredWidth: parent.width * 0.5
+                        SplitView.fillHeight: true
                     }
-                    ScrollView {
-                        id: initialAlignScroll
+                    ColumnLayout {
                         SplitView.minimumWidth: 220
                         SplitView.fillWidth: true
-                        clip: true
-                        ColumnLayout {
-                            width: initialAlignScroll.availableWidth
-                            spacing: 8
-                            Label {
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                                text: "Shift+click a 3D point and/or Shift+click the image (either order). Select a row to re-pick one side."
+                        SplitView.fillHeight: true
+                        spacing: 8
+                        Label {
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: "Shift+click a 3D point and/or Shift+click the image (either order). Select a row to re-pick one side."
+                        }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: ["Manual correspondences"]
+                            currentIndex: controller.initialAlignmentMethod
+                            onActivated: controller.setInitialAlignmentMethod(currentIndex)
+                        }
+                        Button {
+                            text: "Compute initial alignment"
+                            enabled: controller.canComputeInitialAlignment && !controller.busyWorking
+                            onClicked: controller.estimateInitialGuessFromCorrespondences()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Estimate shared T_camera_lidar from all correspondence pairs (≥3 total across datasets)."
+                            ToolTip.delay: root.tooltipDelayMs
+                        }
+                        Button {
+                            text: "Clear active dataset pairs"
+                            onClicked: controller.clearCorrespondences()
+                        }
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AlwaysOn
                             }
-                            ComboBox {
-                                Layout.fillWidth: true
-                                model: ["Manual correspondences"]
-                                currentIndex: controller.initialAlignmentMethod
-                                onActivated: controller.setInitialAlignmentMethod(currentIndex)
-                            }
-                            Button {
-                                text: "Compute initial alignment"
-                                enabled: controller.canComputeInitialAlignment && !controller.busyWorking
-                                onClicked: controller.estimateInitialGuessFromCorrespondences()
-                                ToolTip.visible: hovered
-                                ToolTip.text: "Estimate shared T_camera_lidar from all correspondence pairs (≥3 total across datasets)."
-                                ToolTip.delay: root.tooltipDelayMs
-                            }
-                            Button {
-                                text: "Clear active dataset pairs"
-                                onClicked: controller.clearCorrespondences()
-                            }
-                            ListView {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 280
-                                clip: true
-                                model: controller.correspondenceTable
+                            model: controller.correspondenceTable
                                 delegate: Rectangle {
                                     required property var modelData
                                     width: ListView.view.width
@@ -493,7 +538,6 @@ ApplicationWindow {
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                 }
@@ -674,6 +718,7 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 8
             TextField {
                 id: sessionDir
                 Layout.fillWidth: true
@@ -681,14 +726,48 @@ ApplicationWindow {
                 text: controller.sessionDirectory
                 onEditingFinished: controller.sessionDirectory = text
             }
-            Button { text: "…"; onClicked: controller.browseSessionDirectory() }
-            Button {
-                text: "Load"
-                onClicked: controller.loadSession(sessionDir.text.length > 0 ? sessionDir.text : controller.sessionDirectory)
-            }
-            Button {
-                text: "Save"
-                onClicked: controller.saveSession(sessionDir.text.length > 0 ? sessionDir.text : controller.sessionDirectory)
+            RowLayout {
+                spacing: 6
+                Button {
+                    text: "…"
+                    onClicked: {
+                        root.clearSessionIoStatus()
+                        controller.browseSessionDirectory()
+                    }
+                }
+                Button {
+                    text: "Load"
+                    onClicked: {
+                        root.clearSessionIoStatus()
+                        if (controller.loadSession(root.resolveSessionDirectory())) {
+                            root.sessionIoStatus = qsTr("Loaded successfully")
+                            root.sessionIoError = false
+                        } else {
+                            root.sessionIoStatus = controller.statusMessage
+                            root.sessionIoError = true
+                        }
+                    }
+                }
+                Button {
+                    text: "Save"
+                    onClicked: {
+                        root.clearSessionIoStatus()
+                        if (controller.saveSession(root.resolveSessionDirectory())) {
+                            root.sessionIoStatus = qsTr("Saved successfully")
+                            root.sessionIoError = false
+                        } else {
+                            root.sessionIoStatus = controller.statusMessage
+                            root.sessionIoError = true
+                        }
+                    }
+                }
+                Label {
+                    Layout.maximumWidth: 320
+                    elide: Text.ElideRight
+                    text: root.sessionIoStatus
+                    color: root.sessionIoError ? "#c62828" : "#2e7d32"
+                    opacity: root.sessionIoStatus.length > 0 ? 1 : 0
+                }
             }
         }
     }
