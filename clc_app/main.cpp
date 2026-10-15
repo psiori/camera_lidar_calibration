@@ -3,9 +3,11 @@
 #include <QQmlContext>
 
 #include "app_controller.hpp"
+#include "app_logging.hpp"
 
 /// Desktop entry point: creates AppController, exposes it to QML as `controller`, loads Main.qml.
 int main(int argc, char* argv[]) {
+  install_clc_stdout_logging();
   QApplication app(argc, argv);
   AppController controller;
   QQmlApplicationEngine engine;

@@ -1,5 +1,6 @@
 qt_add_executable(clc_app
   main.cpp
+  app_logging.cpp
   app_controller.cpp
   range_image_item.cpp
 )
@@ -39,6 +40,7 @@ qt_import_qml_plugins(clc_app)
 
 qt_add_executable(clc_mask_editor_polygon_test
   tests/mask_editor_polygon_test.cpp
+  app_logging.cpp
   app_controller.cpp
 )
 target_compile_definitions(clc_mask_editor_polygon_test PRIVATE CLC_APP_TESTING)

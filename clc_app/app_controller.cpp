@@ -1,4 +1,5 @@
 #include "app_controller.hpp"
+#include "app_logging.hpp"
 
 #include <QMetaObject>
 #include <QPointF>
@@ -158,6 +159,65 @@ QString pickPcdFileDialog(const QString &title, const QString &start_path) {
 QString pickPcdFolderDialog(const QString &title, const QString &start_path) {
   return QFileDialog::getExistingDirectory(nullptr, title,
                                            normalizedDirectoryPath(start_path));
+}
+
+QString registrationTypeLabel(vlcal::RegistrationType type) {
+  if (type == vlcal::RegistrationType::NID_NELDER_MEAD) {
+    return QStringLiteral("NID_NELDER_MEAD");
+  }
+  if (type == vlcal::RegistrationType::NID_BFGS) {
+    return QStringLiteral("NID_BFGS");
+  }
+  return QStringLiteral("unknown");
+}
+
+/// Emit one structured line describing a calibration dataset row.
+void logDatasetCatalogEntry(int index, const clc::DatasetEntry &ds,
+                            const QString &action) {
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("%1 dataset[%2] id=%3 ready=%4 fusion_complete=%5 "
+                        "scans=%6 image=%7 lidar=%8 fused_pcd=%9 "
+                        "correspondences=%10")
+             .arg(action)
+             .arg(index)
+             .arg(QString::fromStdString(ds.id))
+             .arg(clc::dataset_ready(ds) ? QStringLiteral("yes")
+                                         : QStringLiteral("no"))
+             .arg(ds.fusion_complete ? QStringLiteral("yes")
+                                     : QStringLiteral("no"))
+             .arg(static_cast<int>(ds.pcd_paths.size()))
+             .arg(QString::fromStdString(ds.image_path))
+             .arg(QString::fromStdString(ds.cloud_directory))
+             .arg(QString::fromStdString(ds.fused_cloud_path))
+             .arg(static_cast<int>(ds.correspondences.size()));
+}
+
+/// Summarize frames passed into NID after `buildAlignmentInput` succeeds.
+void logAlignmentOptimizationInput(const clc::AlignmentInput &input,
+                                   int skipped_not_ready) {
+  qCInfo(lcClcOptimization).noquote()
+      << QStringLiteral(
+             "alignment input: frames=%1 skipped_not_ready=%2 camera_model=%3 "
+             "registration=%4 init_T_camera_lidar=[%5,%6,%7]")
+             .arg(static_cast<int>(input.images.size()))
+             .arg(skipped_not_ready)
+             .arg(input.camera ? QStringLiteral("yes") : QStringLiteral("no"))
+             .arg(registrationTypeLabel(input.params.registration_type))
+             .arg(input.init_T_camera_lidar(0, 3), 0, 'g', 6)
+             .arg(input.init_T_camera_lidar(1, 3), 0, 'g', 6)
+             .arg(input.init_T_camera_lidar(2, 3), 0, 'g', 6);
+  for (std::size_t i = 0; i < input.images.size(); ++i) {
+    const cv::Mat &img = input.images[i];
+    const auto &cloud = input.clouds[i];
+    const std::size_t points =
+        cloud ? static_cast<std::size_t>(cloud->size()) : 0U;
+    qCInfo(lcClcOptimization).noquote()
+        << QStringLiteral("  frame[%1] image=%2x%3 cloud_points=%4")
+               .arg(static_cast<int>(i))
+               .arg(img.cols)
+               .arg(img.rows)
+               .arg(static_cast<qulonglong>(points));
+  }
 }
 
 } // namespace
@@ -503,6 +563,8 @@ void AppController::setImagePath(const QString &path) {
     ensureActiveCalibrationDataset();
   }
   activeDatasetEntry().image_path = normalized.toStdString();
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("active dataset image set: %1").arg(normalized);
   invalidateProjectionImageCache();
   refreshCameraPreview();
   if (!viewer_positions_.isEmpty()) {
@@ -523,6 +585,9 @@ void AppController::setPcdDirectory(const QString &path) {
     ensureActiveCalibrationDataset();
   }
   activeDatasetEntry().cloud_directory = normalized.toStdString();
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("active dataset lidar catalog path set: %1")
+             .arg(normalized);
   refreshPcdCatalog();
   emit sessionPathsChanged();
 }
@@ -858,6 +923,9 @@ bool AppController::addCalibrationDatasetFromPaths(
   refreshActiveDatasetVisuals();
   setStatus(QStringLiteral("Added calibration dataset %1")
                 .arg(QString::fromStdString(id)));
+  logDatasetCatalogEntry(active_calibration_dataset_index_,
+                         session_.calibration_datasets.back(),
+                         QStringLiteral("added"));
   return true;
 }
 
@@ -866,6 +934,8 @@ void AppController::removeActiveCalibrationDataset() {
   if (session_.calibration_datasets.empty()) {
     return;
   }
+  logDatasetCatalogEntry(active_calibration_dataset_index_,
+                         activeDatasetEntry(), QStringLiteral("removing"));
   session_.calibration_datasets.erase(session_.calibration_datasets.begin() +
                                       active_calibration_dataset_index_);
   clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
@@ -1010,6 +1080,7 @@ void AppController::deleteCorrespondenceRow(int global_row) {
     pending_correspondence_2d_.reset();
     selected_correspondence_row_ = -1;
     emit correspondencesChanged();
+    qCInfo(lcClcLabeling) << "pending image pick removed";
     setStatus(QStringLiteral("Removed pending image pick"));
     return;
   }
@@ -1017,6 +1088,7 @@ void AppController::deleteCorrespondenceRow(int global_row) {
     pending_correspondence_3d_.reset();
     selected_correspondence_row_ = -1;
     emit correspondencesChanged();
+    qCInfo(lcClcLabeling) << "pending 3D pick removed";
     setStatus(QStringLiteral("Removed pending 3D pick"));
     return;
   }
@@ -1040,6 +1112,12 @@ void AppController::deleteCorrespondenceRow(int global_row) {
       pending_correspondence_3d_.reset();
       pending_correspondence_2d_.reset();
       emit correspondencesChanged();
+      qCInfo(lcClcLabeling).noquote()
+          << QStringLiteral("correspondence deleted dataset=%1 local_row=%2 "
+                            "remaining=%3")
+                 .arg(QString::fromStdString(ds.id))
+                 .arg(local)
+                 .arg(correspondenceCount());
       setStatus(QStringLiteral("Correspondence removed (%1 remaining)")
                     .arg(correspondenceCount()));
       return;
@@ -1142,6 +1220,14 @@ void AppController::refreshPcdCatalog() {
                 .arg(static_cast<int>(dataset.pcd_paths.size()))
                 .arg(session_.reference_scan_width)
                 .arg(session_.reference_scan_height));
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("PCD catalog refreshed for active dataset[%1] id=%2: "
+                        "%3 files (%4×%5)")
+             .arg(active_calibration_dataset_index_)
+             .arg(QString::fromStdString(dataset.id))
+             .arg(static_cast<int>(dataset.pcd_paths.size()))
+             .arg(session_.reference_scan_width)
+             .arg(session_.reference_scan_height);
   refreshRangeImage();
   refreshPreviewInViewer();
 }
@@ -1847,10 +1933,16 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
     return false;
   };
 
+  int skipped_not_ready = 0;
   for (int ds_index = 0; ds_index < static_cast<int>(session_.calibration_datasets.size());
        ++ds_index) {
     const auto &ds = session_.calibration_datasets[static_cast<std::size_t>(ds_index)];
     if (!clc::dataset_ready(ds)) {
+      ++skipped_not_ready;
+      qCInfo(lcClcOptimization).noquote()
+          << QStringLiteral("alignment input: skip dataset[%1] id=%2 (not ready)")
+                 .arg(ds_index)
+                 .arg(QString::fromStdString(ds.id));
       continue;
     }
     if (ds.image_path.empty()) {
@@ -1868,11 +1960,20 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
     }
     input.images.push_back(img);
     input.clouds.push_back(clc::dense_cloud_to_nid_frame(dense));
+    qCInfo(lcClcOptimization).noquote()
+        << QStringLiteral(
+               "alignment input: include dataset[%1] id=%2 image=%3 "
+               "cloud_points=%4")
+               .arg(ds_index)
+               .arg(QString::fromStdString(ds.id))
+               .arg(QString::fromStdString(ds.image_path))
+               .arg(static_cast<qulonglong>(dense.points.size()));
   }
   if (input.images.empty()) {
     error = "no ready calibration datasets for alignment";
     return false;
   }
+  logAlignmentOptimizationInput(input, skipped_not_ready);
   return true;
 }
 
@@ -2490,6 +2591,15 @@ bool AppController::loadSession(const QString &directory) {
   }
   refreshCameraPreview();
   setStatus(QStringLiteral("Session loaded"));
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("session loaded from %1: %2 calibration dataset(s)")
+             .arg(path)
+             .arg(static_cast<int>(session_.calibration_datasets.size()));
+  for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
+    logDatasetCatalogEntry(
+        i, session_.calibration_datasets[static_cast<std::size_t>(i)],
+        QStringLiteral("loaded"));
+  }
   emit maskChanged();
   active_calibration_dataset_index_ = 0;
   emit calibrationDatasetsChanged();
@@ -2590,6 +2700,10 @@ bool AppController::loadIntrinsicsFile(const QString &path) {
   session_.intrinsics_path = normalized.toStdString();
   setStatus(QStringLiteral("Intrinsics loaded (%1)")
                 .arg(QString::fromStdString(session_.camera.model)));
+  qCInfo(lcClcDataset).noquote()
+      << QStringLiteral("intrinsics loaded: path=%1 model=%2")
+             .arg(normalized)
+             .arg(QString::fromStdString(session_.camera.model));
   emit sessionPathsChanged();
   return true;
 }
@@ -2895,16 +3009,28 @@ void AppController::finalizePendingCorrespondenceIfReady() {
   pending_correspondence_2d_.reset();
   selected_correspondence_row_ = -1;
   emit correspondencesChanged();
+  qCInfo(lcClcLabeling).noquote()
+      << QStringLiteral(
+             "correspondence added dataset=%1 u=%2 v=%3 x=%4 y=%5 z=%6 "
+             "(session total %7)")
+             .arg(QString::fromStdString(ds.id))
+             .arg(c.u, 0, 'f', 2)
+             .arg(c.v, 0, 'f', 2)
+             .arg(c.x, 0, 'g', 6)
+             .arg(c.y, 0, 'g', 6)
+             .arg(c.z, 0, 'g', 6)
+             .arg(correspondenceCount());
   setStatus(QStringLiteral("Correspondence added (%1 total)")
                 .arg(correspondenceCount()));
 }
 
 /// Handle a 3D pick from the viewer for correspondence pairing.
 void AppController::onPointPicked(double x, double y, double z) {
-  qInfo().noquote() << QStringLiteral("3D correspondence pick: x=%1 y=%2 z=%3")
-                           .arg(x, 0, 'f', 4)
-                           .arg(y, 0, 'f', 4)
-                           .arg(z, 0, 'f', 4);
+  qCInfo(lcClcLabeling).noquote()
+      << QStringLiteral("3D pick: x=%1 y=%2 z=%3")
+             .arg(x, 0, 'f', 4)
+             .arg(y, 0, 'f', 4)
+             .arg(z, 0, 'f', 4);
   if (main_work_tab_ == 3) {
     setStatus(QStringLiteral(
         "Correspondence picking is only available outside Inspection"));
@@ -2938,6 +3064,14 @@ void AppController::onPointPicked(double x, double y, double z) {
         pending_correspondence_3d_.reset();
         pending_correspondence_2d_.reset();
         emit correspondencesChanged();
+        qCInfo(lcClcLabeling).noquote()
+            << QStringLiteral(
+                   "correspondence 3D updated dataset=%1 row=%2 x=%3 y=%4 z=%5")
+                   .arg(QString::fromStdString(row_ds.id))
+                   .arg(selected_correspondence_row_ - cursor)
+                   .arg(x, 0, 'g', 6)
+                   .arg(y, 0, 'g', 6)
+                   .arg(z, 0, 'g', 6);
         setStatus(QStringLiteral("Updated 3D point for selected correspondence "
                                  "— Shift+click image to update pixel"));
         return;
@@ -2960,6 +3094,8 @@ void AppController::pickImageCorrespondence(double u, double v) {
   if (main_work_tab_ != 1 || !pickingAllowed()) {
     return;
   }
+  qCInfo(lcClcLabeling).noquote()
+      << QStringLiteral("image pick: u=%1 v=%2").arg(u, 0, 'f', 2).arg(v, 0, 'f', 2);
   ensureActiveCalibrationDataset();
   auto &ds = activeDatasetEntry();
   if (selected_correspondence_row_ >= 0) {
@@ -2988,6 +3124,13 @@ void AppController::pickImageCorrespondence(double u, double v) {
         }
         pending_correspondence_2d_.reset();
         emit correspondencesChanged();
+        qCInfo(lcClcLabeling).noquote()
+            << QStringLiteral(
+                   "correspondence image updated dataset=%1 row=%2 u=%3 v=%4")
+                   .arg(QString::fromStdString(row_ds.id))
+                   .arg(selected_correspondence_row_ - cursor)
+                   .arg(u, 0, 'f', 2)
+                   .arg(v, 0, 'f', 2);
         return;
       }
       cursor += count;
@@ -3006,11 +3149,14 @@ void AppController::pickImageCorrespondence(double u, double v) {
 /// Reset Correspondences to empty defaults.
 void AppController::clearCorrespondences() {
   ensureActiveCalibrationDataset();
+  const QString dataset_id = QString::fromStdString(activeDatasetEntry().id);
   activeDatasetEntry().correspondences.clear();
   pending_correspondence_3d_.reset();
   pending_correspondence_2d_.reset();
   selected_correspondence_row_ = -1;
   emit correspondencesChanged();
+  qCInfo(lcClcLabeling).noquote()
+      << QStringLiteral("correspondences cleared for dataset=%1").arg(dataset_id);
   setStatus(QStringLiteral("Correspondences cleared for active dataset"));
 }
 
@@ -3030,6 +3176,9 @@ void AppController::estimateInitialGuessFromCorrespondences() {
       input.correspondences.push_back(c);
     }
   }
+  qCInfo(lcClcLabeling).noquote()
+      << QStringLiteral("initial guess from %1 correspondences across datasets")
+             .arg(static_cast<int>(input.correspondences.size()));
   input.gizmo_T_camera_lidar = session_.T_camera_lidar;
   clc::InitialGuessResult result;
   try {
@@ -3214,6 +3363,11 @@ void AppController::runFusion() {
           auto &ds = session_.calibration_datasets[static_cast<std::size_t>(
               fusion_dataset_index)];
           ds.fusion_complete = true;
+          qCInfo(lcClcDataset).noquote()
+              << QStringLiteral("fusion complete dataset[%1] id=%2 points=%3")
+                     .arg(fusion_dataset_index)
+                     .arg(QString::fromStdString(fusion_dataset_id))
+                     .arg(static_cast<qulonglong>(result.cloud.points.size()));
           if (!session_directory_.isEmpty() && !fusion_dataset_id.empty()) {
             const QString fused_path =
                 session_directory_ + QStringLiteral("/fused_") +
@@ -3262,10 +3416,14 @@ void AppController::runAlignment() {
   clc::AlignmentInput input;
   std::string build_err;
   if (!buildAlignmentInput(input, build_err)) {
+    qCWarning(lcClcOptimization).noquote()
+        << QStringLiteral("alignment input build failed: %1")
+               .arg(QString::fromStdString(build_err));
     setStatus(QString::fromStdString(build_err));
     emit alignmentFinished(false, QString::fromStdString(build_err));
     return;
   }
+  qCInfo(lcClcOptimization) << "starting NID alignment worker";
   worker_cancel_requested_ = false;
   setWorkerRunning(true);
   setStatus(QStringLiteral("Alignment running..."));
