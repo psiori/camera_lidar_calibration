@@ -1902,7 +1902,10 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
   input.camera =
       camera::create_camera(session_.camera.model, session_.camera.intrinsics,
                             session_.camera.distortion_coeffs);
-  input.init_T_camera_lidar = session_.T_camera_lidar_initial;
+  // Seed NID from the last pose shown in the viewer: manual/gizmo alignment and
+  // prior NID runs update T_camera_lidar; T_camera_lidar_initial is only the
+  // correspondence PnP result and stays stale after reoptimization.
+  input.init_T_camera_lidar = session_.T_camera_lidar;
   input.params = session_.calibration_params;
 
   auto load_fused_for_dataset =
