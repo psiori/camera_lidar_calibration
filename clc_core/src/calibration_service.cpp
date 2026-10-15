@@ -2,6 +2,7 @@
 
 #include <clc_core/calibration_service.hpp>
 
+#include <cstring>
 #include <stdexcept>
 
 #include <Eigen/Core>
@@ -11,6 +12,30 @@
 #include <vlcal/common/visual_lidar_data.hpp>
 
 namespace clc {
+
+bool validate_alignment_image_masks(const AlignmentInput& input, std::string& error) {
+  error.clear();
+  if (input.image_masks.empty()) {
+    return true;
+  }
+  if (input.image_masks.size() != input.images.size()) {
+    error = "image mask count does not match image count";
+    return false;
+  }
+  for (std::size_t i = 0; i < input.images.size(); ++i) {
+    const auto& mask = input.image_masks[i];
+    if (mask.empty()) {
+      continue;
+    }
+    const std::size_t expected =
+      static_cast<std::size_t>(input.images[i].cols) * static_cast<std::size_t>(input.images[i].rows);
+    if (mask.size() != expected) {
+      error = "image mask dimensions do not match dataset image";
+      return false;
+    }
+  }
+  return true;
+}
 
 vlcal::CalibrationResult run_alignment(
   const AlignmentInput& input,
@@ -23,10 +48,24 @@ vlcal::CalibrationResult run_alignment(
     return result;
   }
 
+  std::string mask_error;
+  if (!validate_alignment_image_masks(input, mask_error)) {
+    vlcal::CalibrationResult result;
+    result.error = vlcal::CalibrationError::InvalidArgument;
+    result.message = mask_error;
+    return result;
+  }
+
   std::vector<vlcal::VisualLiDARData::ConstPtr> dataset;
   dataset.reserve(input.images.size());
   for (size_t i = 0; i < input.images.size(); ++i) {
-    dataset.emplace_back(std::make_shared<vlcal::VisualLiDARData>(input.images[i], input.clouds[i]));
+    auto entry = std::make_shared<vlcal::VisualLiDARData>(input.images[i], input.clouds[i]);
+    if (i < input.image_masks.size() && !input.image_masks[i].empty()) {
+      cv::Mat mask(input.images[i].rows, input.images[i].cols, CV_8UC1);
+      std::memcpy(mask.data, input.image_masks[i].data(), input.image_masks[i].size());
+      entry->image_mask = mask;
+    }
+    dataset.emplace_back(std::move(entry));
   }
 
   vlcal::VisualCameraCalibrationParams params = input.params;

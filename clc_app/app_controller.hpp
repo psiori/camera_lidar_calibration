@@ -150,6 +150,13 @@ class AppController : public QObject {
                  NOTIFY activeDatasetSelectionLockChanged)
   /// True while the global mask editor window is visible (main window is blocked).
   Q_PROPERTY(bool maskEditorOpen READ maskEditorOpen NOTIFY maskEditorOpenChanged)
+  /// True while the per-dataset image optimization mask editor is visible.
+  Q_PROPERTY(bool imageMaskEditorOpen READ imageMaskEditorOpen NOTIFY imageMaskEditorOpenChanged)
+  Q_PROPERTY(bool imageMaskPolygonPending READ imageMaskPolygonPending NOTIFY imageMaskPolygonPendingChanged)
+  Q_PROPERTY(QString imageMaskPath READ imageMaskPath NOTIFY imageMaskChanged)
+  Q_PROPERTY(QByteArray imageMaskPreview READ imageMaskPreview NOTIFY imageMaskChanged)
+  Q_PROPERTY(int imageMaskWidth READ imageMaskWidth NOTIFY imageMaskChanged)
+  Q_PROPERTY(int imageMaskHeight READ imageMaskHeight NOTIFY imageMaskChanged)
   /// Which calibration dataset drives the range image inside the mask editor.
   Q_PROPERTY(int maskPreviewDatasetIndex READ maskPreviewDatasetIndex WRITE setMaskPreviewDatasetIndex
                  NOTIFY maskPreviewDatasetIndexChanged)
@@ -209,6 +216,7 @@ public:
   bool maskPolygonPending() const { return mask_polygon_pending_; }
   QVariantList pendingMaskPolygonVertices() const;
   std::vector<QPointF> pendingMaskPolygonNativePoints() const;
+  std::vector<QPointF> pendingImageMaskPolygonNativePoints() const;
   QString maskPath() const { return QString::fromStdString(session_.global_mask.path); }
   double viewerColormapMin() const { return viewer_colormap_min_; }
   double viewerColormapMax() const { return viewer_colormap_max_; }
@@ -247,6 +255,12 @@ public:
   bool canPickCorrespondences() const;
   bool canChangeActiveCalibrationDataset() const;
   bool maskEditorOpen() const { return mask_editor_open_; }
+  bool imageMaskEditorOpen() const { return image_mask_editor_open_; }
+  bool imageMaskPolygonPending() const { return image_mask_polygon_pending_; }
+  QString imageMaskPath() const;
+  QByteArray imageMaskPreview() const;
+  int imageMaskWidth() const;
+  int imageMaskHeight() const;
   int maskPreviewDatasetIndex() const { return mask_preview_dataset_index_; }
   bool activeDatasetIsSingleScan() const;
   QString addDatasetDefaultImagePath() const;
@@ -318,9 +332,13 @@ public:
   /// Called from RangeImageItem.polygonCommitted with native range-image vertices.
   Q_INVOKABLE void commitMaskPolygon(const QVariantList& nativeVertices);
   void commitMaskPolygonNative(const std::vector<QPointF>& nativeVertices);
+  void commitImageMaskPolygonNative(const std::vector<QPointF>& nativeVertices);
   Q_INVOKABLE void applyPendingMaskKeep();
   Q_INVOKABLE void applyPendingMaskRemove();
   Q_INVOKABLE void discardPendingMaskPolygon();
+  Q_INVOKABLE void applyPendingImageMaskKeep();
+  Q_INVOKABLE void applyPendingImageMaskRemove();
+  Q_INVOKABLE void discardPendingImageMaskPolygon();
 #ifdef CLC_APP_TESTING
   Q_INVOKABLE void installSyntheticMaskEditorScan(int native_width, int native_height, double y_stretch);
   Q_INVOKABLE void setReferenceScanSizeForTest(int width, int height);
@@ -329,6 +347,10 @@ public:
   Q_INVOKABLE bool saveMask();
   Q_INVOKABLE bool loadMask();
   Q_INVOKABLE QString browseMaskFile();
+  Q_INVOKABLE void clearImageMask();
+  Q_INVOKABLE bool saveImageMask();
+  Q_INVOKABLE bool loadImageMask();
+  Q_INVOKABLE QString browseImageMaskFile();
   Q_INVOKABLE void setInspectionMode(bool inspection);
   Q_INVOKABLE void setMainWorkTab(int tab);
   Q_INVOKABLE void setActiveCalibrationDatasetIndex(int index);
@@ -347,6 +369,7 @@ public:
   Q_INVOKABLE void setMaskPreviewDatasetIndex(int index);
   /// Called from MaskEditorWindow when shown or closed (modal lifecycle).
   Q_INVOKABLE void setMaskEditorOpen(bool open);
+  Q_INVOKABLE void setImageMaskEditorOpen(bool open);
   Q_INVOKABLE void runFusion();
   Q_INVOKABLE void runAlignment();
   Q_INVOKABLE void cancelWorker();
@@ -374,6 +397,9 @@ signals:
   void rangeYStretchChanged();
   void maskChanged();
   void maskPolygonPendingChanged();
+  void imageMaskChanged();
+  void imageMaskPolygonPendingChanged();
+  void imageMaskEditorOpenChanged();
   void viewerColormapChanged();
   void fusionParamsChanged();
   void calibrationParamsChanged();
@@ -423,6 +449,18 @@ private:
   void rebuildMaskFromOps();             /// Rasterize mask_ops_ into global_mask_pixels_.
   int maskRasterWidth() const;           /// Mask width (session reference or range image).
   int maskRasterHeight() const;
+  void ensureImageMaskStorage();
+  void rebuildImageMaskFromOps(int dataset_index);
+  int imageMaskRasterWidth() const;
+  int imageMaskRasterHeight() const;
+  bool resolveImageMaskForAlignment(
+    int dataset_index,
+    const clc::DatasetEntry& ds,
+    int image_cols,
+    int image_rows,
+    std::vector<std::uint8_t>& mask_out,
+    std::string& error);
+  void setImageMaskPolygonPending(bool pending);
   void setMaskPolygonPending(bool pending);
   void refreshViewerColormapBounds(bool reset_colormap_range = true);
   void refreshRangeImageDisplay();       /// JET-color range image into range_image_display_.
@@ -492,6 +530,11 @@ private:
   int active_calibration_dataset_index_ = 0;
   int mask_preview_dataset_index_ = 0;                    /// Range-image source while mask editor is open.
   bool mask_editor_open_ = false;
+  bool image_mask_editor_open_ = false;
+  bool image_mask_polygon_pending_ = false;
+  clc::Polygon2f pending_image_mask_polygon_;
+  std::vector<std::vector<clc::MaskPolygonOp>> image_mask_ops_by_dataset_;
+  std::vector<std::vector<std::uint8_t>> image_mask_pixels_by_dataset_;
   int initial_alignment_method_ = 0;
   int selected_correspondence_row_ = -1;
   std::optional<clc::Vec3d> pending_correspondence_3d_;   /// Lidar pick waiting for image click.

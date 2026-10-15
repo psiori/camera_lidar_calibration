@@ -29,6 +29,13 @@ struct PointCorrespondence {
   double z = 0.0;
 };
 
+/// Per-dataset camera image mask used during NID (255 = include pixel in cost).
+struct ImageMaskMeta {
+  std::string path;
+  int width = 0;
+  int height = 0;
+};
+
 /// One calibration or inspection dataset: image, scans, fusion state, and manual correspondences.
 struct DatasetEntry {
   std::string id;
@@ -41,6 +48,7 @@ struct DatasetEntry {
   glim_cloud_fusion::ScanTimeParams scan_time{};
   bool fusion_complete = false;
   bool geometry_error = false;
+  ImageMaskMeta image_mask;
 };
 
 /// Global range-image mask file and raster dimensions shared across datasets.

@@ -17,9 +17,14 @@ struct AlignmentInput {
   camera::GenericCameraBase::ConstPtr camera;
   std::vector<cv::Mat> images;
   std::vector<vlcal::FrameCPU::Ptr> clouds;
+  /// Optional per-dataset masks (255 = include); empty vector or empty inner vector = no mask.
+  std::vector<std::vector<std::uint8_t>> image_masks;
   Mat4d init_T_camera_lidar = Mat4d::identity();
   vlcal::VisualCameraCalibrationParams params;
 };
+
+/// Returns false and sets `error` when any mask size mismatches its paired image.
+bool validate_alignment_image_masks(const AlignmentInput& input, std::string& error);
 
 using AlignmentProgressCallback = std::function<void(const vlcal::CalibrationProgress&)>;
 using AlignmentCancellationCheck = std::function<bool()>;

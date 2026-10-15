@@ -31,6 +31,9 @@ class RangeImageItem : public QQuickPaintedItem {
                  NOTIFY closedPolygonOverlayChanged)
   /// AppController (or test stub); receives polygonCommitted.
   Q_PROPERTY(QObject* maskController READ maskController WRITE setMaskController NOTIFY maskControllerChanged)
+  /// When true, polygon commits apply to the per-dataset camera image optimization mask.
+  Q_PROPERTY(bool imageOptimizationMaskMode READ imageOptimizationMaskMode WRITE setImageOptimizationMaskMode
+                 NOTIFY imageOptimizationMaskModeChanged)
 
  public:
   explicit RangeImageItem(QQuickItem* parent = nullptr);
@@ -58,6 +61,8 @@ class RangeImageItem : public QQuickPaintedItem {
   /// AppController (or test double) that receives committed polygons.
   QObject* maskController() const { return mask_controller_; }
   void setMaskController(QObject* controller);
+  bool imageOptimizationMaskMode() const { return image_optimization_mask_mode_; }
+  void setImageOptimizationMaskMode(bool enabled);
 
   // QML keyboard / toolbar actions
   /// Remove the last placed vertex of the open polygon.
@@ -86,6 +91,7 @@ class RangeImageItem : public QQuickPaintedItem {
   void fillBoundsChanged();
   void closedPolygonOverlayChanged();
   void maskControllerChanged();
+  void imageOptimizationMaskModeChanged();
   /// Native range-image pixel coordinates; AppController connects this to commitMaskPolygon.
   void polygonCommitted(QVariantList nativeVertices);
 
@@ -127,6 +133,7 @@ class RangeImageItem : public QQuickPaintedItem {
   std::vector<QPointF> pending_closed_native_vertices_;
   QVariantList closed_polygon_overlay_;
   QObject* mask_controller_ = nullptr;
+  bool image_optimization_mask_mode_ = false;
   QPointF hover_native_;
   QPointF hover_display_;
   bool hover_use_display_ = false;

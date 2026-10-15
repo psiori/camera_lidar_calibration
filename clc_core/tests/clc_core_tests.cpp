@@ -16,6 +16,7 @@
 #include <clc_core/scan_geometry.hpp>
 #include <clc_core/dataset_util.hpp>
 #include <clc_core/session.hpp>
+#include <clc_core/calibration_service.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -174,6 +175,33 @@ void test_prune_placeholder_calibration_datasets() {
   clc::prune_placeholder_calibration_datasets(session);
   assert(session.calibration_datasets.size() == 1);
   assert(session.calibration_datasets.front().image_path == real.image_path);
+}
+
+void test_image_mask_session_round_trip() {
+  clc::SessionData session;
+  session.ensurePrimaryCalibration();
+  auto& ds = session.calibration_datasets.front();
+  ds.image_mask.path = "/tmp/image_mask_test.png";
+  ds.image_mask.width = 640;
+  ds.image_mask.height = 480;
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_image_mask.json";
+  assert(clc::save_session(path.string(), session));
+  clc::SessionData loaded;
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
+  assert(loaded.calibration_datasets.front().image_mask.width == 640);
+  assert(loaded.calibration_datasets.front().image_mask.path == ds.image_mask.path);
+  std::filesystem::remove(path);
+}
+
+void test_validate_alignment_image_masks() {
+  clc::AlignmentInput input;
+  input.images.push_back(cv::Mat(10, 20, CV_8UC3));
+  input.image_masks.push_back(std::vector<std::uint8_t>(10 * 20, 255));
+  std::string error;
+  assert(clc::validate_alignment_image_masks(input, error));
+  input.image_masks[0].resize(5);
+  assert(!clc::validate_alignment_image_masks(input, error));
 }
 
 void test_session_round_trip() {
@@ -477,6 +505,8 @@ int main() {
   test_multi_scan_not_ready_until_fused();
   test_structured_scan_reference_ignores_single_scan_only();
   test_prune_placeholder_calibration_datasets();
+  test_image_mask_session_round_trip();
+  test_validate_alignment_image_masks();
   test_session_round_trip();
   test_extrinsic_available_default_identity();
   test_session_inspection_load_without_fusion_params();

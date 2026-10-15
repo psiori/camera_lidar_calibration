@@ -3,6 +3,7 @@ qt_add_executable(clc_app
   app_logging.cpp
   app_controller.cpp
   range_image_item.cpp
+  mask_raster_overlay.cpp
 )
 qt_add_qml_module(clc_app
   URI CameraLidarCalibration
@@ -11,6 +12,7 @@ qt_add_qml_module(clc_app
     Main.qml
     Expansion.qml
     MaskEditorWindow.qml
+    ImageMaskEditorWindow.qml
     ViewerOverlay.qml
     ColormapRangeSlider.qml
     CameraImageItem.qml
@@ -20,6 +22,7 @@ qt_add_qml_module(clc_app
     DatasetInputFields.qml
   SOURCES
     range_image_item.cpp
+    mask_raster_overlay.cpp
 )
 target_link_libraries(clc_app PRIVATE
   Qt6::Quick
@@ -43,6 +46,7 @@ qt_add_executable(clc_mask_editor_polygon_test
   tests/mask_editor_polygon_test.cpp
   app_logging.cpp
   app_controller.cpp
+  mask_raster_overlay.cpp
 )
 target_compile_definitions(clc_mask_editor_polygon_test PRIVATE CLC_APP_TESTING)
 qt_add_qml_module(clc_mask_editor_polygon_test
@@ -53,6 +57,7 @@ qt_add_qml_module(clc_mask_editor_polygon_test
     ColormapRangeSlider.qml
   SOURCES
     range_image_item.cpp
+    mask_raster_overlay.cpp
 )
 target_link_libraries(clc_mask_editor_polygon_test PRIVATE
   Qt6::Quick

@@ -1,6 +1,7 @@
 #include "range_image_item.hpp"
 
 #include "app_controller.hpp"
+#include "mask_raster_overlay.hpp"
 
 #include <limits>
 
@@ -219,8 +220,19 @@ void RangeImageItem::setMaskController(QObject* controller) {
   if (auto* app = qobject_cast<AppController*>(mask_controller_)) {
     connect(app, &AppController::maskPolygonPendingChanged, this, [this] { update(); });
     connect(app, &AppController::maskChanged, this, [this] { update(); });
+    connect(app, &AppController::imageMaskPolygonPendingChanged, this, [this] { update(); });
+    connect(app, &AppController::imageMaskChanged, this, [this] { update(); });
   }
   emit maskControllerChanged();
+}
+
+void RangeImageItem::setImageOptimizationMaskMode(bool enabled) {
+  if (image_optimization_mask_mode_ == enabled) {
+    return;
+  }
+  image_optimization_mask_mode_ = enabled;
+  emit imageOptimizationMaskModeChanged();
+  update();
 }
 
 /// RangeImageItem::imageDestRect — image Dest Rect.
@@ -427,7 +439,11 @@ void RangeImageItem::closePolygon() {
   has_hover_ = false;
   update();
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
-    controller->commitMaskPolygonNative(pending_closed_native_vertices_);
+    if (image_optimization_mask_mode_) {
+      controller->commitImageMaskPolygonNative(pending_closed_native_vertices_);
+    } else {
+      controller->commitMaskPolygonNative(pending_closed_native_vertices_);
+    }
   }
   emit polygonCommitted(verts);
 }
@@ -453,7 +469,11 @@ void RangeImageItem::clearPendingPolygon() {
 /// RangeImageItem::hasClosedPolygonAwaitingDecision — has Closed Polygon Awaiting Decision.
 bool RangeImageItem::hasClosedPolygonAwaitingDecision() const {
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
-    if (controller->maskPolygonPending()) {
+    if (image_optimization_mask_mode_) {
+      if (controller->imageMaskPolygonPending()) {
+        return true;
+      }
+    } else if (controller->maskPolygonPending()) {
       return true;
     }
   }
@@ -476,7 +496,9 @@ QPointF RangeImageItem::maskNativeToRangeNative(const QPointF& p) const {
 /// RangeImageItem::closedPolygonNativeVertices — closed Polygon Native Vertices.
 std::vector<QPointF> RangeImageItem::closedPolygonNativeVertices() const {
   if (auto* controller = qobject_cast<AppController*>(mask_controller_)) {
-    const std::vector<QPointF> from_controller = controller->pendingMaskPolygonNativePoints();
+    const std::vector<QPointF> from_controller = image_optimization_mask_mode_
+                                                   ? controller->pendingImageMaskPolygonNativePoints()
+                                                   : controller->pendingMaskPolygonNativePoints();
     if (!from_controller.empty()) {
       std::vector<QPointF> range_space;
       range_space.reserve(from_controller.size());
@@ -538,54 +560,23 @@ void RangeImageItem::paint(QPainter* painter) {
   painter->drawRect(margin_rect);
   painter->drawImage(dest, image_);
 
-  if (mask_width_ > 0 && mask_height_ > 0 && mask_data_.size() == mask_width_ * mask_height_) {
-    QImage overlay(mask_width_, mask_height_, QImage::Format_ARGB32);
-    overlay.fill(Qt::transparent);
-    const auto* bytes = reinterpret_cast<const uchar*>(mask_data_.constData());
-    for (int y = 0; y < mask_height_; ++y) {
-      for (int x = 0; x < mask_width_; ++x) {
-        if (bytes[y * mask_width_ + x] == 0) {
-          overlay.setPixelColor(x, y, QColor(0, 0, 0, 255));
-        }
-      }
-    }
-    painter->drawImage(dest, overlay);
-  }
+  clc_app::mask_overlay::paintExcludedMaskOverlay(
+    painter, dest, mask_width_, mask_height_, mask_data_);
 
   painter->setPen(QPen(QColor(120, 130, 150), 1.5));
   painter->setBrush(Qt::NoBrush);
   painter->drawRect(dest);
 
   const auto draw_polygon_overlay = [&](const std::vector<QPointF>& vertices, bool closed) {
-    if (vertices.empty()) {
-      return;
-    }
-    QPen pen(QColor(255, 220, 0));
-    pen.setWidthF(2.0);
-    painter->setPen(pen);
-    QPolygonF poly;
-    for (const auto& v : vertices) {
-      poly << nativeToDisplay(v);
-    }
-    if (!closed && has_hover_) {
-      poly << (hover_use_display_ ? hover_display_ : nativeToDisplay(hover_native_));
-      painter->drawPolyline(poly);
-    } else if (closed) {
-      painter->drawPolygon(poly);
-    } else {
-      painter->drawPolyline(poly);
-    }
-    painter->setBrush(QColor(255, 220, 0));
-    for (const auto& v : vertices) {
-      const QPointF d = nativeToDisplay(v);
-      painter->drawEllipse(d, 3, 3);
-    }
-    if (vertices.size() >= 3) {
-      const QPointF first = nativeToDisplay(vertices.front());
-      painter->setPen(QPen(QColor(80, 255, 120), 2.0));
-      painter->setBrush(QColor(80, 255, 120));
-      painter->drawEllipse(first, 5, 5);
-    }
+    clc_app::mask_overlay::paintPolygonOverlay(
+      painter,
+      vertices,
+      closed,
+      [this](const QPointF& native) { return nativeToDisplay(native); },
+      has_hover_,
+      hover_use_display_,
+      hover_native_,
+      hover_display_);
   };
 
   const std::vector<QPointF> closed_native = closedPolygonNativeVertices();

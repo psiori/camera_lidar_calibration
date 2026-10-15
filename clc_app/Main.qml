@@ -15,6 +15,11 @@ ApplicationWindow {
         transientParent: root
     }
 
+    ImageMaskEditorWindow {
+        id: imageMaskEditor
+        transientParent: root
+    }
+
     AddDatasetDialog {
         id: addDatasetDialog
         parent: root
@@ -443,6 +448,36 @@ ApplicationWindow {
                                 Button { text: "Browse…"; onClicked: controller.browseMaskFile() }
                                 Button { text: "Save"; onClicked: controller.saveMask() }
                                 Button { text: "Clear"; onClicked: controller.clearMask() }
+                            }
+                        }
+                        GroupBox {
+                            title: "Image optimization mask"
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Button {
+                                        text: "Edit image mask…"
+                                        enabled: controller.imagePath.length > 0
+                                        onClicked: imageMaskEditor.show()
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Exclude camera image regions from NID optimization (per dataset)."
+                                        ToolTip.delay: root.tooltipDelayMs
+                                    }
+                                    Button { text: "Load"; onClicked: controller.loadImageMask() }
+                                    Button { text: "Browse…"; onClicked: controller.browseImageMaskFile() }
+                                    Button { text: "Save"; onClicked: controller.saveImageMask() }
+                                    Button { text: "Clear"; onClicked: controller.clearImageMask() }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    text: controller.imageMaskPath.length > 0
+                                        ? ("Mask: " + controller.imageMaskPath)
+                                        : "No image mask (all pixels used in NID)."
+                                }
                             }
                         }
                         Button {

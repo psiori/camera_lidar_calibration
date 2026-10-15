@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <filesystem>
 #include <optional>
 
 #include <clc/linalg.hpp>
@@ -684,12 +685,13 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   if (!mask_editor_open_) {
     refreshRangeImage();
   }
+  emit imageMaskChanged();
   emit correspondencesChanged();
 }
 
 /// AppController::canChangeActiveCalibrationDataset implementation.
 bool AppController::canChangeActiveCalibrationDataset() const {
-  return !worker_running_ && !mask_editor_open_;
+  return !worker_running_ && !mask_editor_open_ && !image_mask_editor_open_;
 }
 
 /// AppController::calibrationDatasetIds implementation.
@@ -951,6 +953,9 @@ bool AppController::addCalibrationDatasetFromPaths(
                      clc::calibration_dataset_is_placeholder),
       session_.calibration_datasets.end());
   session_.calibration_datasets.push_back(entry);
+  ensureImageMaskStorage();
+  image_mask_ops_by_dataset_.emplace_back();
+  image_mask_pixels_by_dataset_.emplace_back();
   clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   active_calibration_dataset_index_ =
       static_cast<int>(session_.calibration_datasets.size()) - 1;
@@ -978,6 +983,16 @@ void AppController::removeActiveCalibrationDataset() {
                          activeDatasetEntry(), QStringLiteral("removing"));
   session_.calibration_datasets.erase(session_.calibration_datasets.begin() +
                                       active_calibration_dataset_index_);
+  if (active_calibration_dataset_index_ <
+      static_cast<int>(image_mask_ops_by_dataset_.size())) {
+    image_mask_ops_by_dataset_.erase(image_mask_ops_by_dataset_.begin() +
+                                     active_calibration_dataset_index_);
+  }
+  if (active_calibration_dataset_index_ <
+      static_cast<int>(image_mask_pixels_by_dataset_.size())) {
+    image_mask_pixels_by_dataset_.erase(image_mask_pixels_by_dataset_.begin() +
+                                        active_calibration_dataset_index_);
+  }
   clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   clearFusedCloudCache();
   pending_correspondence_3d_.reset();
@@ -2027,7 +2042,12 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
       error = "fused cloud missing for dataset: " + ds.id;
       return false;
     }
+    std::vector<std::uint8_t> image_mask;
+    if (!resolveImageMaskForAlignment(ds_index, ds, img.cols, img.rows, image_mask, error)) {
+      return false;
+    }
     input.images.push_back(img);
+    input.image_masks.push_back(std::move(image_mask));
     input.clouds.push_back(clc::dense_cloud_to_nid_frame(dense));
     qCInfo(lcClcOptimization).noquote()
         << QStringLiteral(
@@ -2435,6 +2455,340 @@ QString AppController::browseMaskFile() {
   return file;
 }
 
+namespace {
+
+QString sanitizedDatasetIdForFilename(const std::string& id) {
+  QString safe = QString::fromStdString(id.empty() ? QStringLiteral("dataset").toStdString() : id);
+  for (int i = 0; i < safe.size(); ++i) {
+    const QChar c = safe[i];
+    if (!c.isLetterOrNumber() && c != QLatin1Char('_') && c != QLatin1Char('-')) {
+      safe[i] = QLatin1Char('_');
+    }
+  }
+  return safe;
+}
+
+}  // namespace
+
+void AppController::ensureImageMaskStorage() {
+  const std::size_t n = session_.calibration_datasets.size();
+  if (image_mask_ops_by_dataset_.size() < n) {
+    image_mask_ops_by_dataset_.resize(n);
+  }
+  if (image_mask_pixels_by_dataset_.size() < n) {
+    image_mask_pixels_by_dataset_.resize(n);
+  }
+}
+
+QString AppController::imageMaskPath() const {
+  if (session_.calibration_datasets.empty()) {
+    return {};
+  }
+  return QString::fromStdString(activeDatasetEntry().image_mask.path);
+}
+
+int AppController::imageMaskRasterWidth() const {
+  if (!activeDatasetEntry().image_mask.width) {
+    const QImage img(imagePath());
+    return img.width();
+  }
+  return activeDatasetEntry().image_mask.width;
+}
+
+int AppController::imageMaskRasterHeight() const {
+  if (!activeDatasetEntry().image_mask.height) {
+    const QImage img(imagePath());
+    return img.height();
+  }
+  return activeDatasetEntry().image_mask.height;
+}
+
+int AppController::imageMaskWidth() const { return imageMaskRasterWidth(); }
+
+int AppController::imageMaskHeight() const { return imageMaskRasterHeight(); }
+
+QByteArray AppController::imageMaskPreview() const {
+  const int w = imageMaskRasterWidth();
+  const int h = imageMaskRasterHeight();
+  if (w <= 0 || h <= 0 || session_.calibration_datasets.empty()) {
+    return {};
+  }
+  const std::size_t n = static_cast<std::size_t>(w * h);
+  std::vector<std::uint8_t> preview;
+  if (active_calibration_dataset_index_ >= 0 &&
+      static_cast<std::size_t>(active_calibration_dataset_index_) < image_mask_pixels_by_dataset_.size()) {
+    const auto& pixels =
+      image_mask_pixels_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)];
+    if (pixels.size() == n) {
+      preview = pixels;
+    }
+  }
+  if (preview.empty()) {
+    preview.assign(n, 255);
+  }
+  QByteArray out;
+  out.resize(static_cast<int>(preview.size()));
+  std::memcpy(out.data(), preview.data(), preview.size());
+  return out;
+}
+
+void AppController::setImageMaskPolygonPending(bool pending) {
+  if (image_mask_polygon_pending_ == pending) {
+    return;
+  }
+  image_mask_polygon_pending_ = pending;
+  emit imageMaskPolygonPendingChanged();
+  emit imageMaskChanged();
+}
+
+void AppController::rebuildImageMaskFromOps(int dataset_index) {
+  ensureImageMaskStorage();
+  if (dataset_index < 0 ||
+      dataset_index >= static_cast<int>(session_.calibration_datasets.size())) {
+    return;
+  }
+  const int w = imageMaskRasterWidth();
+  const int h = imageMaskRasterHeight();
+  auto& ds = session_.calibration_datasets[static_cast<std::size_t>(dataset_index)];
+  if (w <= 0 || h <= 0) {
+    emit imageMaskChanged();
+    return;
+  }
+  auto& ops = image_mask_ops_by_dataset_[static_cast<std::size_t>(dataset_index)];
+  auto& pixels = image_mask_pixels_by_dataset_[static_cast<std::size_t>(dataset_index)];
+  if (ops.empty()) {
+    pixels.clear();
+    emit imageMaskChanged();
+    return;
+  }
+  pixels = clc::build_mask_from_ops(w, h, ops);
+  ds.image_mask.width = w;
+  ds.image_mask.height = h;
+  emit imageMaskChanged();
+}
+
+void AppController::commitImageMaskPolygonNative(const std::vector<QPointF>& nativeVertices) {
+  if (nativeVertices.size() < 3) {
+    return;
+  }
+  pending_image_mask_polygon_ = {};
+  for (const QPointF& p : nativeVertices) {
+    pending_image_mask_polygon_.vertices.emplace_back(static_cast<float>(p.x()),
+                                                      static_cast<float>(p.y()));
+  }
+  setImageMaskPolygonPending(true);
+  setStatus(QStringLiteral("Image mask polygon closed — choose Keep or Remove"));
+}
+
+std::vector<QPointF> AppController::pendingImageMaskPolygonNativePoints() const {
+  if (!image_mask_polygon_pending_) {
+    return {};
+  }
+  std::vector<QPointF> out;
+  for (const auto& v : pending_image_mask_polygon_.vertices) {
+    out.emplace_back(v.x, v.y);
+  }
+  return out;
+}
+
+void AppController::applyPendingImageMaskKeep() {
+  if (!image_mask_polygon_pending_) {
+    return;
+  }
+  ensureImageMaskStorage();
+  auto& ops = image_mask_ops_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)];
+  ops.push_back({pending_image_mask_polygon_, true});
+  pending_image_mask_polygon_ = {};
+  setImageMaskPolygonPending(false);
+  rebuildImageMaskFromOps(active_calibration_dataset_index_);
+  setStatus(QStringLiteral("Image mask updated (keep region)"));
+}
+
+void AppController::applyPendingImageMaskRemove() {
+  if (!image_mask_polygon_pending_) {
+    return;
+  }
+  ensureImageMaskStorage();
+  auto& ops = image_mask_ops_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)];
+  ops.push_back({pending_image_mask_polygon_, false});
+  pending_image_mask_polygon_ = {};
+  setImageMaskPolygonPending(false);
+  rebuildImageMaskFromOps(active_calibration_dataset_index_);
+  setStatus(QStringLiteral("Image mask updated (remove region)"));
+}
+
+void AppController::discardPendingImageMaskPolygon() {
+  if (!image_mask_polygon_pending_) {
+    return;
+  }
+  pending_image_mask_polygon_ = {};
+  setImageMaskPolygonPending(false);
+  emit imageMaskChanged();
+  setStatus(QStringLiteral("Pending image mask polygon discarded"));
+}
+
+void AppController::clearImageMask() {
+  ensureImageMaskStorage();
+  const std::size_t idx = static_cast<std::size_t>(active_calibration_dataset_index_);
+  image_mask_ops_by_dataset_[idx].clear();
+  image_mask_pixels_by_dataset_[idx].clear();
+  pending_image_mask_polygon_ = {};
+  setImageMaskPolygonPending(false);
+  auto& ds = activeDatasetEntry();
+  ds.image_mask.path.clear();
+  ds.image_mask.width = 0;
+  ds.image_mask.height = 0;
+  emit imageMaskChanged();
+  setStatus(QStringLiteral("Image optimization mask cleared"));
+}
+
+bool AppController::saveImageMask() {
+  ensureImageMaskStorage();
+  const int w = imageMaskRasterWidth();
+  const int h = imageMaskRasterHeight();
+  const std::size_t idx = static_cast<std::size_t>(active_calibration_dataset_index_);
+  const auto& pixels = image_mask_pixels_by_dataset_[idx];
+  if (w <= 0 || h <= 0 || pixels.size() != static_cast<std::size_t>(w * h)) {
+    setStatus(QStringLiteral("No image mask to save (draw polygons or load a mask first)"));
+    return false;
+  }
+  QString dir = session_directory_;
+  if (dir.isEmpty()) {
+    dir = QFileDialog::getExistingDirectory(nullptr, QStringLiteral("Save image mask to session folder"));
+    if (dir.isEmpty()) {
+      return false;
+    }
+    setSessionDirectory(dir);
+  }
+  const QString path =
+    dir + QStringLiteral("/image_mask_") + sanitizedDatasetIdForFilename(activeDatasetEntry().id) +
+    QStringLiteral(".png");
+  if (!clc::save_mask_png(path.toStdString(), w, h, pixels)) {
+    setStatus(QStringLiteral("Failed to write image mask"));
+    return false;
+  }
+  auto& ds = activeDatasetEntry();
+  ds.image_mask.path = path.toStdString();
+  ds.image_mask.width = w;
+  ds.image_mask.height = h;
+  emit imageMaskChanged();
+  setStatus(QStringLiteral("Image mask saved to %1").arg(path));
+  return true;
+}
+
+bool AppController::loadImageMask() {
+  const int w = imageMaskRasterWidth();
+  const int h = imageMaskRasterHeight();
+  if (w <= 0 || h <= 0) {
+    setStatus(QStringLiteral("Load a calibration image before loading an image mask"));
+    return false;
+  }
+  QString path = imageMaskPath();
+  if (path.isEmpty()) {
+    path = browseImageMaskFile();
+    return !path.isEmpty();
+  }
+  ensureImageMaskStorage();
+  std::string error;
+  auto& pixels = image_mask_pixels_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)];
+  if (!clc::load_mask_png(path.toStdString(), w, h, pixels, error)) {
+    setStatus(QString::fromStdString(error));
+    return false;
+  }
+  image_mask_ops_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)].clear();
+  setImageMaskPolygonPending(false);
+  auto& ds = activeDatasetEntry();
+  ds.image_mask.path = path.toStdString();
+  ds.image_mask.width = w;
+  ds.image_mask.height = h;
+  emit imageMaskChanged();
+  setStatus(QStringLiteral("Image mask loaded"));
+  return true;
+}
+
+QString AppController::browseImageMaskFile() {
+  const QString file = QFileDialog::getOpenFileName(
+    nullptr,
+    QStringLiteral("Load image mask PNG"),
+    session_directory_,
+    QStringLiteral("PNG mask (*.png)"));
+  if (file.isEmpty()) {
+    return QString();
+  }
+  const int w = imageMaskRasterWidth();
+  const int h = imageMaskRasterHeight();
+  if (w <= 0 || h <= 0) {
+    setStatus(QStringLiteral("Load a calibration image before loading an image mask"));
+    return QString();
+  }
+  ensureImageMaskStorage();
+  std::string error;
+  auto& pixels = image_mask_pixels_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)];
+  if (!clc::load_mask_png(file.toStdString(), w, h, pixels, error)) {
+    setStatus(QString::fromStdString(error));
+    return QString();
+  }
+  image_mask_ops_by_dataset_[static_cast<std::size_t>(active_calibration_dataset_index_)].clear();
+  setImageMaskPolygonPending(false);
+  auto& ds = activeDatasetEntry();
+  ds.image_mask.path = file.toStdString();
+  ds.image_mask.width = w;
+  ds.image_mask.height = h;
+  emit imageMaskChanged();
+  setStatus(QStringLiteral("Image mask loaded"));
+  return file;
+}
+
+void AppController::setImageMaskEditorOpen(bool open) {
+  if (image_mask_editor_open_ == open) {
+    return;
+  }
+  image_mask_editor_open_ = open;
+  if (open) {
+    refreshCameraPreview();
+  }
+  emit imageMaskEditorOpenChanged();
+  emit activeDatasetSelectionLockChanged();
+}
+
+bool AppController::resolveImageMaskForAlignment(
+  int dataset_index,
+  const clc::DatasetEntry& ds,
+  int image_cols,
+  int image_rows,
+  std::vector<std::uint8_t>& mask_out,
+  std::string& error) {
+  mask_out.clear();
+  error.clear();
+  const std::size_t expected =
+    static_cast<std::size_t>(image_cols) * static_cast<std::size_t>(image_rows);
+  if (expected == 0) {
+    return true;
+  }
+  ensureImageMaskStorage();
+  if (dataset_index >= 0 &&
+      dataset_index < static_cast<int>(image_mask_pixels_by_dataset_.size())) {
+    const auto& mem = image_mask_pixels_by_dataset_[static_cast<std::size_t>(dataset_index)];
+    if (mem.size() == expected) {
+      mask_out = mem;
+      return true;
+    }
+  }
+  if (ds.image_mask.path.empty()) {
+    return true;
+  }
+  if (!std::filesystem::exists(ds.image_mask.path)) {
+    error = "image mask file missing: " + ds.image_mask.path;
+    return false;
+  }
+  std::string load_err;
+  if (!clc::load_mask_png(ds.image_mask.path, image_cols, image_rows, mask_out, load_err)) {
+    error = load_err;
+    return false;
+  }
+  return true;
+}
+
 /// Load First Readable Scan from disk or session.
 bool AppController::loadFirstReadableScan(clc::PointXYZITCloud &cloud,
                                           std::string &err) {
@@ -2781,6 +3135,23 @@ bool AppController::loadSession(const QString &directory) {
         QStringLiteral("loaded"));
   }
   emit maskChanged();
+  image_mask_ops_by_dataset_.clear();
+  image_mask_pixels_by_dataset_.clear();
+  ensureImageMaskStorage();
+  for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
+    const auto& ds = session_.calibration_datasets[static_cast<std::size_t>(i)];
+    if (ds.image_mask.path.empty() || ds.image_mask.width <= 0 || ds.image_mask.height <= 0) {
+      continue;
+    }
+    std::string err;
+    clc::load_mask_png(
+      ds.image_mask.path,
+      ds.image_mask.width,
+      ds.image_mask.height,
+      image_mask_pixels_by_dataset_[static_cast<std::size_t>(i)],
+      err);
+  }
+  emit imageMaskChanged();
   active_calibration_dataset_index_ = 0;
   emit calibrationDatasetsChanged();
   emitSessionUiState();

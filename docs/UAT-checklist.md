@@ -27,6 +27,12 @@ CLI spot-check (optional, `sequence2_short` sample data): integrator voxel `0.01
 - [ ] Edit mask in popout; keep/remove; save/load binary mask
 - [ ] Fusion respects global mask on structured scans
 
+## Image optimization mask (NID)
+
+- [ ] On Datasets, **Edit image mask…** opens the camera-image mask editor for the active calibration dataset
+- [ ] Draw polygon, **Keep** or **Remove**, **Save** writes `image_mask_<dataset_id>.png`; session save records path under `image_mask` in `session.json`
+- [ ] **Run alignment** (BFGS) succeeds with a mask excluding a large sky/body region; repeat with Nelder–Mead registration
+
 ## Initial guess and alignment
 
 - [ ] Gizmo updates `T_camera_lidar_initial` and projected colors

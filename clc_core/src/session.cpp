@@ -199,6 +199,9 @@ nlohmann::json dataset_to_json(const DatasetEntry& d) {
   for (const auto& c : d.correspondences) {
     j["correspondences"].push_back({{"uv", {c.u, c.v}}, {"xyz", {c.x, c.y, c.z}}});
   }
+  j["image_mask"]["path"] = d.image_mask.path;
+  j["image_mask"]["width"] = d.image_mask.width;
+  j["image_mask"]["height"] = d.image_mask.height;
   return j;
 }
 
@@ -270,6 +273,11 @@ bool dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& er
     d.scan_time = d.fusion_params.scan_time;
   }
   read_dataset_correspondences(j, d);
+  if (j.contains("image_mask") && j["image_mask"].is_object()) {
+    d.image_mask.path = j["image_mask"].value("path", "");
+    d.image_mask.width = j["image_mask"].value("width", 0);
+    d.image_mask.height = j["image_mask"].value("height", 0);
+  }
   return true;
 }
 
