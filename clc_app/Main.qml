@@ -488,7 +488,7 @@ ApplicationWindow {
                                         }
                                         Button {
                                             text: "×"
-                                            visible: modelData.editable || modelData.pendingPick
+                                            visible: modelData.editable || (modelData.pendingPick === true)
                                             onClicked: controller.deleteCorrespondenceRow(modelData.globalIndex)
                                         }
                                     }
