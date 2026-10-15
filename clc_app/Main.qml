@@ -471,7 +471,7 @@ ApplicationWindow {
                         Label {
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: "Shift+click a 3D point and/or Shift+click the image (either order). Select a row to re-pick one side."
+                            text: "Shift+click a 3D point and/or click the image (either order). Select a row to re-pick one side."
                         }
                         ComboBox {
                             Layout.fillWidth: true

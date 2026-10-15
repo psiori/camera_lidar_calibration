@@ -42,7 +42,7 @@ The 3D viewer SHALL display the **active** calibration dataset’s ready cloud (
 
 ### Requirement: Zoomable camera image with reticle
 
-The left pane SHALL display the active calibration dataset’s camera image in a pan- and zoom-capable view. A reticle (crosshair) SHALL follow the pointer over the image to support accurate pixel selection. Picking SHALL map display coordinates to native image pixel coordinates accounting for letterboxing or uniform scale.
+The left pane SHALL display the active calibration dataset’s camera image in a reusable pan- and zoom-capable view (`ZoomableImageView`). The view SHALL letterbox to fit on load and resize, use smooth exponential wheel zoom with a tunable speed factor, clamp zoom between full-image fit and a maximum magnification, and clamp pan so zoomed images never expose empty container background. A thin-line reticle SHALL follow the pointer when picking is enabled. Left-click (without drag) SHALL commit image picks; left-drag SHALL pan only. Picking SHALL map display coordinates to native image pixel coordinates accounting for uniform scale.
 
 #### Scenario: Zoom and pick
 
@@ -82,7 +82,7 @@ For the manual method on the active calibration dataset, the user SHALL pick a 3
 
 #### Scenario: Complete one pair
 
-- **WHEN** the user Shift+clicks a 3D point and then clicks the matching image location on the current dataset
+- **WHEN** the user Shift+clicks a 3D point and then left-clicks the matching image location on the current dataset
 - **THEN** a correspondence row is added with markers in both panes
 
 #### Scenario: Blocked during optimize

@@ -14,6 +14,7 @@ qt_add_qml_module(clc_app
     ViewerOverlay.qml
     ColormapRangeSlider.qml
     CameraImageItem.qml
+    ZoomableImageView.qml
     PointCloudViewerPane.qml
     AddDatasetDialog.qml
     DatasetInputFields.qml

@@ -3265,8 +3265,8 @@ void AppController::onPointPicked(double x, double y, double z) {
     return;
   }
   emit correspondencesChanged();
-  setStatus(QStringLiteral("3D point picked — Shift+click the matching "
-                           "location on the camera image"));
+  setStatus(QStringLiteral("3D point picked — click the matching location "
+                           "on the camera image"));
 }
 
 /// AppController::pickImageCorrespondence implementation.
