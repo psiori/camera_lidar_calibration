@@ -2570,7 +2570,14 @@ bool AppController::loadSession(const QString &directory) {
   setSessionDirectory(dir);
   if (!session_.calibration_datasets.empty() &&
       !activeDatasetEntry().cloud_directory.empty()) {
-    refreshPcdCatalog();
+    // Keep catalog from session.json when present; rescanning would pick up fused_*.pcd exports.
+    if (activeDatasetEntry().pcd_paths.empty()) {
+      refreshPcdCatalog();
+    } else {
+      fusion_blocked_ = false;
+      emit pcdCatalogChanged();
+      emit calibrationDatasetsChanged();
+    }
   } else if (!activeDatasetEntry().pcd_paths.empty()) {
     emit pcdCatalogChanged();
   }

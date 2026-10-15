@@ -51,6 +51,12 @@ PcdDirectoryScan scan_pcd_directory(const std::string& directory, int reference_
 
   std::vector<std::string> readable;
   for (const auto& path : candidates) {
+    const auto name = std::filesystem::path(path).filename().string();
+    double stamp_seconds = 0.0;
+    // Skip fused dense exports (fused_<timestamp>.pcd) and other non-scan files in the folder.
+    if (!parse_pcd_filename_stamp(name, stamp_seconds)) {
+      continue;
+    }
     int w = 0;
     int h = 0;
     std::string err;
