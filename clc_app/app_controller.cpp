@@ -642,6 +642,8 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   active_calibration_dataset_index_ = clamped;
   pending_correspondence_3d_.reset();
   selected_correspondence_row_ = -1;
+  // Fused vs preview intensities use different scales; recompute colormap limits per dataset.
+  viewer_scalar_bounds_valid_ = false;
   syncActiveDatasetFusionToSession();
   emit calibrationDatasetsChanged();
   emit sessionPathsChanged();
@@ -2956,7 +2958,7 @@ void AppController::uploadDenseCloudToViewer(
 
 /// Send Fused Cloud To Viewer data to the point cloud viewer.
 void AppController::uploadFusedCloudToViewer() {
-  uploadDenseCloudToViewer(fused_cloud_, viewer_scalar_bounds_valid_);
+  uploadDenseCloudToViewer(fused_cloud_, false);
 }
 
 /// Save Inspection Colored Pcd to a user-chosen file path.
@@ -3387,8 +3389,6 @@ void AppController::runFusion() {
             }
           }
           setPointCount(static_cast<int>(result.cloud.points.size()));
-          refreshViewerColormapBounds(false);
-          emit viewerColormapChanged();
           emit calibrationDatasetsChanged();
           setStatus(QStringLiteral("Fusion complete"));
           uploadFusedCloudToViewer();
