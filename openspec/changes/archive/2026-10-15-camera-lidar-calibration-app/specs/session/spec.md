@@ -100,6 +100,11 @@ All structured PCDs across all calibration datasets in a session SHALL share the
 
 The session SHALL be saveable and loadable to a directory including intrinsics, extrinsics, global mask path, per-dataset fusion and scan-time settings, dataset ids and paths, fused cloud paths, and per-dataset correspondences.
 
+#### Scenario: Round-trip session contents
+
+- **WHEN** the user saves the session and later loads the same session directory
+- **THEN** intrinsics, extrinsics, mask reference, dataset paths, fusion settings, fused cloud paths, and correspondences are restored
+
 ### Requirement: Single supported session schema (pre-stable)
 
 Until the first stable release, the application SHALL support **only** the current `session.json` shape written by the app. Load SHALL **not** implement migration, inference, or fallbacks for omitted fields from earlier experimental saves. If `session.json` is missing required keys (including per-dataset `fusion_params.backend`), load SHALL fail with a clear error.

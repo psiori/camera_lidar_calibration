@@ -94,6 +94,11 @@ The **Datasets** tab SHALL expose every user-relevant field on `glim_cloud_fusio
 
 Each control SHALL have an in-app tooltip. For multi-scan datasets, the **Fusion method** dropdown SHALL be visible and SHALL reflect the active dataset’s `backend`. Parameter groups SHALL be **shown and wired** only for the selected method: CT-GICP / GLIM controls when `GlimSlam`; CT integrator controls when `CtIntegrator`; shared controls (scan time, `k_neighbors`, output voxel) per `design.md`. Inactive-backend controls MAY be hidden or disabled but SHALL NOT affect `fuse_scans` for the active method. Scan-time and backend-specific blocks SHALL be disabled when the active dataset is single-scan (passthrough); output voxel and **Run fusion** remain enabled per single-scan requirement.
 
+#### Scenario: Fusion parameters persist per dataset
+
+- **WHEN** the user edits fusion parameters for the active calibration dataset and saves the session
+- **THEN** `session.json` stores those values under that dataset’s `fusion_params` and reload restores them
+
 ### Requirement: Compatible fused output intensity
 
 Fused clouds from either backend SHALL use the same intensity representation in memory, viewer colormaps, and exported PCD (field presence and nominal range compatible with the existing SLAM fusion path). Backend-specific processing SHALL NOT leave one dataset with a different intensity scale than another in the same session unless the user changes source scan content.
