@@ -430,6 +430,10 @@ private:
   void applySessionToViewer();           /// Sync pose gizmo matrix from session T_camera_lidar.
   void refreshViewerGizmoState();        /// Enable/disable gizmo and picking while worker runs.
   void loadActiveDatasetCloudToViewer();
+  /// Clear in-memory fusion result (calibration or inspection).
+  void clearFusedCloudCache();
+  /// True when fused_cloud_ matches the dataset context of the current main tab.
+  bool fusedCloudBelongsToActiveContext() const;
   void syncActiveDatasetFusionToSession();
   void emitSessionUiState();             /// Emit all path/catalog related signals.
   void syncColorModelFromSession();      /// Reload PointColorModel from intrinsics + image.
@@ -450,7 +454,8 @@ private:
   clc::PointColorModel color_model_;                      /// Camera RGB projection for viewer tint.
   cv::Mat projection_image_;                              /// BGR image used for color_model_.
   std::string projection_image_path_;                     /// Path of projection_image_ (cache key).
-  std::optional<int> fused_cloud_dataset_index_;          /// Which dataset index owns fused_cloud_.
+  std::optional<int> fused_cloud_dataset_index_;          /// Dataset index that owns fused_cloud_.
+  bool fused_cloud_is_inspection_ = false;                /// fused_cloud_ belongs to inspection_datasets.
   QVector<float> viewer_positions_;                       /// Last cloud uploaded to psiviz (xyz).
   QVector<float> viewer_scalars_;                         /// Per-point scalar channel for colormap.
   QVector<float> viewer_rgb_;                             /// Per-point camera RGB for blending.
