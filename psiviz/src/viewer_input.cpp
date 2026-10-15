@@ -147,11 +147,15 @@ InputResult ViewerInputRouter::keyPress(const QKeyEvent& event) {
   }
   if (event.key() == Qt::Key_R) {
     camera_.reset();
+    camera_.recomputeClipPlanes();
     result.action = InputAction::CameraReset;
   } else if (event.key() == Qt::Key_F) {
     result.action = InputAction::CameraFlyTo;
   } else if (event.key() == Qt::Key_H || event.key() == Qt::Key_Home) {
     result.action = InputAction::CameraFrameContent;
+  } else if (event.key() == Qt::Key_Z) {
+    camera_.recomputeClipPlanes();
+    result.action = InputAction::CameraRecomputeClipPlanes;
   }
   return result;
 }

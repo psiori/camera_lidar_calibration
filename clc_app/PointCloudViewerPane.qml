@@ -45,6 +45,12 @@ FocusScope {
         enabled: viewerHover.hovered && !viewerOverlay.keysBlocked
         onActivated: cloudView.bumpPointSize(-0.5)
     }
+    Shortcut {
+        sequences: ["Z", "z"]
+        context: Qt.ApplicationShortcut
+        enabled: viewerHover.hovered && !viewerOverlay.keysBlocked
+        onActivated: cloudView.recomputeClipPlanes()
+    }
 
     PointCloudScene {
         id: cloudView

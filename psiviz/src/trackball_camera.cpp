@@ -46,6 +46,37 @@ void TrackballCamera::setPerspective(float fovy_deg, float z_near, float z_far) 
 
 float TrackballCamera::orbitDistance() const { return clc::length(position_ - focal_); }
 
+void TrackballCamera::computeClipPlanes(float& z_near, float& z_far) const {
+  const float dist = std::max(0.05f, orbitDistance());
+  z_near = std::max(0.001f, dist / 10.f);
+  z_far = std::max(100.f, dist * 10.f);
+  if (content_radius_ > 0.f) {
+    z_near = std::max(0.001f, std::min(z_near, dist - content_radius_));
+    z_far = std::max(z_far, dist + content_radius_);
+  }
+  if (z_far <= z_near * 1.001f) {
+    z_far = z_near * 1000.f;
+  }
+}
+
+void TrackballCamera::recomputeClipPlanes() {
+  computeClipPlanes(z_near_, z_far_);
+}
+
+float TrackballCamera::clipNearPlane() const {
+  float z_near = 0.f;
+  float z_far = 0.f;
+  computeClipPlanes(z_near, z_far);
+  return z_near;
+}
+
+float TrackballCamera::clipFarPlane() const {
+  float z_near = 0.f;
+  float z_far = 0.f;
+  computeClipPlanes(z_near, z_far);
+  return z_far;
+}
+
 void TrackballCamera::setOrbitFromForward(float orbit_distance) {
   const float d = std::max(0.05f, orbit_distance);
   const clc::Vec3f forward = defaultForwardFromPitchYaw(kDefaultPitch, 0.f);
@@ -73,12 +104,12 @@ void TrackballCamera::orthogonalizeViewUp() {
 void TrackballCamera::fitToBounds(const clc::Vec3f& min, const clc::Vec3f& max) {
   const clc::Vec3f center = (min + max) * 0.5f;
   const float radius = clc::length(max - min) * 0.5f;
+  content_radius_ = radius;
   focal_ = center;
   const float distance = std::max(1.f, radius * 2.5f);
-  z_far_ = std::max(100.f, distance * 10.f);
-  z_near_ = std::max(0.001f, distance / 10.f);
   point_size_ = std::max(point_size_, 3.f);
   setOrbitFromForward(distance);
+  recomputeClipPlanes();
 }
 
 void TrackballCamera::rotate(float dx, float dy) {
@@ -137,6 +168,7 @@ void TrackballCamera::dolly(float delta) {
   float new_dist = dist * std::exp(-delta * 0.001f);
   new_dist = std::clamp(new_dist, 0.05f, 1e6f);
   position_ = focal_ - forward * new_dist;
+  recomputeClipPlanes();
 }
 
 void TrackballCamera::spin(float dx, float dy) {
@@ -150,7 +182,10 @@ void TrackballCamera::spin(float dx, float dy) {
   orthogonalizeViewUp();
 }
 
-void TrackballCamera::reset() { setOrbitFromForward(orbitDistance()); }
+void TrackballCamera::reset() {
+  setOrbitFromForward(orbitDistance());
+  recomputeClipPlanes();
+}
 
 void TrackballCamera::flyTo(const clc::Vec3f& target, float duration_sec) {
   fly_target_ = target;
@@ -174,6 +209,7 @@ void TrackballCamera::tick(float dt_sec) {
   if (fly_t_ >= 1.f) {
     orthogonalizeViewUp();
   }
+  recomputeClipPlanes();
 }
 
 clc::Mat4f TrackballCamera::viewMatrix() const {
@@ -185,7 +221,10 @@ clc::Mat4f TrackballCamera::viewMatrix() const {
 
 clc::Mat4f TrackballCamera::projectionMatrix() const {
   const float aspect = static_cast<float>(width_) / static_cast<float>(height_);
-  return clc::perspective(fovy_deg_ * kDegToRad, aspect, z_near_, z_far_);
+  float z_near = z_near_;
+  float z_far = z_far_;
+  computeClipPlanes(z_near, z_far);
+  return clc::perspective(fovy_deg_ * kDegToRad, aspect, z_near, z_far);
 }
 
 }  // namespace psiviz

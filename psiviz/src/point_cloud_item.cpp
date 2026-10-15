@@ -529,6 +529,11 @@ void PointCloudItem::frameCameraToContent() {
   update();
 }
 
+void PointCloudItem::recomputeClipPlanes() {
+  camera_.recomputeClipPlanes();
+  update();
+}
+
 QVariantList PointCloudItem::poseMatrix() const {
   QVariantList out;
   const clc::Mat4f m = gizmo_.pose();
@@ -601,6 +606,10 @@ bool PointCloudItem::processNavigationKey(QKeyEvent* key_event) {
   }
   if (result.action == InputAction::CameraFrameContent) {
     frameCameraToContent();
+    return true;
+  }
+  if (result.action == InputAction::CameraRecomputeClipPlanes) {
+    recomputeClipPlanes();
     return true;
   }
   return false;

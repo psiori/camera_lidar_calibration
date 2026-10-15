@@ -14,6 +14,8 @@ class TrackballCamera {
   void setViewport(int width, int height, float device_pixel_ratio);
   void setPerspective(float fovy_deg, float z_near, float z_far);
   void fitToBounds(const clc::Vec3f& min, const clc::Vec3f& max);
+  /// Recompute near/far clip planes from the current orbit distance and last fitted content radius.
+  void recomputeClipPlanes();
 
   void rotate(float dx, float dy);
   void pan(float dx, float dy);
@@ -26,6 +28,8 @@ class TrackballCamera {
 
   [[nodiscard]] clc::Mat4f viewMatrix() const;
   [[nodiscard]] clc::Mat4f projectionMatrix() const;
+  [[nodiscard]] float clipNearPlane() const;
+  [[nodiscard]] float clipFarPlane() const;
   [[nodiscard]] clc::Vec3f focalPoint() const { return focal_; }
   [[nodiscard]] float pointSize() const { return point_size_; }
   void setPointSize(float size) { point_size_ = size; }
@@ -35,6 +39,7 @@ class TrackballCamera {
   void orthogonalizeViewUp();
   void setOrbitFromForward(float orbit_distance);
   [[nodiscard]] float orbitDistance() const;
+  void computeClipPlanes(float& z_near, float& z_far) const;
 
   clc::Vec3f position_{0.f, -2.96f, -9.55f};
   clc::Vec3f focal_{0.f, 0.f, 0.f};
@@ -46,6 +51,8 @@ class TrackballCamera {
   float fovy_deg_{60.f};
   float z_near_{0.01f};
   float z_far_{1000.f};
+  /// Bounding-sphere radius from the last successful `fitToBounds` (0 if never fitted).
+  float content_radius_{0.f};
   float motion_factor_{10.f};
 
   clc::Vec3f fly_target_{};

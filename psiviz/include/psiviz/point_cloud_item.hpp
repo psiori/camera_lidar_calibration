@@ -74,10 +74,12 @@ class PointCloudItem : public QQuickRhiItem {
   Q_INVOKABLE void updatePointCloudScalarsAndColors(const QVector<float>& scalars, const QVector<float>& rgb);
   /// Fit the camera to the current point cloud bounding box.
   Q_INVOKABLE void frameCameraToContent();
+  /// Refresh near/far clip planes from the current orbit (use if points are clipped after zoom/pan).
+  Q_INVOKABLE void recomputeClipPlanes();
   /// 4x4 pose matrix as 16 doubles in column-major order (for QML / AppController).
   Q_INVOKABLE QVariantList poseMatrix() const;
   Q_INVOKABLE void setPoseMatrix(const QVariantList& values);
-  /// Navigation keys (`f`, `+`, `-`, `r`, `h`) for QML forwarding when the pointer is over the viewport.
+  /// Navigation keys (`f`, `+`, `-`, `r`, `h`, `z`) for QML forwarding when the pointer is over the viewport.
   Q_INVOKABLE bool handleNavigationKey(int key, int modifiers);
   Q_INVOKABLE void bumpPointSize(double delta);
   /// Point-index pick at last pointer position (or viewport center) and animate focal point there (`f`).

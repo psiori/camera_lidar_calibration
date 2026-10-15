@@ -40,5 +40,13 @@ int main() {
     return EXIT_FAILURE;
   }
 
+  camera.fitToBounds({-40.f, -40.f, -40.f}, {40.f, 40.f, 40.f});
+  const float near_before_dolly = camera.clipNearPlane();
+  camera.dolly(800.f);
+  const float near_after_zoom_in = camera.clipNearPlane();
+  if (near_after_zoom_in >= near_before_dolly) {
+    return EXIT_FAILURE;
+  }
+
   return EXIT_SUCCESS;
 }
