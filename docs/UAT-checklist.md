@@ -14,6 +14,14 @@ Use a known session with structured PCDs, camera image, and intrinsics YAML.
 - [ ] Run fusion on 2+ scans; viewer preview densifies during processing
 - [ ] Run fusion on 1 scan; fused cloud succeeds (passthrough)
 
+## Fusion backends and parameters (CT integrator / CT-GICP SLAM)
+
+- [ ] **iVox vs output voxel (19.5):** On a multi-scan dataset, set integrator iVox resolution and output voxel to different values; fuse; change output voxel only and fuse again — point count shifts while fusion still succeeds. Save session, reload, confirm both values round-trip.
+- [ ] **Intensity parity (20.6b):** Fuse the same masked multi-scan catalog with **CT integrator** and **CT-GICP SLAM**; exported PCD intensity min/max are in the same nominal range (no per-backend UI scale tweak). Viewer colormap looks consistent when switching datasets.
+- [ ] **Backend isolation (20.8):** With **CT integrator** selected, toggle SLAM-only smoother / iSAM2 settings (or run `clc_fusion` with `--enable-smoother`); integrator output is unchanged. With **CT-GICP SLAM**, smoother settings affect odometry as expected.
+
+CLI spot-check (optional, `sequence2_short` sample data): integrator voxel `0.01` vs `0.2` yielded ~225k vs ~24k points; integrator with `--enable-smoother` matched default point count; integrator and SLAM PCD intensities both spanned `1.0`–`255.0`.
+
 ## Mask and range image
 
 - [ ] Edit mask in popout; keep/remove; save/load binary mask

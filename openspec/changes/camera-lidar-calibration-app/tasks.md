@@ -159,16 +159,16 @@ v1 is **display-only** on Initial alignment and Calibrate (no drag/rotate). Came
 - [x] 19.3a Datasets tab: `k_neighbors` SpinBox + tooltip (enabled for single- and multi-scan)
 - [x] 19.3b Expose remaining CT-GICP fields; grey odometry block when single-scan
 - [x] 19.4 Binding verification: UI → `DatasetEntry::fusion_params` → `run_fusion` → `fuse_scans` → `OdometryEstimationCT` when `backend == GlimSlam` (test or checklist)
-- [ ] 19.5 UAT: change iVox resolution vs output voxel, save/load session, multi-scan fuse and confirm behavior shift
+- [x] 19.5 UAT: change iVox resolution vs output voxel, save/load session, multi-scan fuse and confirm behavior shift
 
 ## 20. CT integrator fusion backend (spec: `lidar-fusion`, `session`, `app-shell`; WP2 `glim_cloud_fusion`)
 
 - [x] 20.1 `FusionParams`: add `FusionBackend` enum (`GlimSlam`, `CtIntegrator`, default `CtIntegrator`); integrator fields (`target_num_points`, `min_distance`, `integrator_ivox_resolution`, … per `design.md`); `apply_default_fusion_params` default integrator
 - [x] 20.2 Implement `CtIntegrator` path in `glim_cloud_fusion::fuse_scans` (CT integrator port using `gtsam_points`; shared preprocess + `voxel_merge`; progress/preview callbacks; intensity compatible with SLAM path)
-- [ ] 20.3 Unit or regression test in `glim_cloud_fusion` on integrator path (optional reference compare to legacy dvl preprocess on fixed scans; tolerance documented)
+- [x] 20.3 Unit or regression test in `glim_cloud_fusion` on integrator path (optional reference compare to legacy dvl preprocess on fixed scans; tolerance documented)
 - [x] 20.4 `clc_fusion`: `--fusion-backend slam|integrator` and integrator CLI flags; document in `BUILD.md` or tool help
 - [x] 20.5 `session.json`: required per-dataset `fusion_params` including `backend` + integrator fields; drop session-level legacy `fusion` read/write if still present; load fails on missing/unknown fields (no migration)
 - [x] 20.6 Datasets tab: **Fusion method** dropdown (per active dataset); show/wire parameter groups per selection; tooltips per `design.md`
-- [ ] 20.6b Verify fused intensity range parity integrator vs SLAM on same masked scans (viewer + PCD export)
+- [x] 20.6b Verify fused intensity range parity integrator vs SLAM on same masked scans (viewer + PCD export)
 - [x] 20.7 Binding verification: UI → session → `run_fusion` → `fuse_scans` integrator branch
-- [ ] 20.8 UAT: same session fused with both backends; confirm SLAM smoother settings do not affect integrator path
+- [x] 20.8 UAT: same session fused with both backends; confirm SLAM smoother settings do not affect integrator path

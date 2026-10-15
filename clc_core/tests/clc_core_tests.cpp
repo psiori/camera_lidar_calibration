@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 
 #include <Eigen/Core>
 
@@ -19,6 +20,50 @@
 #include <vlcal/calib/visual_camera_calibration.hpp>
 
 namespace {
+
+/// Builds a small structured scan with per-point timestamps for multi-scan fusion tests.
+glim_cloud_fusion::LidarScan make_structured_test_scan(int scan_index) {
+  glim_cloud_fusion::LidarScan scan;
+  scan.width = 12;
+  scan.height = 8;
+  scan.stamp = static_cast<double>(scan_index);
+  const int point_count = scan.width * scan.height;
+  for (int i = 0; i < point_count; ++i) {
+    const int row = i / scan.width;
+    const int col = i % scan.width;
+    scan.points.emplace_back(
+      static_cast<double>(scan_index) * 3.0 + col * 0.15,
+      row * 0.12,
+      5.0 + col * 0.02,
+      1.0);
+    scan.times.push_back(static_cast<double>(i) * 8.0e6);
+    scan.intensities.push_back(50.0 + static_cast<double>(i % 200));
+  }
+  return scan;
+}
+
+glim_cloud_fusion::FusionParams make_ct_integrator_test_params() {
+  glim_cloud_fusion::FusionParams params;
+  clc::apply_default_fusion_params(params);
+  params.backend = glim_cloud_fusion::FusionBackend::CtIntegrator;
+  params.num_threads = 2;
+  params.target_num_points = 500;
+  params.integrator_lm_outer_loops = 1;
+  params.lm_max_iterations = 2;
+  clc::apply_default_scan_time_params(params.scan_time);
+  params.scan_time.scan_duration = 0.1;
+  return params;
+}
+
+std::pair<double, double> intensity_min_max(const glim_cloud_fusion::DensePointCloud& cloud) {
+  double min_v = cloud.intensities.empty() ? 0.0 : cloud.intensities.front();
+  double max_v = min_v;
+  for (const double v : cloud.intensities) {
+    min_v = std::min(min_v, v);
+    max_v = std::max(max_v, v);
+  }
+  return {min_v, max_v};
+}
 
 void test_colormap_jet() {
   const std::vector<float> values{0.f, 0.5f, 1.f};
@@ -189,6 +234,70 @@ void test_scan_geometry_empty_directory() {
   assert(scan.paths.empty());
 }
 
+void test_session_fusion_ivox_and_voxel_round_trip() {
+  clc::SessionData session;
+  session.ensurePrimaryCalibration();
+  session.calibration_datasets.front().image_path = "/tmp/fusion_params.png";
+  session.calibration_datasets.front().cloud_directory = "/tmp/pcds";
+  auto& fusion = session.calibration_datasets.front().fusion_params;
+  fusion.integrator_ivox_resolution = 0.75;
+  fusion.voxel_resolution = 0.03;
+  fusion.ivox_resolution = 0.25;
+  fusion.backend = glim_cloud_fusion::FusionBackend::GlimSlam;
+
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_fusion_ivox_voxel.json";
+  assert(clc::save_session(path.string(), session));
+  clc::SessionData loaded;
+  assert(clc::load_session(path.string(), loaded));
+  const auto& loaded_fusion = loaded.calibration_datasets.front().fusion_params;
+  assert(std::abs(loaded_fusion.integrator_ivox_resolution - 0.75) < 1e-12);
+  assert(std::abs(loaded_fusion.voxel_resolution - 0.03) < 1e-12);
+  assert(std::abs(loaded_fusion.ivox_resolution - 0.25) < 1e-12);
+  assert(loaded_fusion.backend == glim_cloud_fusion::FusionBackend::GlimSlam);
+  std::filesystem::remove(path);
+}
+
+void test_fusion_ct_integrator_multi_scan() {
+  auto params = make_ct_integrator_test_params();
+  const auto scan_a = make_structured_test_scan(0);
+  const auto scan_b = make_structured_test_scan(1);
+  const auto result = clc::run_fusion({scan_a, scan_b}, params);
+  assert(result.error == glim_cloud_fusion::FusionError::Ok);
+  assert(result.cloud.points.size() > 50);
+  assert(result.cloud.intensities.size() == result.cloud.points.size());
+  const auto [min_i, max_i] = intensity_min_max(result.cloud);
+  assert(min_i >= 0.0 && max_i > min_i);
+}
+
+void test_fusion_output_voxel_changes_point_count() {
+  auto coarse = make_ct_integrator_test_params();
+  auto fine = coarse;
+  coarse.voxel_resolution = 0.2;
+  fine.voxel_resolution = 0.01;
+  const auto scan_a = make_structured_test_scan(0);
+  const auto scan_b = make_structured_test_scan(1);
+  const auto coarse_result = clc::run_fusion({scan_a, scan_b}, coarse);
+  const auto fine_result = clc::run_fusion({scan_a, scan_b}, fine);
+  assert(coarse_result.error == glim_cloud_fusion::FusionError::Ok);
+  assert(fine_result.error == glim_cloud_fusion::FusionError::Ok);
+  assert(fine_result.cloud.points.size() > coarse_result.cloud.points.size());
+}
+
+void test_fusion_integrator_ignores_slam_smoother_params() {
+  auto base = make_ct_integrator_test_params();
+  auto with_slam_smoother = base;
+  with_slam_smoother.enable_fixed_lag_smoother = true;
+  with_slam_smoother.smoother_lag = 5.0;
+  with_slam_smoother.ivox_resolution = 0.3;
+  const auto scan_a = make_structured_test_scan(0);
+  const auto scan_b = make_structured_test_scan(1);
+  const auto base_result = clc::run_fusion({scan_a, scan_b}, base);
+  const auto smoother_result = clc::run_fusion({scan_a, scan_b}, with_slam_smoother);
+  assert(base_result.error == glim_cloud_fusion::FusionError::Ok);
+  assert(smoother_result.error == glim_cloud_fusion::FusionError::Ok);
+  assert(base_result.cloud.points.size() == smoother_result.cloud.points.size());
+}
+
 void test_fusion_single_scan_passthrough() {
   glim_cloud_fusion::LidarScan scan;
   scan.width = 2;
@@ -254,6 +363,10 @@ int main() {
   test_fusion_single_scan_passthrough();
   test_equalize_intensities_for_nid();
   test_dense_pcd_round_trip_non_timestamp_name();
+  test_session_fusion_ivox_and_voxel_round_trip();
+  test_fusion_ct_integrator_multi_scan();
+  test_fusion_output_voxel_changes_point_count();
+  test_fusion_integrator_ignores_slam_smoother_params();
   std::puts("clc_core_tests: ok");
   return 0;
 }
