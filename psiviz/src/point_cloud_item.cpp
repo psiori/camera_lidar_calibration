@@ -76,6 +76,7 @@ class PointCloudRendererItem : public QQuickRhiItemRenderer {
       renderer_->setBlendWeight(blend_weight_);
       renderer_->setScalarRange(scalar_min_, scalar_max_);
       renderer_->resize(width_, height_);
+      renderer_->setCalibrationSceneOverlays(cloud_item->scene_overlays_);
     }
 
     // Deliver prior-frame pick results before overwriting pick_emit_signal_.
@@ -404,6 +405,31 @@ void PointCloudItem::flyToUnderCursor() {
 void PointCloudItem::setGizmoEnabled(bool e) {
   gizmo_.setEnabled(e);
   emit gizmoEnabledChanged();
+  update();
+}
+
+void PointCloudItem::setSceneOverlayTriads(bool camera_triad, bool lidar_triad) {
+  scene_overlays_.camera_triad = camera_triad;
+  scene_overlays_.lidar_triad = lidar_triad;
+  update();
+}
+
+void PointCloudItem::setCameraAxisLength(double meters) {
+  gizmo_.setClipScale(static_cast<float>(meters));
+  update();
+}
+
+void PointCloudItem::setCameraFrustumIntrinsics(bool valid, double fx, double fy, double cx, double cy,
+                                                double image_width, double image_height, double depth_meters) {
+  scene_overlays_.frustum.valid = valid;
+  scene_overlays_.frustum.fx = static_cast<float>(fx);
+  scene_overlays_.frustum.fy = static_cast<float>(fy);
+  scene_overlays_.frustum.cx = static_cast<float>(cx);
+  scene_overlays_.frustum.cy = static_cast<float>(cy);
+  scene_overlays_.frustum.image_width = static_cast<float>(image_width);
+  scene_overlays_.frustum.image_height = static_cast<float>(image_height);
+  scene_overlays_.frustum.depth_m = static_cast<float>(depth_meters);
+  update();
 }
 
 void PointCloudItem::setGizmoManipulable(bool m) {

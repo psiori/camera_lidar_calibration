@@ -15,7 +15,7 @@ The application SHALL register initial-alignment methods at compile time (no run
 
 ### Requirement: Per-method UI capabilities
 
-Each initial-alignment method SHALL declare which UI surfaces it needs (for example image view, 3D view, correspondence editor, in-scene pose seed). The shell SHALL show or hide those surfaces based on the selected method without hard-coding a single layout for all future methods.
+Each initial-alignment method SHALL declare which UI surfaces it needs (for example image view, 3D view, correspondence editor, calibration scene overlays). The shell SHALL show or hide those surfaces based on the selected method without hard-coding a single layout for all future methods.
 
 #### Scenario: Manual method surfaces
 
@@ -51,12 +51,12 @@ The left pane SHALL display the active calibration dataset’s camera image in a
 
 ### Requirement: Correspondence-based initial solve
 
-Manual correspondence solving SHALL estimate the initial transform from picked 2D–3D pairs only (vlcal `PoseEstimation` with trusted correspondences). Passing the session working `T_camera_lidar` as a nonlinear pose seed for solves with three or more pairs is **not** implemented in v1 (reserved for post-v1 gizmo interaction). A **display-only** camera pose gizmo (see `pose-gizmo`) SHALL visualize `T_camera_lidar` on Initial alignment and Calibrate; v1 does not allow editing pose via the gizmo.
+Manual correspondence solving SHALL estimate the initial transform from picked 2D–3D pairs only (vlcal `PoseEstimation` with trusted correspondences). Passing the session working `T_camera_lidar` as a nonlinear pose seed for solves with three or more pairs is **not** implemented in v1. Calibration scene overlays (see `pose-gizmo`) SHALL visualize the camera pose, lidar frame, and camera frustum on Initial alignment and Calibrate; there is no in-scene pose editing.
 
 #### Scenario: Compute uses all pairs
 
 - **WHEN** the user has added correspondences on one or more datasets and runs compute initial alignment with valid intrinsics
-- **THEN** the solver receives all correspondence pairs, writes `T_camera_lidar_initial` and the working extrinsic, and the gizmo display updates to match
+- **THEN** the solver receives all correspondence pairs, writes `T_camera_lidar_initial` and the working extrinsic, and the camera triad and frustum update to match
 
 ### Requirement: Active dataset image and cloud stay paired
 
@@ -67,14 +67,14 @@ On Datasets, Initial alignment, and Calibrate tabs, the camera image preview, 3D
 - **WHEN** the user selects a different calibration dataset on any of those tabs
 - **THEN** the image pane and 3D viewer update to that dataset’s image and cloud (fused or preview) together
 
-### Requirement: Camera pose gizmo on Initial alignment
+### Requirement: Calibration scene overlays on Initial alignment
 
-The Initial alignment 3D pane SHALL show the camera pose gizmo at `T_camera_lidar` when a ready active dataset is displayed. The gizmo SHALL use the camera frame convention and v1 display-only rules in `pose-gizmo`.
+The Initial alignment 3D pane SHALL show the calibration scene overlays defined in `pose-gizmo` (camera triad, lidar triad, white camera frustum) when a ready active dataset is displayed.
 
 #### Scenario: Visual feedback
 
 - **WHEN** the user opens Initial alignment with a ready dataset and loaded intrinsics
-- **THEN** the gizmo is visible at the current registration pose while they pick correspondences
+- **THEN** the camera triad and frustum reflect the current registration pose and the lidar triad is visible at the cloud origin while they pick correspondences
 
 ### Requirement: Correspondence picking flow
 

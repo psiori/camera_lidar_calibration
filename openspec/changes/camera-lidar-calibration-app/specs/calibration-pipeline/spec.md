@@ -54,7 +54,7 @@ The following mapping SHALL be verified in code review (and documented in `desig
 | `nelder_mead_init_step` | Nelder–Mead `init_step` (ignored when BFGS selected) |
 | `nelder_mead_convergence_criteria` | Nelder–Mead `convergence_var_thresh` (ignored when BFGS selected) |
 
-`on_progress` is wired by the app (live viewer/gizmo); it is not a user-facing Calibrate control.
+`on_progress` is wired by the app (live viewer overlays and RGB); it is not a user-facing Calibrate control.
 
 Before marking implementation complete, the team SHALL confirm each exposed control changes the value passed into vlcal (no dead bindings). Known vlcal gaps (e.g. `num_threads` not applied on the BFGS path) SHALL be called out in UI tooltips or design notes rather than silently exposing a no-op.
 
@@ -91,9 +91,9 @@ During NID, the system SHALL stream progress including the current `T_camera_lid
 - **WHEN** the optimizer reports a new iteration
 - **THEN** the viewer refreshes projected RGB colors for the current extrinsic
 
-### Requirement: Gizmo and picking during optimize
+### Requirement: Scene overlays and picking during optimize
 
-While NID optimization runs, correspondence picking SHALL be disabled. The pose gizmo on Calibrate SHALL remain display-only and SHALL update with each optimizer extrinsic; on Initial alignment the gizmo is display-only in v1. When interactive gizmo is added post-v1 on Initial alignment, it SHALL be non-interactive during optimization (see `pose-gizmo`).
+While NID optimization runs, correspondence picking SHALL be disabled. Calibration scene overlays on Calibrate SHALL remain non-interactive and the camera triad and frustum SHALL update with each optimizer extrinsic (see `pose-gizmo`).
 
 #### Scenario: No user interference
 

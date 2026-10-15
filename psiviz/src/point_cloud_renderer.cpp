@@ -70,29 +70,42 @@ void appendAxis(std::vector<GizmoVertex>& v, const clc::Vec3f& o, const clc::Vec
   v.push_back({e.x, e.y, e.z, r, g, b});
 }
 
-void appendRing(std::vector<GizmoVertex>& v, const clc::Vec3f& o, const clc::Mat4f& pose, int axis, float radius,
-                float r, float g, float b) {
-  constexpr int kSeg = 48;
-  clc::Vec3f u;
-  clc::Vec3f w;
-  if (axis == 0) {
-    u = clc::rotationColumn(pose, 1);
-    w = clc::rotationColumn(pose, 2);
-  } else if (axis == 1) {
-    u = clc::rotationColumn(pose, 2);
-    w = clc::rotationColumn(pose, 0);
-  } else {
-    u = clc::rotationColumn(pose, 0);
-    w = clc::rotationColumn(pose, 1);
+void appendLine(std::vector<GizmoVertex>& v, const clc::Vec3f& start, const clc::Vec3f& end, float r, float g, float b) {
+  v.push_back({start.x, start.y, start.z, r, g, b});
+  v.push_back({end.x, end.y, end.z, r, g, b});
+}
+
+void appendLidarTriad(std::vector<GizmoVertex>& v, float axis_len) {
+  const clc::Vec3f o{0.f, 0.f, 0.f};
+  appendAxis(v, o, clc::Vec3f{1.f, 0.f, 0.f}, axis_len, 1.f, 0.2f, 0.2f);
+  appendAxis(v, o, clc::Vec3f{0.f, 1.f, 0.f}, axis_len, 0.2f, 1.f, 0.2f);
+  appendAxis(v, o, clc::Vec3f{0.f, 0.f, 1.f}, axis_len, 0.3f, 0.4f, 1.f);
+}
+
+void appendCameraFrustum(std::vector<GizmoVertex>& v, const clc::Mat4f& pose, const CameraFrustumParams& frustum) {
+  if (!frustum.valid || frustum.fx <= 0.f || frustum.fy <= 0.f || frustum.depth_m <= 0.f) {
+    return;
   }
-  clc::Vec3f prev = o + u * radius;
-  for (int i = 1; i <= kSeg; ++i) {
-    const float a = static_cast<float>(i) / static_cast<float>(kSeg) * 6.2831853f;
-    const clc::Vec3f p = o + (u * std::cos(a) + w * std::sin(a)) * radius;
-    v.push_back({prev.x, prev.y, prev.z, r, g, b});
-    v.push_back({p.x, p.y, p.z, r, g, b});
-    prev = p;
-  }
+  const float z = frustum.depth_m;
+  const float w = frustum.image_width;
+  const float h = frustum.image_height;
+  const auto corner_cam = [&](float u, float vv) -> clc::Vec3f {
+    return {(u - frustum.cx) * z / frustum.fx, (vv - frustum.cy) * z / frustum.fy, z};
+  };
+  const clc::Vec3f o = clc::translation(pose);
+  const clc::Vec3f p00 = clc::transformPoint(pose, corner_cam(0.f, 0.f));
+  const clc::Vec3f p10 = clc::transformPoint(pose, corner_cam(w, 0.f));
+  const clc::Vec3f p11 = clc::transformPoint(pose, corner_cam(w, h));
+  const clc::Vec3f p01 = clc::transformPoint(pose, corner_cam(0.f, h));
+  constexpr float kW = 1.f;
+  appendLine(v, o, p00, kW, kW, kW);
+  appendLine(v, o, p10, kW, kW, kW);
+  appendLine(v, o, p11, kW, kW, kW);
+  appendLine(v, o, p01, kW, kW, kW);
+  appendLine(v, p00, p10, kW, kW, kW);
+  appendLine(v, p10, p11, kW, kW, kW);
+  appendLine(v, p11, p01, kW, kW, kW);
+  appendLine(v, p01, p00, kW, kW, kW);
 }
 
 }  // namespace
@@ -499,22 +512,39 @@ void PointCloudRenderer::ensurePickTarget(int width, int height) {
   res.pick_pipeline->create();
 }
 
-void PointCloudRenderer::uploadGizmo(const PoseGizmo& gizmo) {
+void PointCloudRenderer::setCalibrationSceneOverlays(const CalibrationSceneOverlayState& state) {
+  scene_overlays_ = state;
+}
+
+void PointCloudRenderer::uploadSceneOverlays(const PoseGizmo& gizmo) {
   auto& res = *rhi_resources_;
-  if (!res.gizmo_vertex_buffer || !gizmo.enabled()) {
+  if (!res.gizmo_vertex_buffer) {
     gizmo_vertex_count_ = 0;
     return;
   }
   std::vector<GizmoVertex> verts;
-  const clc::Mat4f pose = gizmo.pose();
-  const clc::Vec3f o = clc::translation(pose);
-  const float s = gizmo.clipScale();
-  appendAxis(verts, o, clc::rotationColumn(pose, 0), s, 1.f, 0.2f, 0.2f);
-  appendAxis(verts, o, clc::rotationColumn(pose, 1), s, 0.2f, 1.f, 0.2f);
-  appendAxis(verts, o, clc::rotationColumn(pose, 2), s, 0.3f, 0.4f, 1.f);
-  appendRing(verts, o, pose, 0, s * 0.7f, 1.f, 0.3f, 0.3f);
-  appendRing(verts, o, pose, 1, s * 0.7f, 0.3f, 1.f, 0.3f);
-  appendRing(verts, o, pose, 2, s * 0.7f, 0.3f, 0.4f, 1.f);
+  if (scene_overlays_.lidar_triad) {
+    appendLidarTriad(verts, 1.f);
+  }
+  const bool draw_camera_frame =
+      scene_overlays_.camera_triad || scene_overlays_.frustum.valid;
+  if (draw_camera_frame) {
+    const clc::Mat4f pose = gizmo.pose();
+    const clc::Vec3f o = clc::translation(pose);
+    const float axis_len = gizmo.clipScale();
+    if (scene_overlays_.camera_triad) {
+      appendAxis(verts, o, clc::rotationColumn(pose, 0), axis_len, 1.f, 0.2f, 0.2f);
+      appendAxis(verts, o, clc::rotationColumn(pose, 1), axis_len, 0.2f, 1.f, 0.2f);
+      appendAxis(verts, o, clc::rotationColumn(pose, 2), axis_len, 0.3f, 0.4f, 1.f);
+    }
+    if (scene_overlays_.frustum.valid) {
+      appendCameraFrustum(verts, pose, scene_overlays_.frustum);
+    }
+  }
+  if (verts.empty()) {
+    gizmo_vertex_count_ = 0;
+    return;
+  }
 
   const quint32 bytes = static_cast<quint32>(verts.size() * sizeof(GizmoVertex));
   if (res.gizmo_vertex_buffer->size() < bytes) {
@@ -651,7 +681,7 @@ void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& ca
   ensureGizmoPipeline(rt);
   ensureShapePipeline(rt);
   uploadSphereMarkers();
-  uploadGizmo(gizmo);
+  uploadSceneOverlays(gizmo);
 
   const QSize fb = rt->pixelSize();
   const int fb_w = fb.width() > 0 ? fb.width() : std::max(1, width_);
@@ -687,7 +717,7 @@ void PointCloudRenderer::render(QRhiCommandBuffer* cb, const TrackballCamera& ca
     cb->setVertexInput(0, 1, &vbuf);
     cb->draw(point_count_);
   }
-  if (res.gizmo_pipeline && gizmo_vertex_count_ > 0 && gizmo.enabled()) {
+  if (res.gizmo_pipeline && gizmo_vertex_count_ > 0) {
     GizmoUniform gu{};
     std::memcpy(gu.mvp, mvp.data(), sizeof(gu.mvp));
     void* gptr = res.gizmo_uniform_buffer->beginFullDynamicBufferUpdateForCurrentFrame();

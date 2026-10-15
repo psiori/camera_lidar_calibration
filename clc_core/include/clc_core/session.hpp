@@ -59,6 +59,8 @@ struct SessionData {
   glim_cloud_fusion::ScanTimeParams scan_time;
   Mat4d T_camera_lidar = Mat4d::identity();
   Mat4d T_camera_lidar_initial = Mat4d::identity();
+  /// False while `T_camera_lidar` is still the default placeholder (no initial alignment or NID yet).
+  bool extrinsic_available = false;
   std::string intrinsics_path;
   int reference_scan_width = 0;
   int reference_scan_height = 0;
@@ -71,6 +73,11 @@ struct SessionData {
   /// Ensure at least one inspection dataset row exists.
   void ensurePrimaryInspection();
 };
+
+/// True when the session has an estimated or loaded camera–lidar extrinsic (not the default unset state).
+inline bool session_extrinsic_available(const SessionData& session) {
+  return session.extrinsic_available;
+}
 
 bool save_session(const std::string& path, const SessionData& session);
 /// Loads session state from `session.json`. On failure, `error` describes what went wrong.

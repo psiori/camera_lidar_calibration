@@ -20,10 +20,10 @@
 
 namespace clc {
 
-bool parse_pcd_filename_stamp(const std::string& filename, double& stamp_seconds) {
+bool parse_utc_capture_stem_stamp(const std::string& stem, double& stamp_seconds) {
   int y = 0;
   unsigned m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
-  if (std::sscanf(filename.c_str(), "%d-%u-%uT%u_%u_%u_%3uZ.pcd", &y, &m, &d, &h, &mi, &s, &ms) != 7) {
+  if (std::sscanf(stem.c_str(), "%d-%u-%uT%u_%u_%u_%3uZ", &y, &m, &d, &h, &mi, &s, &ms) != 7) {
     return false;
   }
   if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59 || ms > 999) {
@@ -50,6 +50,31 @@ bool parse_pcd_filename_stamp(const std::string& filename, double& stamp_seconds
   stamp_seconds =
     std::chrono::duration_cast<std::chrono::duration<double>>(ms_tp.time_since_epoch()).count();
   return true;
+}
+
+bool parse_pcd_filename_stamp(const std::string& filename, double& stamp_seconds) {
+  const auto path = std::filesystem::path(filename);
+  std::string ext = path.extension().string();
+  for (char& c : ext) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  if (ext != ".pcd") {
+    return false;
+  }
+  return parse_utc_capture_stem_stamp(path.stem().string(), stamp_seconds);
+}
+
+bool parse_image_filename_stamp(const std::string& filename, double& stamp_seconds) {
+  const auto path = std::filesystem::path(filename);
+  std::string ext = path.extension().string();
+  for (char& c : ext) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp" && ext != ".tif" &&
+      ext != ".tiff") {
+    return false;
+  }
+  return parse_utc_capture_stem_stamp(path.stem().string(), stamp_seconds);
 }
 
 namespace {

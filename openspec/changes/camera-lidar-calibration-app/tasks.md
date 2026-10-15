@@ -4,8 +4,8 @@
 - [x] 0.2 `PointCloudScene` (`QQuickRhiItem`): QRhi point draw, xyz/scalar/rgb buffers, JET + blend shader, point size
 - [x] 0.3 `TrackballCamera`: PCL navigation (rotate, pan, dolly, wheel, Cmd/Ctrl spin, `r` reset, `f` fly-to)
 - [x] 0.4 Depth picking: QRhi depth target, unproject, Retina `devicePixelRatio` (unproject done; depth readback stub)
-- [x] 0.5 `PoseGizmo`: QRhi translate/rotate handles, hit-test, `isManipulating()` for input gating (interaction done; gizmo draw pending)
-- [x] 0.6 Input router: gizmo > Shift+pick > camera; document threading for buffer upload
+- [x] 0.5 `PoseGizmo` / overlay draw path (legacy): QRhi handles; superseded by spec — scene overlays are non-interactive triads + frustum
+- [x] 0.6 Input router: Shift+pick > camera (overlays not in hit path); document threading for buffer upload
 - [x] 0.7 Minimal QML example or test harness in `psiviz` (optional smoke: render N points)
 
 ## 1. Session model, validation, and I/O
@@ -15,7 +15,7 @@
 - [x] 1.3 Update `session.json` schema and `clc_core` save/load for new fields, mask path, and per-dataset correspondences (not QML)
 - [x] 1.4 Load camera intrinsics via OpenCV `FileStorage` (`clc_core`)
 - [x] 1.5 Wire session **Load** / **Save** in `clc_app`: session directory + `session.json`, status/errors, persist current `SessionData` (paths, poses, fusion/scan-time params)
-- [x] 1.6 After successful session load: refresh QML/controller state (image path, PCD directory, scan time, `T_camera_lidar` / gizmo, intrinsics if present)
+- [x] 1.6 After successful session load: refresh QML/controller state (image path, PCD directory, scan time, `T_camera_lidar` / scene overlays, intrinsics if present)
 - [x] 1.7 Dataset path UI: image + PCD directory bound to session; enumerate PCDs on directory change; surface count/errors (hooks into 1.2)
 - [x] 1.8 `FileDialog` / `FolderDialog` for session directory, image file, PCD folder, and intrinsics YAML
 - [x] 1.9 Intrinsics UI: browse YAML → `FileStorage` loader (depends on 1.4); store intrinsics path in session on save
@@ -40,16 +40,16 @@
 - [x] 4.2 Reproject RGB on `T_camera_lidar` change; expose to viewer worker thread
 - [x] 4.3 PCD export with xyz + intensity + rgb fields
 
-## 5. Pose gizmo (clc_app + psiviz)
+## 5. Calibration scene overlays (clc_app + psiviz)
 
-- [x] 5.1 Bind `psiviz` gizmo matrix ↔ session `T_camera_lidar` / initial guess
-- [x] 5.2 Disable gizmo and correspondence picking during fusion and NID workers
-- [x] 5.3 Re-enable gizmo after optimization completes
+- [x] 5.1 Bind camera overlay pose ↔ session `T_camera_lidar` / initial guess
+- [x] 5.2 Disable correspondence picking during fusion and NID workers (overlays stay display-only)
+- [x] 5.3 Re-enable picking after optimization completes
 
 ## 6. Calibration pipeline
 
 - [x] 6.1 Add compile-time `InitialGuessTraits` / `OptimizerTraits` and provider registry table
-- [x] 6.2 Manual guess: per-dataset Shift+click correspondences → `T_camera_lidar_initial` (display-only gizmo; solver pose seed not wired)
+- [x] 6.2 Manual guess: per-dataset Shift+click correspondences → `T_camera_lidar_initial` (scene overlays; solver pose seed not wired for ≥3 pairs)
 - [x] 6.3 Wire NID `run_alignment()` multi-dataset with global mask and progress callback
 - [x] 6.4 Live viewer update on `CalibrationProgress`
 - [x] 6.5 QML workflow: load → mask → fuse → guess → optimize → inspect (two-tab shell + mask editor window per `design.md`; includes session and dataset I/O per §1.5–1.9)
@@ -103,7 +103,7 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 12.3 Correspondence model in controller: pending pick, row selection, re-pick, per-row delete, markers in image + 3D
 - [x] 12.4 Table lists all datasets’ pairs; active dataset editable; read-only rows visually distinct; switch dataset updates image pane
 - [x] 12.5 `InitialGuessTraits` UI capability flags; wire Compute to multi-dataset `compute_manual_initial_guess` (all pairs)
-- [ ] 12.5b Pass session `T_camera_lidar` as pose seed into manual initial guess when ≥3 pairs (blocked on vlcal / post-v1 gizmo)
+- [x] 12.5b Pass session `T_camera_lidar` as pose seed when ≥3 pairs — **out of scope** (vlcal `PoseEstimation` has no seed; no in-scene pose edit)
 - [x] 12.6 Remove legacy tiny image embed from old Initial guess expansion; tooltips for compute/correspondence flow
 
 ## 13. Multi-dataset session and shell (spec: `session`, `app-shell`, `lidar-fusion`)
@@ -113,7 +113,7 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 13.3 Duplicate timestamp on add → error; geometry validation across datasets (shared WxH)
 - [x] 13.4 Per-dataset fuse; post-fuse drop in-memory scans; persist fused cloud; lazy/async load into viewer
 - [x] 13.5 Mask editor dataset selector (shared global mask); grey out not-ready datasets on Initial alignment / Calibrate
-- [x] 13.6 Calibrate tab: global NID params + run on all ready datasets; 3D preview with display-only gizmo
+- [x] 13.6 Calibrate tab: global NID params + run on all ready datasets; 3D preview with scene overlays
 
 ## 18. NID optimization parameters (spec: `calibration-pipeline`, `app-shell`, `session`)
 
@@ -123,20 +123,25 @@ Agreed UX is documented in `design.md` (UI planning decisions table) and `specs/
 - [x] 18.4 Binding verification: confirm UI → `session_.calibration_params` → `AlignmentInput::params` → `VisualCameraCalibration` (checklist or test); note BFGS `num_threads` gap in tooltip
 - [x] 18.5 UAT: change bins/outer iterations, save/load session, run alignment and observe behavior change (e.g. iteration counts in status)
 
-## 14. Camera pose gizmo — display (spec: `pose-gizmo`, `initial-alignment`, `calibration-pipeline`)
+## 14. Calibration scene overlays (spec: `pose-gizmo`, `initial-alignment`, `calibration-pipeline`)
 
-v1 is **display-only** on Initial alignment and Calibrate (no drag/rotate). Camera frame: +X width, +Y down, +Z optical. Visual target: ImGuizmo / Iridescence.
+Non-interactive on Initial alignment and Calibrate. Camera frame: +X width, +Y down, +Z optical. 1 m RGB triads; white intrinsics frustum (~1 m depth).
 
-- [x] 14.1 `psiviz`: QRhi draw camera pose gizmo at `T_camera_lidar` (axes and/or rings); matrix from app each frame
-- [x] 14.2 Show gizmo on **Initial alignment** and **Calibrate** tabs only; hide on Datasets and Inspection
-- [x] 14.3 Sync gizmo whenever `T_camera_lidar` changes (session load, compute initial alignment, NID progress callbacks on Calibrate)
-- [x] 14.4 v1: gizmo not in pick/hit path — trackball and Shift+pick unchanged; document post-v1 interaction in `psiviz` API
+- [x] 14.1 `psiviz`: QRhi draw camera triad at `T_camera_lidar`; matrix from app each frame
+- [x] 14.2 Show overlays on **Initial alignment** and **Calibrate** tabs only; hide on Datasets and Inspection
+- [x] 14.3 Sync camera triad/frustum whenever `T_camera_lidar` changes (session load, compute initial alignment, NID progress on Calibrate)
+- [x] 14.4 Overlays not in pick/hit path — trackball and Shift+pick unchanged
+- [x] 14.5 Draw **lidar** 1 m RGB triad at displayed cloud origin (sensor frame)
+- [x] 14.6 Draw **white** wireframe camera frustum from intrinsics at `T_camera_lidar` (short depth along +Z)
+- [x] 14.7 Remove or bypass interactive `PoseGizmo` drag/hit routing in app (spec: overlays display-only)
 
-## 15. Camera pose gizmo — interaction (post-v1, Initial alignment only, spec: `pose-gizmo`)
+## 15. In-scene pose manipulation (removed from spec)
 
-- [x] 15.1 Translate on camera X/Y/Z and rotate about all three axes (ImGuizmo parity with Iridescence)
-- [x] 15.2 Input router on Initial alignment: gizmo handle hit before trackball; write `T_camera_lidar` on drag
-- [x] 15.3 Disable gizmo interaction during fusion and NID workers; re-enable on Initial alignment after completion
+Superseded: extrinsic changes via correspondences, NID, and session load only. Legacy implementation tasks below are not required for v1.
+
+- [x] 15.1 ~~ImGuizmo-style translate/rotate~~ — not required
+- [x] 15.2 ~~Gizmo hit before trackball~~ — not required
+- [x] 15.3 ~~Gizmo interaction disable during workers~~ — not required (picking disable only)
 
 ## 16. Add calibration dataset dialog (spec: `app-shell`, `session`)
 

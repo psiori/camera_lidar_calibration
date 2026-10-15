@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "psiviz/calibration_scene_overlays.hpp"
 #include "psiviz/point_cloud_buffers.hpp"
 #include "psiviz/pose_gizmo.hpp"
 #include "psiviz/scene_shapes.hpp"
@@ -43,7 +44,9 @@ class PointCloudRenderer {
   /// When true, `point_id` is set (1-based index; 0 means no hit).
   [[nodiscard]] bool tryConsumePickResult(std::uint64_t request_id, std::uint32_t& point_id);
   void setSphereMarkers(const std::vector<SphereMarker>& markers);
-  /// Draw point cloud, pick pass if needed, gizmo, and sphere markers.
+  /// Lidar triad and camera frustum lines (camera pose comes from @p gizmo).
+  void setCalibrationSceneOverlays(const CalibrationSceneOverlayState& state);
+  /// Draw point cloud, pick pass if needed, scene overlays, and sphere markers.
   void render(QRhiCommandBuffer* cb, const TrackballCamera& camera, const PoseGizmo& gizmo, QRhiRenderTarget* rt);
 
  private:
@@ -60,7 +63,7 @@ class PointCloudRenderer {
   void ensureGizmoPipeline(QRhiRenderTarget* rt);
   void ensureShapePipeline(QRhiRenderTarget* rt);
   void ensurePickTarget(int width, int height);
-  void uploadGizmo(const PoseGizmo& gizmo);
+  void uploadSceneOverlays(const PoseGizmo& gizmo);
   void uploadSphereMarkers();
   void renderPickPass(QRhiCommandBuffer* cb, const TrackballCamera& camera, int fb_w, int fb_h,
                       const PickRequest& request);
@@ -87,6 +90,7 @@ class PointCloudRenderer {
   int gizmo_vertex_count_{0};
   int shape_vertex_count_{0};
   std::vector<SphereMarker> sphere_markers_;
+  CalibrationSceneOverlayState scene_overlays_{};
 };
 
 }  // namespace psiviz

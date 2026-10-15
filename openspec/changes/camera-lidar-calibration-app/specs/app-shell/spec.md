@@ -76,7 +76,7 @@ Each row SHALL have a short hint label, a read-only path field, and a **Browse�
 
 ### Requirement: Datasets tab content
 
-The **Datasets** tab SHALL provide per-dataset configuration for the **active** dataset: image path and PCD directory (set when the dataset is created), **Fusion method** dropdown (**CT integrator** / **CT-GICP SLAM**, stored as `CtIntegrator` / `GlimSlam`), per-dataset scan-time and fusion parameters (new datasets copy values from the first calibration dataset), fuse action, global mask file shortcuts, and **Edit mask…**. Intrinsics SHALL remain session-global on this tab. After a dataset is added, its image and PCD paths SHALL NOT be editable; the user SHALL delete the dataset and add a new one to change paths (path editing may be added later).
+The **Datasets** tab SHALL provide per-dataset configuration for the **active** dataset: image path and PCD directory (set when the dataset is created), **Fusion method** dropdown (**CT integrator** / **CT-GICP SLAM**, stored as `CtIntegrator` / `GlimSlam`), per-dataset scan-time and fusion parameters (new datasets copy values from the first calibration dataset), fuse action, global mask file shortcuts, and **Edit mask…**. Intrinsics SHALL remain session-global on this tab. When the 3D preview shows the active dataset’s point cloud, the lidar RGB triad SHALL be visible; the camera triad and **camera frustum** SHALL appear only after an extrinsic is available (see `pose-gizmo` and `session`). After a dataset is added, its image and PCD paths SHALL NOT be editable; the user SHALL delete the dataset and add a new one to change paths (path editing may be added later).
 
 #### Scenario: Immutable paths
 
@@ -99,7 +99,7 @@ On the **Datasets** tab, when the **active** calibration dataset has exactly **o
 
 ### Requirement: Initial alignment tri-pane layout
 
-The **Initial alignment** tab SHALL use a horizontal **SplitView** with three panes: **camera image (left)**, **correspondence method, compute actions, and correspondence table (center)**, and **3D point cloud with viewer overlay (right)**. Pane widths SHALL be user-adjustable. The image pane SHALL support pan and zoom for labeling. The in-scene camera pose gizmo (v1 display-only) SHALL appear on this tab when a ready dataset is shown (see `pose-gizmo`).
+The **Initial alignment** tab SHALL use a horizontal **SplitView** with three panes: **camera image (left)**, **correspondence method, compute actions, and correspondence table (center)**, and **3D point cloud with viewer overlay (right)**. Pane widths SHALL be user-adjustable. The image pane SHALL support pan and zoom for labeling. Calibration scene overlays (camera and lidar triads, camera frustum) SHALL appear on this tab when a ready dataset is shown (see `pose-gizmo`).
 
 #### Scenario: Side-by-side picking
 
@@ -108,12 +108,12 @@ The **Initial alignment** tab SHALL use a horizontal **SplitView** with three pa
 
 ### Requirement: Calibrate tab scope
 
-The **Calibrate** tab SHALL expose the full session-global `VisualCameraCalibrationParams` surface (see `calibration-pipeline` NID parameters requirement): outer/inner iteration limits, convergence thresholds, NID histogram bins, registration type (BFGS vs Nelder–Mead), Nelder–Mead knobs when applicable, view-culling toggle, and OpenMP thread count for the Nelder–Mead path. It SHALL provide **Run alignment** (automatic optimization). It SHALL show a 3D preview with viewer overlay and the **display-only** camera pose gizmo (see `pose-gizmo`), updated as `T_camera_lidar` changes during and after optimization. It SHALL NOT host the correspondence editor.
+The **Calibrate** tab SHALL expose the full session-global `VisualCameraCalibrationParams` surface (see `calibration-pipeline` NID parameters requirement): outer/inner iteration limits, convergence thresholds, NID histogram bins, registration type (BFGS vs Nelder–Mead), Nelder–Mead knobs when applicable, view-culling toggle, and OpenMP thread count for the Nelder–Mead path. It SHALL provide **Run alignment** (automatic optimization). It SHALL show a 3D preview with viewer overlay and calibration scene overlays (see `pose-gizmo`), with the camera triad and frustum updated as `T_camera_lidar` changes during and after optimization. It SHALL NOT host the correspondence editor.
 
 #### Scenario: Automatic calibration
 
 - **WHEN** the user runs alignment from Calibrate
-- **THEN** NID runs without manual pose gizmo interaction on that tab while the gizmo reflects each reported extrinsic
+- **THEN** NID runs without in-scene pose manipulation while the camera triad and frustum reflect each reported extrinsic
 
 ### Requirement: Dataset readiness in selector
 

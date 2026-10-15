@@ -74,6 +74,21 @@ QVariantList mat4dToPoseMatrix(const clc::Mat4d& T) {
   return out;
 }
 
+clc::Mat4f mat4dToMat4f(const clc::Mat4d& T) {
+  clc::Mat4f m;
+  for (int r = 0; r < 4; ++r) {
+    for (int c = 0; c < 4; ++c) {
+      m(r, c) = static_cast<float>(T(r, c));
+    }
+  }
+  return m;
+}
+
+/// Session `T_camera_lidar` maps lidar points into the camera frame; draw pose is its inverse.
+QVariantList cameraPoseInLidarFrameMatrix(const clc::Mat4d& T_camera_lidar) {
+  return mat4dToPoseMatrix(clc::inverseRigid(T_camera_lidar));
+}
+
 /// Apply JET colormap and optional vertical stretch for the range-image QML item.
 QImage rangeImageToDisplay(const clc::RangeImage &image,
                            clc::RangeImageChannel channel, float min_v,
@@ -260,7 +275,7 @@ void AppController::setWorkerRunning(bool running) {
   if (was != running) {
     emit busyWorkingChanged();
     emit activeDatasetSelectionLockChanged();
-    refreshViewerGizmoState();
+    refreshViewerAnnotationState();
   }
   if (!running) {
     worker_cancel_requested_ = false;
@@ -562,7 +577,19 @@ void AppController::setImagePath(const QString &path) {
   } else {
     ensureActiveCalibrationDataset();
   }
-  activeDatasetEntry().image_path = normalized.toStdString();
+  auto &dataset = activeDatasetEntry();
+  clc::DatasetEntry with_image = dataset;
+  with_image.image_path = normalized.toStdString();
+  std::string image_time_err;
+  if (!clc::validate_dataset_image_first_scan_time(with_image, image_time_err)) {
+    setStatus(QString::fromStdString(image_time_err));
+    return;
+  }
+  dataset.image_path = normalized.toStdString();
+  if (!dataset.pcd_paths.empty()) {
+    dataset.geometry_error = false;
+    fusion_blocked_ = false;
+  }
   qCInfo(lcClcDataset).noquote()
       << QStringLiteral("active dataset image set: %1").arg(normalized);
   invalidateProjectionImageCache();
@@ -625,7 +652,7 @@ void AppController::setMainWorkTab(int tab) {
   } else {
     loadActiveDatasetCloudToViewer();
   }
-  refreshViewerGizmoState();
+  refreshViewerAnnotationState();
   syncCorrespondenceMarkers();
 }
 
@@ -909,6 +936,15 @@ bool AppController::addCalibrationDatasetFromPaths(
     }
   }
 
+  clc::DatasetEntry time_probe;
+  time_probe.image_path = QFileInfo(image_path).absoluteFilePath().toStdString();
+  time_probe.pcd_paths = scan.paths;
+  std::string image_time_err;
+  if (!clc::validate_dataset_image_first_scan_time(time_probe, image_time_err)) {
+    setStatus(QString::fromStdString(image_time_err));
+    return false;
+  }
+
   session_.calibration_datasets.erase(
       std::remove_if(session_.calibration_datasets.begin(),
                      session_.calibration_datasets.end(),
@@ -1181,10 +1217,17 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
     return false;
   }
 
-  dataset.geometry_error = false;
   dataset.pcd_paths = scan.paths;
   if (dataset.id.empty() && !dataset.pcd_paths.empty()) {
     dataset.id = clc::dataset_id_from_first_scan(dataset.pcd_paths);
+  }
+  std::string image_time_err;
+  if (!clc::validate_dataset_image_first_scan_time(dataset, image_time_err)) {
+    dataset.geometry_error = true;
+    fusion_blocked_ = true;
+    setStatus(QString::fromStdString(image_time_err));
+  } else {
+    dataset.geometry_error = false;
   }
   clc::sync_dataset_fusion_status(dataset);
   if (dataset.pcd_paths.size() > 1) {
@@ -1809,7 +1852,7 @@ void AppController::clearCalibrationDatasetVisuals() {
     item->setPointCloudData({}, {}, {});
   }
   refreshCameraPreview();
-  refreshViewerGizmoState();
+  refreshViewerAnnotationState();
 }
 
 /// AppController::resetSessionStructuredScanState implementation.
@@ -2003,11 +2046,42 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
   return true;
 }
 
+/// Build the dense cloud and RGB buffer currently shown in the 3D viewer for export.
+bool AppController::buildViewerExportCloud(glim_cloud_fusion::DensePointCloud &cloud_out,
+                                          std::vector<float> &rgb_out) const {
+  const int point_count = viewer_positions_.size() / 3;
+  if (point_count <= 0) {
+    return false;
+  }
+  cloud_out.points.resize(static_cast<std::size_t>(point_count));
+  cloud_out.intensities.resize(static_cast<std::size_t>(point_count));
+  for (int i = 0; i < point_count; ++i) {
+    const int base = i * 3;
+    cloud_out.points[static_cast<std::size_t>(i)] =
+        Eigen::Vector3d(viewer_positions_[base], viewer_positions_[base + 1],
+                        viewer_positions_[base + 2]);
+    cloud_out.intensities[static_cast<std::size_t>(i)] =
+        i < viewer_scalars_.size() ? static_cast<double>(viewer_scalars_[i]) : 0.0;
+  }
+  rgb_out.resize(static_cast<std::size_t>(viewer_rgb_.size()));
+  for (int i = 0; i < viewer_rgb_.size(); ++i) {
+    rgb_out[static_cast<std::size_t>(i)] = viewer_rgb_[i];
+  }
+  return rgb_out.size() == cloud_out.points.size() * 3;
+}
+
 /// Save Fused Pcd to a user-chosen file path.
 QString AppController::exportFusedPcd() {
-  if (fused_cloud_.points.empty()) {
-    setStatus(QStringLiteral("No fused cloud to export"));
-    return {};
+  reprojectViewerCameraRgb();
+  glim_cloud_fusion::DensePointCloud export_cloud;
+  std::vector<float> rgb;
+  if (!buildViewerExportCloud(export_cloud, rgb)) {
+    if (fused_cloud_.points.empty()) {
+      setStatus(QStringLiteral("No point cloud to export"));
+      return {};
+    }
+    export_cloud = fused_cloud_;
+    color_model_.projectCameraRgb(session_.T_camera_lidar, rgb);
   }
   const QString path =
       QFileDialog::getSaveFileName(nullptr, QStringLiteral("Export fused PCD"),
@@ -2015,13 +2089,8 @@ QString AppController::exportFusedPcd() {
   if (path.isEmpty()) {
     return {};
   }
-  reprojectViewerCameraRgb();
   std::string err;
-  std::vector<float> rgb(static_cast<size_t>(viewer_rgb_.size()));
-  for (int i = 0; i < viewer_rgb_.size(); ++i) {
-    rgb[i] = viewer_rgb_[i];
-  }
-  if (!clc::save_dense_pcd_rgb(path.toStdString(), fused_cloud_, rgb, err)) {
+  if (!clc::save_dense_pcd_rgb(path.toStdString(), export_cloud, rgb, err)) {
     setStatus(QString::fromStdString(err));
     return {};
   }
@@ -2500,22 +2569,49 @@ void AppController::applySessionToViewer() {
   if (!item) {
     return;
   }
-  item->setPoseMatrix(mat4dToPoseMatrix(session_.T_camera_lidar));
+  item->setPoseMatrix(cameraPoseInLidarFrameMatrix(session_.T_camera_lidar));
+  item->setCameraAxisLength(1.0);
 }
 
 /// Recompute and push Viewer Gizmo State to the UI or viewer.
-void AppController::refreshViewerGizmoState() {
+void AppController::refreshViewerAnnotationState() {
   auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_);
   if (!item) {
     return;
   }
-  const bool show_gizmo =
-      (main_work_tab_ == 1 || main_work_tab_ == 2) && activeDatasetReady();
-  const bool manipulable =
-      show_gizmo && main_work_tab_ == 1 && !worker_running_;
-  item->setGizmoEnabled(show_gizmo);
-  item->setGizmoManipulable(manipulable);
+  const bool align_tab = main_work_tab_ == 1 || main_work_tab_ == 2;
+  const bool datasets_tab = main_work_tab_ == 0;
+  const bool has_cloud = item->hasPointCloudContent();
+  const bool dataset_loaded = !session_.calibration_datasets.empty() &&
+                              active_calibration_dataset_index_ >= 0;
+  const bool show_lidar_triad =
+      main_work_tab_ != 3 && has_cloud && dataset_loaded;
+  const bool has_extrinsic = clc::session_extrinsic_available(session_);
+  const bool show_camera_triad = show_lidar_triad && has_extrinsic;
+
+  item->setSceneOverlayTriads(show_camera_triad, show_lidar_triad);
+  item->setGizmoEnabled(has_cloud);
+  item->setGizmoManipulable(false);
   item->setPickingEnabled(pickingAllowed() && main_work_tab_ == 1);
+
+  bool frustum_valid = false;
+  double fx = 0.;
+  double fy = 0.;
+  double cx = 0.;
+  double cy = 0.;
+  double img_w = 0.;
+  double img_h = 0.;
+  if (has_extrinsic && (align_tab || datasets_tab) && has_cloud && dataset_loaded &&
+      session_.camera.intrinsics.size() >= 4 && !projection_image_.empty()) {
+    fx = session_.camera.intrinsics[0];
+    fy = session_.camera.intrinsics[1];
+    cx = session_.camera.intrinsics[2];
+    cy = session_.camera.intrinsics[3];
+    img_w = static_cast<double>(projection_image_.cols);
+    img_h = static_cast<double>(projection_image_.rows);
+    frustum_valid = fx > 0. && fy > 0. && img_w > 0. && img_h > 0.;
+  }
+  item->setCameraFrustumIntrinsics(frustum_valid, fx, fy, cx, cy, img_w, img_h, 2.0);
 }
 
 /// Load Active Dataset Cloud To Viewer from disk or session.
@@ -2551,7 +2647,7 @@ void AppController::loadActiveDatasetCloudToViewer() {
         item->setPointCloudData({}, {}, {});
       }
     }
-    refreshViewerGizmoState();
+    refreshViewerAnnotationState();
     return;
   }
   auto &ds = activeDatasetEntry();
@@ -2582,7 +2678,7 @@ void AppController::loadActiveDatasetCloudToViewer() {
       item->setPointCloudData({}, {}, {});
     }
   }
-  refreshViewerGizmoState();
+  refreshViewerAnnotationState();
 }
 
 /// AppController::emitSessionUiState implementation.
@@ -2690,7 +2786,7 @@ bool AppController::loadSession(const QString &directory) {
   emitSessionUiState();
   emit correspondencesChanged();
   applySessionToViewer();
-  refreshViewerGizmoState();
+  refreshViewerAnnotationState();
   refreshActiveDatasetVisuals();
   return true;
 }
@@ -2812,9 +2908,9 @@ void AppController::setViewer(QObject *viewer) {
   connect(item, &psiviz::PointCloudItem::poseChanged, this,
           &AppController::onViewerPoseChanged);
   connect(this, &AppController::mainWorkTabChanged, this,
-          &AppController::refreshViewerGizmoState);
+          &AppController::refreshViewerAnnotationState);
   syncCorrespondenceMarkers();
-  refreshViewerGizmoState();
+  refreshViewerAnnotationState();
   applySessionToViewer();
   if (!viewer_positions_.isEmpty()) {
     reprojectViewerCameraRgb();
@@ -3277,7 +3373,9 @@ void AppController::estimateInitialGuessFromCorrespondences() {
   }
   session_.T_camera_lidar_initial = result.T_camera_lidar;
   session_.T_camera_lidar = result.T_camera_lidar;
+  session_.extrinsic_available = true;
   applySessionToViewer();
+  refreshViewerAnnotationState();
   reprojectViewerCameraRgb();
   setStatus(QString::fromStdString(result.message));
 }
@@ -3301,6 +3399,8 @@ void AppController::onViewerPoseChanged() {
   }
   session_.T_camera_lidar_initial = T;
   session_.T_camera_lidar = session_.T_camera_lidar_initial;
+  session_.extrinsic_available = true;
+  refreshViewerAnnotationState();
   reprojectViewerCameraRgb();
 }
 
@@ -3497,7 +3597,7 @@ void AppController::runFusion() {
           }
           setStatus(QStringLiteral("Fusion complete"));
           uploadFusedCloudToViewer();
-          refreshViewerGizmoState();
+          refreshViewerAnnotationState();
           emit fusionFinished(true, QStringLiteral("Fusion complete"));
         },
         Qt::QueuedConnection);
@@ -3539,7 +3639,8 @@ void AppController::runAlignment() {
   worker_cancel_requested_ = false;
   setWorkerRunning(true);
   setStatus(QStringLiteral("Alignment running..."));
-  refreshViewerGizmoState();
+  session_.extrinsic_available = true;
+  refreshViewerAnnotationState();
   joinWorker();
   worker_ = std::make_unique<std::thread>([this, input = std::move(input)]() {
     const auto is_cancelled = [this]() { return worker_cancel_requested_.load(); };
@@ -3567,7 +3668,7 @@ void AppController::runAlignment() {
         this,
         [this, result]() {
           setWorkerRunning(false);
-          refreshViewerGizmoState();
+          refreshViewerAnnotationState();
           if (result.error == vlcal::CalibrationError::Cancelled) {
             setStatus(QStringLiteral("Alignment cancelled"));
             emit alignmentFinished(false, QStringLiteral("Alignment cancelled"));
@@ -3581,7 +3682,9 @@ void AppController::runAlignment() {
           }
           session_.T_camera_lidar =
               clc::mat4dFromColumnMajor(result.T_camera_lidar.matrix().data());
+          session_.extrinsic_available = true;
           applySessionToViewer();
+          refreshViewerAnnotationState();
           reprojectViewerCameraRgb();
           setStatus(QStringLiteral("Alignment complete"));
           emit alignmentFinished(true, QStringLiteral("Alignment complete"));

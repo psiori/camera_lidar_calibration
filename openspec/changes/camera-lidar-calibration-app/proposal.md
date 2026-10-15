@@ -8,8 +8,8 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - Add **`psiviz`**, a self-contained Qt/QRhi 3D library in this repository (documented, calibration-agnostic; may be factored out later)
 - Structured lidar range-image mask authoring (pre-calibration, global mask applied per scan)
 - Point cloud viewer (`psiviz`) with PCL-style navigation, depth-buffer picking, and live color blending
-- Camera pose gizmo on Initial alignment and Calibrate (v1: display at `T_camera_lidar`; post-v1: ImGuizmo-style interaction on Initial alignment only)
-- Initial alignment workspace: tri-pane (image | correspondence table | 3D), segmented calibration sections, manual correspondences with unified method interface (gizmo-seeded solve; feature methods later)
+- Calibration scene overlays on Initial alignment and Calibrate: 1 m camera and lidar coordinate triads, short white camera frustum at `T_camera_lidar` (non-interactive)
+- Initial alignment workspace: tri-pane (image | correspondence table | 3D), segmented calibration sections, manual correspondences with unified method interface (feature methods later)
 - NID calibration with live preview; compile-time extensible provider/optimizer traits
 - LiDAR fusion UI with streaming preview, per-dataset **Fusion method** dropdown (**CT integrator** default, or CT-GICP SLAM), method-specific wired parameters, compatible fused intensity range across methods, output voxel resolution, geometry validation
 - Inspection datasets with overlay and colored PCD export
@@ -26,7 +26,7 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 - `session`: Session model, calibration vs inspection datasets, single extrinsic, save/load
 - `range-image-mask`: Structured range/intensity image, polygon mask, Y-stretch display, binary mask I/O
 - `point-cloud-viewer`: QRhi renderer, colormap/blend, PCL navigation, depth picking, 20M-point target
-- `pose-gizmo`: Camera-frame pose indicator on Initial alignment and Calibrate (v1 display-only; post-v1 interaction on Initial alignment)
+- `pose-gizmo`: Camera and lidar coordinate triads plus camera frustum overlays on Initial alignment and Calibrate (non-interactive)
 - `initial-alignment`: Tri-pane manual picking UI, correspondence table across datasets, compile-time initial-alignment methods, compute shared extrinsic from all pairs
 - `calibration-pipeline`: NID optimizer, compile-time provider traits, orchestration with `initial-alignment` for manual guess
 - `lidar-fusion`: Masked scan fusion, passthrough single scan, streaming preview, per-dataset fusion method (integrator default vs SLAM), wired parameters + compatible intensity + output voxel
@@ -38,7 +38,7 @@ The `camera_lidar_calibration` project has library foundations (WP1 `vlcal_align
 
 ## Impact
 
-- **WP3** `psiviz` (in-repo): QRhi point viewer, trackball camera, depth picking, pose gizmo; README + API docs
+- **WP3** `psiviz` (in-repo): QRhi point viewer, trackball camera, depth picking, calibration scene overlays; README + API docs
 - **WP3** `clc_app`: Two-tab QML shell, resizable mask editor window, `RangeImageItem`, integration with `psiviz` and `clc_core`
 - **WP3** `clc_core`: Session schema, mask application, colormap/projection math, provider traits
 - **WP2** `glim_cloud_fusion`: CT integrator path in `fuse_scans` (per-scan deskew + accumulate, no iSAM2); `FusionParams::backend` default `CtIntegrator`; same progress callback surface for preview

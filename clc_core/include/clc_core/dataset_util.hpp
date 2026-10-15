@@ -33,6 +33,13 @@ void sync_dataset_fusion_status(DatasetEntry& dataset);
 /// Whether a calibration dataset is ready for initial alignment and NID.
 bool dataset_ready(const DatasetEntry& dataset);
 
+/// Max allowed |image time − first scan time| for multi-scan datasets (seconds).
+constexpr double k_dataset_image_first_scan_max_delta_seconds = 0.1;
+
+/// For multi-scan datasets, require the image filename UTC time within
+/// `k_dataset_image_first_scan_max_delta_seconds` of the first scan. Single-scan datasets skip this check.
+bool validate_dataset_image_first_scan_time(const DatasetEntry& dataset, std::string& error);
+
 /// Image + scan catalog present; correspondence picking does not require fused cloud.
 bool dataset_pickable(const DatasetEntry& dataset);
 

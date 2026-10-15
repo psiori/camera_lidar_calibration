@@ -96,6 +96,32 @@ void test_dataset_pickable_without_fusion() {
   assert(clc::dataset_ready(ds));
 }
 
+void test_image_first_scan_time_validation() {
+  const std::string stamp = "2026-10-01T18_46_54_574Z";
+  double parsed = 0.0;
+  assert(clc::parse_image_filename_stamp(stamp + ".jpg", parsed));
+  assert(clc::parse_pcd_filename_stamp(stamp + ".pcd", parsed));
+
+  clc::DatasetEntry single;
+  single.image_path = "/data/" + stamp + ".png";
+  single.pcd_paths = {"/data/2026-10-01T18_46_54_999Z.pcd"};
+  std::string err;
+  assert(clc::validate_dataset_image_first_scan_time(single, err));
+
+  clc::DatasetEntry multi_ok;
+  multi_ok.image_path = "/data/" + stamp + ".png";
+  multi_ok.pcd_paths = {"/data/" + stamp + ".pcd", "/data/2026-10-01T18_46_55_000Z.pcd"};
+  err.clear();
+  assert(clc::validate_dataset_image_first_scan_time(multi_ok, err));
+
+  clc::DatasetEntry multi_late;
+  multi_late.image_path = "/data/2026-10-01T18_46_54_700Z.png";
+  multi_late.pcd_paths = {"/data/" + stamp + ".pcd", "/data/2026-10-01T18_46_55_000Z.pcd"};
+  err.clear();
+  assert(!clc::validate_dataset_image_first_scan_time(multi_late, err));
+  assert(err.find("100") != std::string::npos);
+}
+
 void test_multi_scan_not_ready_until_fused() {
   clc::DatasetEntry ds;
   ds.image_path = "/tmp/img.png";
@@ -163,6 +189,7 @@ void test_session_round_trip() {
   session.T_camera_lidar(0, 3) = 1.;
   session.T_camera_lidar(1, 3) = 2.;
   session.T_camera_lidar(2, 3) = 3.;
+  session.extrinsic_available = true;
   session.scan_time.scan_duration = 0.1;
   session.fusion_params.scan_time = session.scan_time;
   ds.fusion_params.scan_time = session.scan_time;
@@ -177,6 +204,22 @@ void test_session_round_trip() {
   assert(loaded.reference_scan_width == 64);
   assert(!loaded.calibration_datasets.empty());
   assert(loaded.calibration_datasets.front().correspondences.size() == 1);
+  assert(loaded.extrinsic_available);
+  std::filesystem::remove(path);
+}
+
+void test_extrinsic_available_default_identity() {
+  clc::SessionData session;
+  session.ensurePrimaryCalibration();
+  session.scan_time.scan_duration = 0.1;
+  session.fusion_params.scan_time = session.scan_time;
+  const auto path =
+      std::filesystem::temp_directory_path() / "clc_session_extrinsic_flag.json";
+  assert(clc::save_session(path.string(), session));
+  clc::SessionData loaded;
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
+  assert(!loaded.extrinsic_available);
   std::filesystem::remove(path);
 }
 
@@ -430,10 +473,12 @@ int main() {
   test_colormap_jet();
   test_mask_rasterize();
   test_dataset_pickable_without_fusion();
+  test_image_first_scan_time_validation();
   test_multi_scan_not_ready_until_fused();
   test_structured_scan_reference_ignores_single_scan_only();
   test_prune_placeholder_calibration_datasets();
   test_session_round_trip();
+  test_extrinsic_available_default_identity();
   test_session_inspection_load_without_fusion_params();
   test_session_inspection_ignores_invalid_fusion_params();
   test_calibration_params_defaults_and_round_trip();

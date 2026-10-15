@@ -440,6 +440,7 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   j["scan_time"] = scan_time_to_json(session.scan_time);
   save_pose(j, "T_camera_lidar", session.T_camera_lidar);
   save_pose(j, "T_camera_lidar_initial", session.T_camera_lidar_initial);
+  j["extrinsic_available"] = session.extrinsic_available;
   j["calibration_params"] = calibration_params_to_json(session.calibration_params);
   std::ofstream ofs(path);
   if (!ofs) {
@@ -536,6 +537,12 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
     }
     load_pose(j, "T_camera_lidar", parsed.T_camera_lidar);
     load_pose(j, "T_camera_lidar_initial", parsed.T_camera_lidar_initial);
+    if (j.contains("extrinsic_available")) {
+      parsed.extrinsic_available = j["extrinsic_available"].get<bool>();
+    } else {
+      parsed.extrinsic_available = !mat4dNearRigidIdentity(parsed.T_camera_lidar) ||
+                                     !mat4dNearRigidIdentity(parsed.T_camera_lidar_initial);
+    }
     apply_default_calibration_params(parsed.calibration_params);
     if (j.contains("calibration_params")) {
       calibration_params_from_json(j["calibration_params"], parsed.calibration_params);

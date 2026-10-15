@@ -6,7 +6,7 @@ Defines persistent session state for camera-LiDAR calibration: one rigid extrins
 
 ### Requirement: Single extrinsic per session
 
-The session SHALL store exactly one `T_camera_lidar` (camera pose in lidar frame) shared by all calibration and inspection datasets in that session. It SHALL also store session-global `vlcal::VisualCameraCalibrationParams` as `calibration_params` for the Calibrate tab and NID runs.
+The session SHALL store exactly one `T_camera_lidar` (camera pose in lidar frame) shared by all calibration and inspection datasets in that session. It SHALL also store `extrinsic_available` (boolean): false while `T_camera_lidar` remains the default identity placeholder before any alignment step; true after compute initial alignment, NID, or when loaded from a saved session that records a calibrated extrinsic. It SHALL also store session-global `vlcal::VisualCameraCalibrationParams` as `calibration_params` for the Calibrate tab and NID runs.
 
 #### Scenario: Multiple datasets same extrinsic
 
@@ -121,7 +121,7 @@ The UI SHALL expose session directory, Load, and Save on the main window.
 #### Scenario: Load session from UI
 
 - **WHEN** the user chooses a session directory and activates Load
-- **THEN** `session.json` is read and the UI shows restored dataset paths, fusion/scan-time settings, intrinsics (if saved), and `T_camera_lidar` (including gizmo pose)
+- **THEN** `session.json` is read and the UI shows restored dataset paths, fusion/scan-time settings, intrinsics (if saved), and `T_camera_lidar` (camera triad and frustum overlays reflect the restored pose)
 
 #### Scenario: Save session from UI
 

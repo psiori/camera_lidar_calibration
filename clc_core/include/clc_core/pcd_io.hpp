@@ -15,9 +15,17 @@ struct PointXYZITCloud {
   glim_cloud_fusion::LidarScan scan;
 };
 
+/// Parse UTC capture time from a stem like `2026-10-01T18_46_54_574Z` (no extension).
+/// Returns false if the string does not match exactly.
+bool parse_utc_capture_stem_stamp(const std::string& stem, double& stamp_seconds);
+
 /// Parse UTC scan time from a PCD basename like `2026-10-01T18_46_54_574Z.pcd`.
 /// Returns false if the name does not match exactly.
 bool parse_pcd_filename_stamp(const std::string& filename, double& stamp_seconds);
+
+/// Parse UTC capture time from a camera image basename like `2026-10-01T18_46_54_574Z.jpg`.
+/// Returns false if the extension is not a supported image type or the stem does not match.
+bool parse_image_filename_stamp(const std::string& filename, double& stamp_seconds);
 
 /// Load a structured XYZIT PCD; optionally require a parseable timestamp in the filename.
 bool load_pcd_xyzit(const std::string& path, PointXYZITCloud& cloud, std::string& error, bool check_time = true);

@@ -51,7 +51,7 @@ class ViewerInputRouter {
   PoseGizmo& gizmo_;
   bool interaction_enabled_{true};   /// Master switch for camera navigation.
   bool picking_enabled_{true};       /// Allow Shift+click pick.
-  bool gizmo_manipulable_{true};     /// Allow dragging the pose gizmo.
+  bool gizmo_manipulable_{false};    /// Allow dragging the pose gizmo (off by default; display-only overlays).
   bool dragging_{false};             /// Left/middle/right drag in progress.
   Qt::MouseButton drag_button_{Qt::NoButton};
   QPoint last_pos_;                  /// Last mouse position for delta computation.

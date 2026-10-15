@@ -2,7 +2,10 @@
 
 #include <clc_core/dataset_util.hpp>
 
+#include <clc_core/pcd_io.hpp>
+
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 namespace clc {
@@ -70,6 +73,44 @@ void sync_dataset_fusion_status(DatasetEntry& dataset) {
   } else if (dataset.pcd_paths.size() > 1) {
     dataset.fusion_complete = false;
   }
+}
+
+bool validate_dataset_image_first_scan_time(const DatasetEntry& dataset, std::string& error) {
+  error.clear();
+  if (dataset.pcd_paths.size() <= 1) {
+    return true;
+  }
+  if (dataset.image_path.empty()) {
+    return true;
+  }
+
+  double first_scan_stamp = 0.0;
+  const auto first_scan_name = std::filesystem::path(dataset.pcd_paths.front()).filename().string();
+  if (!parse_pcd_filename_stamp(first_scan_name, first_scan_stamp)) {
+    error = "cannot parse UTC timestamp from first scan filename: " + dataset.pcd_paths.front();
+    return false;
+  }
+
+  double image_stamp = 0.0;
+  const auto image_name = std::filesystem::path(dataset.image_path).filename().string();
+  if (!parse_image_filename_stamp(image_name, image_stamp)) {
+    error =
+      "camera image filename does not match UTC timestamp pattern "
+      "(YYYY-MM-DDTHH_MM_SS_mmmZ.<png|jpg|…>): " +
+      dataset.image_path;
+    return false;
+  }
+
+  const double delta_seconds = std::abs(image_stamp - first_scan_stamp);
+  if (delta_seconds > k_dataset_image_first_scan_max_delta_seconds) {
+    const int delta_ms = static_cast<int>(std::lround(delta_seconds * 1000.0));
+    error = "camera image timestamp differs from first scan by " + std::to_string(delta_ms) +
+            " ms (maximum " +
+            std::to_string(static_cast<int>(k_dataset_image_first_scan_max_delta_seconds * 1000.0)) +
+            " ms)";
+    return false;
+  }
+  return true;
 }
 
 bool dataset_ready(const DatasetEntry& dataset) {

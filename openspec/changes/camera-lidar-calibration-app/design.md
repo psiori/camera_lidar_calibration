@@ -15,7 +15,7 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
 - End-to-end calibration: load data → mask → fuse → guess → optimize → inspect → export
 - Single `T_camera_lidar` per session (camera pose in lidar frame)
 - 20M-point viewer performance with depth-buffer picking
-- PCL trackball navigation + pose gizmo (separate concerns)
+- PCL trackball navigation + calibration scene overlays (separate concerns)
 - Global structured mask applied before fusion on every scan
 - Self-contained **`psiviz`** library (documented, calibration-agnostic) inside this repository
 
@@ -36,7 +36,7 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
 
 | Layer | Responsibility |
 |-------|----------------|
-| **`psiviz`** | Qt-coupled 3D library: QRhi point renderer, trackball camera, depth picking, pose gizmo, JET colormap shader, `QQuickFramebufferObject` items. No session, mask, or calibration types. |
+| **`psiviz`** | Qt-coupled 3D library: QRhi point renderer, trackball camera, depth picking, calibration scene overlays (triads + frustum), JET colormap shader, `QQuickFramebufferObject` items. No session, mask, or calibration types. |
 | **`clc_core`** | Session, mask rasterization, `PointColorModel` (camera projection), provider traits, fusion/calibration orchestration |
 | **`clc_app`** | QML workflow, `RangeImageItem`, app controller/workers, wires `clc_core` data into `psiviz` items |
 
@@ -50,8 +50,8 @@ Iridescence/VTK are not Qt-compatible; visualization logic from `PointsColorUpda
   - `PointCloudView` / `PointCloudItem` — large point lists, scalar JET colormap, per-point RGB, blend uniform, point size
   - `TrackballCamera` — PCL `pcd_viewer` navigation semantics
   - `DepthPicker` — depth render target readback + unproject (`devicePixelRatio`-aware)
-  - `PoseGizmo` — in-scene camera-frame widget (QRhi); v1 display-only; post-v1 ImGuizmo-style interaction (no ImGui)
-  - Input routing (post-v1): gizmo hit → gizmo drag; else Shift+click → pick; else camera. **v1:** gizmo not in hit path
+  - `CalibrationSceneOverlays` (may reuse `PoseGizmo` draw path) — QRhi lines for 1 m camera/lidar RGB triads and white intrinsics-based frustum at `T_camera_lidar`; non-interactive
+  - Input routing: Shift+click → pick; else camera (overlays not in hit path)
 - **Out of scope for `psiviz`:** mesh I/O, volume rendering, range-image UI, NID/fusion, session JSON, VTK/PCL viz.
 - **Documentation:** `psiviz/README.md` (build, minimal example), `psiviz/docs/API.md` (public classes, threading, buffer upload contract), Doxygen on public headers.
 - **Rejected:** ImGui/ImGuizmo in Qt Quick; Easy3D (GPL); VTK/PCL visualization; raw OpenGL-only stack on macOS.
@@ -73,7 +73,7 @@ Session
   inspection_datasets[]: { image, cloud_path(s) }
 ```
 
-One extrinsic for all datasets. Correspondences are per-dataset. Gizmo display on **Initial alignment** and **Calibrate** (tracks `T_camera_lidar`; v1 non-interactive). Add/remove datasets only on **Datasets** tab; shared dataset selector elsewhere.
+One extrinsic for all datasets. Correspondences are per-dataset. Scene overlays on **Initial alignment** and **Calibrate** (camera triad + frustum track `T_camera_lidar`; lidar triad at cloud origin). Add/remove datasets only on **Datasets** tab; shared dataset selector elsewhere.
 
 ### Range image and mask
 
@@ -111,11 +111,12 @@ First loaded structured scan defines reference `(width, height)`. Any scan with 
 
 No Alt+wheel FOV zoom.
 
-### Pose gizmo (`psiviz`)
+### Calibration scene overlays (`psiviz`)
 
-- In-scene widget at `T_camera_lidar`; **camera frame**: +X image width, +Y image down, +Z optical axis
-- **v1:** QRhi draw only (axes / ImGuizmo-style rings for readability); **no** pointer interaction; visible on Initial alignment + Calibrate; tracks `T_camera_lidar` on load, compute initial alignment, and live during/after NID on Calibrate
-- **Post-v1:** ImGuizmo-equivalent translate + rotate on all camera axes (Iridescence parity); gizmo hit before trackball; disabled during NID
+- **Camera triad** at `T_lidar_camera = inverse(T_camera_lidar)`: 1 m RGB axes; **camera frame**: +X image width, +Y image down, +Z optical axis
+- **Lidar triad** at cloud origin: 1 m RGB axes in the scan/sensor frame of the displayed points
+- **Camera frustum**: short white wireframe from intrinsics at `T_lidar_camera` (~2 m along +Z); visible on Datasets / Initial alignment / Calibrate when cloud + intrinsics loaded (RGB triads on those tabs whenever cloud + `T_camera_lidar` are shown)
+- QRhi line draw only; **no** pointer interaction; visible on Initial alignment + Calibrate; camera overlays track `T_camera_lidar` on load, compute initial alignment, and live during/after NID on Calibrate
 - Does not move view camera
 
 ### Picking
@@ -132,7 +133,7 @@ No Alt+wheel FOV zoom.
 
 **Correspondences:** Stored per calibration dataset in session; UI shows **all** rows, with non-active datasets read-only and visually distinct. Row select → highlight markers; re-pick updates that endpoint; delete removes markers and session entry. **Compute initial alignment** runs the active compile-time method over **all** datasets’ pairs (v1 minimum: three pairs total + intrinsics). Result writes `T_camera_lidar_initial` and working `T_camera_lidar`; blend slider on 3D inspects projection.
 
-**Pose seed:** `ManualGuessInput::gizmo_T_camera_lidar` is used only when fewer than three pairs (fallback). For ≥3 pairs, vlcal `PoseEstimation` does not yet take a seed; wiring a pose seed is post-v1 (`pose-gizmo` interaction). Display-only gizmo on Initial alignment / Calibrate visualizes `T_camera_lidar` in v1.
+**Pose seed:** `ManualGuessInput::gizmo_T_camera_lidar` is used only when fewer than three pairs (fallback). For ≥3 pairs, vlcal `PoseEstimation` does not yet take a seed; wiring a pose seed is out of scope until vlcal supports it. Scene overlays on Initial alignment / Calibrate visualize `T_camera_lidar` and the lidar frame without in-scene editing.
 
 **Active dataset media:** Image preview, 3D cloud, and RGB projection must always match the active calibration dataset on Datasets / Initial alignment / Calibrate (`refreshActiveDatasetVisuals` in `AppController`).
 
@@ -240,7 +241,7 @@ Expose **all user-relevant** fields of `vlcal::VisualCameraCalibrationParams` on
 | NM init step | `nelder_mead_init_step` | NM only |
 | NM convergence | `nelder_mead_convergence_criteria` | NM only |
 
-Not exposed as Calibrate controls: `on_progress` (app callback for live gizmo/RGB). Not in `VisualCameraCalibrationParams`: hardcoded trust region in `MultiNIDCost` (0.2 m / 2°) — out of scope unless vlcal adds fields later.
+Not exposed as Calibrate controls: `on_progress` (app callback for live overlay/RGB refresh). Not in `VisualCameraCalibrationParams`: hardcoded trust region in `MultiNIDCost` (0.2 m / 2°) — out of scope unless vlcal adds fields later.
 
 **vlcal preprocess CLI (not NID params):** `target_num_points` and standalone preprocess `min_distance` remain vlcal-only. Integrator fusion defaults follow vlcal `DynamicPointCloudIntegrator` + `apply_default_fusion_params` (see integrator trace table above).
 
@@ -256,7 +257,7 @@ Not exposed as Calibrate controls: `on_progress` (app callback for live gizmo/RG
 - **Image path** and **PCD directory**: per-dataset inputs; PCD directory is scanned for `.pcd` files when set or after session load.
 - **Load intrinsics** (planned): OpenCV YAML via `FileStorage`; path stored in session on save.
 
-After **Load**, the controller SHALL push restored values into bound QML fields (paths, scan time, gizmo/extrinsic) so the UI matches `SessionData`, not only in-memory state behind text fields the user typed earlier.
+After **Load**, the controller SHALL push restored values into bound QML fields (paths, scan time, extrinsic / overlay pose) so the UI matches `SessionData`, not only in-memory state behind text fields the user typed earlier.
 
 ### Main window shell (`clc_app` QML)
 
@@ -273,8 +274,8 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 | Per-dataset fusion + scan_time | Copy from first dataset on add; edited on Datasets tab | **Adopted** |
 | Mask | Session-global; editor has dataset selector for preview only | **Adopted** |
 | Post-fusion memory | Fused cloud to disk; lazy/async viewer load; drop resident multi-scan buffers | **Adopted** |
-| Gizmo display | Initial alignment + Calibrate (v1 display-only); updates with `T_camera_lidar` | **Adopted** |
-| Gizmo interaction | Post-v1 on Initial alignment only; Calibrate stays display-only | **Adopted** |
+| Scene overlays | Initial alignment + Calibrate: camera/lidar triads + white frustum; camera overlays track `T_camera_lidar` | **Adopted** |
+| In-scene pose edit | Not in scope; correspondences + NID only | **Adopted** |
 | Mask authoring layout | **Resizable popout window** from **Edit mask…**; user adjusts window size and Y-stretch for aspect | **Adopted** (`MaskEditorWindow.qml`) |
 | Mask file I/O on main window | **Load**, **Browse**, **Save**, **Clear** stay in **Global mask** on Calibration tab | **Adopted** |
 | Mask editing controls in popout | Channel, Y-stretch, colormap min/max, polygon draw tools, **Keep** / **Remove** / **Discard** after close polygon | **Adopted** |
@@ -314,11 +315,11 @@ After **Load**, the controller SHALL push restored values into bound QML fields 
 
 **Initial alignment tab**
 
-- Same dataset selector (not-ready entries disabled + tooltip). Tri-pane: image | table + compute | 3D + gizmo (when implemented) + overlay.
+- Same dataset selector (not-ready entries disabled + tooltip). Tri-pane: image | table + compute | 3D + scene overlays + viewer overlay.
 
 **Calibrate tab**
 
-- Scrollable **NID / optimization** group: full `VisualCameraCalibrationParams` (see table above); disable or hide Nelder–Mead-only fields when BFGS is selected. Run alignment; 3D preview with display-only gizmo updating live during NID.
+- Scrollable **NID / optimization** group: full `VisualCameraCalibrationParams` (see table above); disable or hide Nelder–Mead-only fields when BFGS is selected. Run alignment; 3D preview with camera triad and frustum updating live during NID.
 
 **Inspection tab**
 
@@ -407,9 +408,9 @@ Extend `FusionProgress` (or parallel callback) with partial cloud snapshots; thr
 | Qt coupling blocks non-Qt reuse | Accept for v1; extract interface when factoring out |
 | Mask topology mismatch across files | Hard error on load; block fusion |
 | SLAM vs integrator geometry differ on same data | Document expected geometric differences; §20.3 regression on integrator port; intensity range MUST stay compatible for mixed datasets in one session |
-| Gizmo vs navigation conflict | `psiviz` input router: gizmo first; app disables gizmo during optimize |
+| Overlay vs navigation | Overlays non-hittable; picking disabled during optimize |
 
 ## Open Questions
 
 - **Sequence splitter**: Long recording → multiple datasets by timestamp matching. Deferred; needs separate change.
-- **Gizmo during optimize**: Resolved — disabled while optimizer runs.
+- **Picking during optimize**: Resolved — correspondence picking disabled while optimizer runs; overlays remain display-only.

@@ -427,8 +427,8 @@ private:
   void refreshViewerColormapBounds(bool reset_colormap_range = true);
   void refreshRangeImageDisplay();       /// JET-color range image into range_image_display_.
   void applyViewerScalarRangeToItem();   /// Push colormap min/max to psiviz item.
-  void applySessionToViewer();           /// Sync pose gizmo matrix from session T_camera_lidar.
-  void refreshViewerGizmoState();        /// Enable/disable gizmo and picking while worker runs.
+  void applySessionToViewer();           /// Sync viewer camera pose from inverse(T_camera_lidar).
+  void refreshViewerAnnotationState();        /// Enable/disable coordinate systems and frustum
   void loadActiveDatasetCloudToViewer();
   /// Clear in-memory fusion result (calibration or inspection).
   void clearFusedCloudCache();
@@ -443,6 +443,9 @@ private:
   void resetSessionStructuredScanState();
   void refreshActiveDatasetVisuals();    /// Range image, viewer cloud, correspondences, preview.
   void reprojectViewerCameraRgb();       /// Re-run color_model_ projection for viewer_rgb_.
+  /// Copy viewer buffers into a dense cloud + RGB suitable for PCD export.
+  bool buildViewerExportCloud(glim_cloud_fusion::DensePointCloud& cloud_out,
+                              std::vector<float>& rgb_out) const;
   void syncCorrespondenceMarkers();      /// Orange spheres at 3D correspondence points.
   void finalizePendingCorrespondenceIfReady();  /// Add pair when both 2D and 3D are picked.
   bool buildAlignmentInput(clc::AlignmentInput& input, std::string& error);

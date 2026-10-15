@@ -40,7 +40,7 @@ class PoseGizmo {
  private:
   bool enabled_{true};
   clc::Mat4f pose_{clc::Mat4f::identity()};
-  float clip_scale_{0.12f};
+  float clip_scale_{1.f};
   int active_axis_{-1};
   GizmoMode active_mode_{GizmoMode::Translate};
   clc::Vec3f drag_start_{};

@@ -1,6 +1,6 @@
 ## Purpose
 
-Provides interactive 3D visualization of lidar point clouds with PCL-style navigation, depth-buffer picking, and live scalar/RGB blending for calibration inspection.
+Provides interactive 3D visualization of lidar point clouds with PCL-style navigation, depth-buffer picking, live scalar/RGB blending for calibration inspection, and compositing of non-interactive calibration scene overlays from `pose-gizmo` in the same viewport.
 
 ## ADDED Requirements
 

@@ -78,6 +78,19 @@ struct Mat4d {
   }
 };
 
+/// True when `T` is the identity rigid transform (within `eps`).
+inline bool mat4dNearRigidIdentity(const Mat4d& T, double eps = 1e-9) {
+  const Mat4d I = Mat4d::identity();
+  for (int col = 0; col < 4; ++col) {
+    for (int row = 0; row < 4; ++row) {
+      if (std::abs(T(row, col) - I(row, col)) > eps) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 inline Vec2f operator+(Vec2f a, Vec2f b) { return {a.x + b.x, a.y + b.y}; }
 inline Vec2f operator-(Vec2f a, Vec2f b) { return {a.x - b.x, a.y - b.y}; }
 inline Vec2f operator*(Vec2f a, float s) { return {a.x * s, a.y * s}; }
@@ -153,6 +166,21 @@ inline Vec3f transformVector(Mat4f m, Vec3f v) {
 }
 
 inline Vec3f translation(Mat4f m) { return {m(0, 3), m(1, 3), m(2, 3)}; }
+
+/// Invert a rigid transform (rotation + translation only).
+inline Mat4f inverseRigid(Mat4f t) {
+  Mat4f inv = Mat4f::identity();
+  for (int c = 0; c < 3; ++c) {
+    for (int r = 0; r < 3; ++r) {
+      inv(r, c) = t(c, r);
+    }
+  }
+  const Vec3f tr = translation(t);
+  inv(0, 3) = -(inv(0, 0) * tr.x + inv(0, 1) * tr.y + inv(0, 2) * tr.z);
+  inv(1, 3) = -(inv(1, 0) * tr.x + inv(1, 1) * tr.y + inv(1, 2) * tr.z);
+  inv(2, 3) = -(inv(2, 0) * tr.x + inv(2, 1) * tr.y + inv(2, 2) * tr.z);
+  return inv;
+}
 
 inline void setTranslation(Mat4f& m, Vec3f t) {
   m(0, 3) = t.x;

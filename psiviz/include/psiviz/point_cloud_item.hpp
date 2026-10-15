@@ -12,6 +12,7 @@
 class QKeyEvent;
 #include <QtQml/qqmlregistration.h>
 
+#include "psiviz/calibration_scene_overlays.hpp"
 #include "psiviz/point_cloud_buffers.hpp"
 #include "psiviz/pose_gizmo.hpp"
 #include "psiviz/scene_shapes.hpp"
@@ -79,6 +80,13 @@ class PointCloudItem : public QQuickRhiItem {
   /// 4x4 pose matrix as 16 doubles in column-major order (for QML / AppController).
   Q_INVOKABLE QVariantList poseMatrix() const;
   Q_INVOKABLE void setPoseMatrix(const QVariantList& values);
+  /// Camera axis length in meters (default 1).
+  Q_INVOKABLE void setCameraAxisLength(double meters);
+  /// Pinhole frustum from intrinsics; pass valid=false to hide the frustum.
+  Q_INVOKABLE void setCameraFrustumIntrinsics(bool valid, double fx, double fy, double cx, double cy,
+                                              double image_width, double image_height, double depth_meters);
+  /// Toggle RGB axis triads (camera pose and lidar origin) independently of the frustum.
+  Q_INVOKABLE void setSceneOverlayTriads(bool camera_triad, bool lidar_triad);
   /// Navigation keys (`f`, `+`, `-`, `r`, `h`, `z`) for QML forwarding when the pointer is over the viewport.
   Q_INVOKABLE bool handleNavigationKey(int key, int modifiers);
   Q_INVOKABLE void bumpPointSize(double delta);
@@ -154,7 +162,8 @@ class PointCloudItem : public QQuickRhiItem {
   double scalar_max_{1.};
   bool interaction_enabled_{true};
   bool picking_enabled_{true};
-  bool gizmo_manipulable_{true};
+  bool gizmo_manipulable_{false};
+  CalibrationSceneOverlayState scene_overlays_{};
   double marker_sphere_radius_{0.05};
 };
 
