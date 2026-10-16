@@ -73,7 +73,22 @@ void test_colormap_jet() {
   std::vector<std::uint8_t> rgb;
   clc::colormap_jet(values, 0.f, 1.f, rgb);
   assert(rgb.size() == 9);
-  assert(rgb[0] == 0 && rgb[1] == 0);  // low end of JET is blue-ish
+  assert(rgb[0] == 0 && rgb[1] == 0 && rgb[2] > rgb[0]);  // low end of JET is blue-ish
+  assert(rgb[6] > rgb[8]);  // high end is red-ish
+}
+
+void test_colormap_jet_range_no_return_at_high_end() {
+  const std::vector<float> values{0.f, 10.f, 20.f};
+  std::vector<std::uint8_t> rgb_plain;
+  std::vector<std::uint8_t> rgb_range;
+  clc::colormap_jet(values, 10.f, 20.f, rgb_plain);
+  clc::colormap_jet_range(values, 10.f, 20.f, rgb_range);
+  assert(rgb_plain.size() == 9);
+  assert(rgb_range.size() == 9);
+  // No-return (0) uses min in plain JET but max in range JET.
+  assert(rgb_plain[0] != rgb_range[0] || rgb_plain[1] != rgb_range[1] || rgb_plain[2] != rgb_range[2]);
+  assert(rgb_range[0] == rgb_plain[6] && rgb_range[1] == rgb_plain[7] && rgb_range[2] == rgb_plain[8]);
+  assert(clc::range_colormap_data_min(values) == 10.f);
 }
 
 void test_mask_rasterize() {
@@ -131,7 +146,48 @@ void test_multi_scan_not_ready_until_fused() {
   clc::sync_dataset_fusion_status(ds);
   assert(!clc::dataset_ready(ds));
   ds.fusion_complete = true;
-  assert(clc::dataset_ready(ds));
+  assert(!clc::dataset_ready(ds));
+}
+
+void test_sync_preserves_in_memory_fusion_complete() {
+  clc::DatasetEntry ds;
+  ds.image_path = "/tmp/img.png";
+  ds.cloud_directory = "/tmp/pcds";
+  ds.pcd_paths = {"/tmp/pcds/a.pcd", "/tmp/pcds/b.pcd"};
+  ds.fusion_complete = true;
+  clc::sync_dataset_fusion_status(ds);
+  assert(ds.fusion_complete);
+  assert(!clc::dataset_ready(ds));
+}
+
+void test_dataset_not_ready_reasons() {
+  clc::DatasetEntry ds;
+  ds.pcd_paths = {"/tmp/a.pcd", "/tmp/b.pcd"};
+  auto reasons = clc::dataset_not_ready_reasons(ds);
+  assert(reasons.size() >= 2);
+  ds.image_path = "/tmp/img.png";
+  ds.cloud_directory = "/tmp/pcds";
+  reasons = clc::dataset_not_ready_reasons(ds);
+  assert(reasons.size() == 1);
+  assert(reasons.front().find("fusion") != std::string::npos);
+  ds.fusion_complete = true;
+  assert(!clc::dataset_ready(ds));
+  assert(clc::dataset_not_ready_reasons(ds).size() == 1);
+}
+
+void test_missing_fused_file_marks_not_ready() {
+  clc::DatasetEntry ds;
+  ds.image_path = "/tmp/img.png";
+  ds.cloud_directory = "/tmp/pcds";
+  ds.pcd_paths = {"/tmp/pcds/a.pcd", "/tmp/pcds/b.pcd"};
+  ds.fused_cloud_path = "/tmp/pcds/does_not_exist_fused.pcd";
+  ds.fusion_complete = true;
+  clc::sync_dataset_fusion_status(ds);
+  assert(!ds.fusion_complete);
+  assert(!clc::dataset_ready(ds));
+  const auto reasons = clc::dataset_not_ready_reasons(ds);
+  assert(reasons.size() == 1);
+  assert(reasons.front().find("missing") != std::string::npos);
 }
 
 void test_structured_scan_reference_ignores_single_scan_only() {
@@ -175,6 +231,55 @@ void test_prune_placeholder_calibration_datasets() {
   clc::prune_placeholder_calibration_datasets(session);
   assert(session.calibration_datasets.size() == 1);
   assert(session.calibration_datasets.front().image_path == real.image_path);
+}
+
+void test_calibration_dataset_id_unique_ignores_placeholder_with_stale_id() {
+  clc::SessionData session;
+  auto& ghost = session.calibration_datasets.emplace_back();
+  ghost.id = "2026-10-01T18_42_13_624Z";
+  assert(clc::calibration_dataset_is_placeholder(ghost));
+  assert(clc::calibration_dataset_id_unique(session, ghost.id));
+  clc::erase_placeholder_calibration_datasets(session);
+  assert(session.calibration_datasets.empty());
+}
+
+void test_sync_calibration_dataset_identity_clears_placeholder_id() {
+  clc::DatasetEntry entry;
+  entry.id = "stale-id";
+  clc::sync_calibration_dataset_identity(entry);
+  assert(entry.id.empty());
+}
+
+void test_global_mask_ops_session_round_trip() {
+  clc::SessionData session;
+  session.reference_scan_width = 64;
+  session.reference_scan_height = 32;
+  session.ensurePrimaryCalibration();
+  session.scan_time.scan_duration = 0.1;
+  session.fusion_params.scan_time = session.scan_time;
+  session.calibration_datasets.front().fusion_params.scan_time = session.scan_time;
+  clc::MaskPolygonOp op;
+  op.keep_inside = true;
+  op.polygon.vertices = {
+    clc::Vec2f(10.f, 10.f),
+    clc::Vec2f(50.f, 10.f),
+    clc::Vec2f(30.f, 20.f),
+  };
+  session.global_mask.ops.push_back(op);
+  session.global_mask.width = 64;
+  session.global_mask.height = 32;
+  const auto path = std::filesystem::temp_directory_path() / "clc_session_global_mask_ops.json";
+  assert(clc::save_session(path.string(), session));
+  clc::SessionData loaded;
+  std::string error;
+  assert(clc::load_session(path.string(), loaded, error));
+  assert(loaded.global_mask.ops.size() == 1);
+  assert(loaded.global_mask.ops.front().polygon.vertices.size() == 3);
+  assert(loaded.global_mask.width == 64);
+  std::vector<std::uint8_t> raster;
+  assert(clc::rasterize_global_mask(loaded.global_mask, path.parent_path().string(), raster, error));
+  assert(raster.size() == static_cast<std::size_t>(64 * 32));
+  std::filesystem::remove(path);
 }
 
 void test_image_mask_session_round_trip() {
@@ -224,6 +329,13 @@ void test_session_round_trip() {
 
   const auto path = std::filesystem::temp_directory_path() / "clc_session_test.json";
   assert(clc::save_session(path.string(), session));
+  {
+    std::ifstream in(path.string());
+    const nlohmann::json saved = nlohmann::json::parse(in);
+    assert(saved["T_camera_lidar"].is_array());
+    assert(saved["T_camera_lidar"].size() == 16);
+    assert(std::abs(saved["T_camera_lidar"][3].get<double>() - 1.) < 1e-12);
+  }
   clc::SessionData loaded;
   std::string error;
   assert(clc::load_session(path.string(), loaded, error));
@@ -233,6 +345,9 @@ void test_session_round_trip() {
   assert(!loaded.calibration_datasets.empty());
   assert(loaded.calibration_datasets.front().correspondences.size() == 1);
   assert(loaded.extrinsic_available);
+  assert(std::abs(loaded.T_camera_lidar(0, 3) - 1.) < 1e-12);
+  assert(std::abs(loaded.T_camera_lidar(1, 3) - 2.) < 1e-12);
+  assert(std::abs(loaded.T_camera_lidar(2, 3) - 3.) < 1e-12);
   std::filesystem::remove(path);
 }
 
@@ -471,6 +586,16 @@ void test_equalize_intensities_for_nid() {
   assert(intensities.front() >= 0.0 && intensities.back() < 1.0);
 }
 
+void test_equalize_dense_cloud_intensities() {
+  glim_cloud_fusion::DensePointCloud cloud;
+  cloud.points = {Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitX(), Eigen::Vector3d::UnitY()};
+  cloud.intensities = {5.0, 100.0, 50.0};
+  clc::equalize_dense_cloud_intensities(cloud);
+  assert(cloud.intensities.size() == 3);
+  assert(cloud.intensities[0] < cloud.intensities[1]);
+  assert(cloud.intensities[1] < cloud.intensities[2]);
+}
+
 void test_dense_pcd_round_trip_non_timestamp_name() {
   const std::filesystem::path path =
     std::filesystem::temp_directory_path() / "clc_fused_test_dataset.pcd";
@@ -499,12 +624,19 @@ void test_dense_pcd_round_trip_non_timestamp_name() {
 
 int main() {
   test_colormap_jet();
+  test_colormap_jet_range_no_return_at_high_end();
   test_mask_rasterize();
   test_dataset_pickable_without_fusion();
   test_image_first_scan_time_validation();
   test_multi_scan_not_ready_until_fused();
+  test_sync_preserves_in_memory_fusion_complete();
+  test_dataset_not_ready_reasons();
+  test_missing_fused_file_marks_not_ready();
   test_structured_scan_reference_ignores_single_scan_only();
   test_prune_placeholder_calibration_datasets();
+  test_calibration_dataset_id_unique_ignores_placeholder_with_stale_id();
+  test_sync_calibration_dataset_identity_clears_placeholder_id();
+  test_global_mask_ops_session_round_trip();
   test_image_mask_session_round_trip();
   test_validate_alignment_image_masks();
   test_session_round_trip();
@@ -516,6 +648,7 @@ int main() {
   test_scan_geometry_empty_directory();
   test_fusion_single_scan_passthrough();
   test_equalize_intensities_for_nid();
+  test_equalize_dense_cloud_intensities();
   test_dense_pcd_round_trip_non_timestamp_name();
   test_session_fusion_ivox_and_voxel_round_trip();
   test_fusion_ct_integrator_multi_scan();
