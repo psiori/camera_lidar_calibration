@@ -25,7 +25,7 @@ GIT_URL_SCHEME="${GIT_URL_SCHEME:-ssh}"
 PIN_gtsam="5db475881f7e40479898ced2e9282f9399fa392d"
 PIN_gtsam_points="56d1ded377f9c61fafa33ebbce5f9e54e0fb8aa1"
 PIN_glim="da6633b0733237e071182db4688eadc5dd6fc44b"
-PIN_direct_visual_lidar_calibration="f7e00fff6c96a00ac0ad9f3e8952dc2e3c604176"
+PIN_direct_visual_lidar_calibration="d08589f7e306d5366c5b1fd0f7c4d4d348c0ff9d"
 
 # name|github_slug|kind|ref   (kind: commit | branch | tag)
 repo_specs=(
