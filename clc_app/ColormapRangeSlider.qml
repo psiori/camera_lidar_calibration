@@ -17,6 +17,16 @@ ColumnLayout {
 
     readonly property bool dragging: colormapSlider.first.pressed || colormapSlider.second.pressed
 
+    /// JET RGB for normalized scalar t in [0, 1] (left = low, right = high; matches psiviz shader).
+    function jetColor(t) {
+        const clamped = Math.max(0, Math.min(1, t))
+        const ch = (c) => Math.max(0, Math.min(1, 1.5 - Math.abs(4 * clamped - c)))
+        const r = Math.round(ch(3) * 255)
+        const g = Math.round(ch(2) * 255)
+        const b = Math.round(ch(1) * 255)
+        return Qt.rgba(r / 255, g / 255, b / 255, 1)
+    }
+
     function span() {
         const lo = Math.min(dataMin, dataMax)
         const hi = Math.max(dataMin, dataMax)
@@ -30,6 +40,55 @@ ColumnLayout {
     function commitIfReleased() {
         if (!colormapSlider.first.pressed && !colormapSlider.second.pressed) {
             root.rangeCommitted(colormapSlider.first.value, colormapSlider.second.value)
+        }
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 6
+
+        Label {
+            text: qsTr("Low")
+            font.pixelSize: 10
+            opacity: 0.8
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 14
+            radius: 2
+            color: "transparent"
+            border.color: "#909090"
+            border.width: 1
+            clip: true
+
+            Canvas {
+                id: jetLegend
+                anchors.fill: parent
+                anchors.margins: 1
+
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                Component.onCompleted: requestPaint()
+
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    const w = Math.max(1, Math.floor(width))
+                    const h = Math.max(1, Math.floor(height))
+                    for (let x = 0; x < w; ++x) {
+                        const t = w <= 1 ? 0 : x / (w - 1)
+                        ctx.fillStyle = root.jetColor(t)
+                        ctx.fillRect(x, 0, 1, h)
+                    }
+                }
+            }
+        }
+
+        Label {
+            text: qsTr("High")
+            font.pixelSize: 10
+            opacity: 0.8
         }
     }
 

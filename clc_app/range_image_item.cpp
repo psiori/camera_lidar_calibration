@@ -118,10 +118,12 @@ RangeImageItem::RangeImageItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
 
 /// RangeImageItem::setImage — set Image.
 void RangeImageItem::setImage(const QImage& image) {
+  // Drop cached mask when the underlying image changes (e.g. another calibration dataset).
   if (image_ == image) {
     return;
   }
   image_ = image;
+  mask_data_.clear();
   cancelPolygon();
   updateImplicitHeight();
   update();
