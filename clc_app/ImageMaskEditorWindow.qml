@@ -104,7 +104,9 @@ Window {
                 ? qsTr("Polygon ready — click Keep or Remove to update the image mask.")
                 : (controller.imageMaskPath.length > 0
                     ? (qsTr("Mask file: ") + controller.imageMaskPath)
-                    : qsTr("Click to add vertices. Finish with the green first vertex, double-click, or Close polygon."))
+                    : (controller.imageMaskActive
+                        ? qsTr("Mask active in session (save session or Save to write a file).")
+                        : qsTr("Click to add vertices. Finish with the green first vertex, double-click, or Close polygon.")))
         }
     }
 }

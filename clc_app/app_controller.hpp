@@ -155,6 +155,8 @@ class AppController : public QObject {
   Q_PROPERTY(bool imageMaskEditorOpen READ imageMaskEditorOpen NOTIFY imageMaskEditorOpenChanged)
   Q_PROPERTY(bool imageMaskPolygonPending READ imageMaskPolygonPending NOTIFY imageMaskPolygonPendingChanged)
   Q_PROPERTY(QString imageMaskPath READ imageMaskPath NOTIFY imageMaskChanged)
+  /// True when the active dataset has a saved mask path or in-session mask edits.
+  Q_PROPERTY(bool imageMaskActive READ imageMaskActive NOTIFY imageMaskChanged)
   Q_PROPERTY(QByteArray imageMaskPreview READ imageMaskPreview NOTIFY imageMaskChanged)
   Q_PROPERTY(int imageMaskWidth READ imageMaskWidth NOTIFY imageMaskChanged)
   Q_PROPERTY(int imageMaskHeight READ imageMaskHeight NOTIFY imageMaskChanged)
@@ -259,6 +261,7 @@ public:
   bool imageMaskEditorOpen() const { return image_mask_editor_open_; }
   bool imageMaskPolygonPending() const { return image_mask_polygon_pending_; }
   QString imageMaskPath() const;
+  bool imageMaskActive() const;
   QByteArray imageMaskPreview() const;
   int imageMaskWidth() const;
   int imageMaskHeight() const;

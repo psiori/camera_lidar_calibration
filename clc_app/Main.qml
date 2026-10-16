@@ -484,7 +484,9 @@ ApplicationWindow {
                                     wrapMode: Text.WordWrap
                                     text: controller.imageMaskPath.length > 0
                                         ? ("Mask: " + controller.imageMaskPath)
-                                        : "No image mask (all pixels used in NID)."
+                                        : (controller.imageMaskActive
+                                            ? "Image mask active (unsaved edits in session)."
+                                            : "No image mask (all pixels used in NID).")
                                 }
                             }
                         }

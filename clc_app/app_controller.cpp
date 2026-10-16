@@ -2910,6 +2910,30 @@ QString AppController::imageMaskPath() const {
   return QString::fromStdString(activeDatasetEntry().image_mask.path);
 }
 
+bool AppController::imageMaskActive() const {
+  if (session_.calibration_datasets.empty()) {
+    return false;
+  }
+  if (!activeDatasetEntry().image_mask.path.empty()) {
+    return true;
+  }
+  const int dataset_index = active_calibration_dataset_index_;
+  if (dataset_index < 0 ||
+      dataset_index >= static_cast<int>(image_mask_ops_by_dataset_.size())) {
+    return false;
+  }
+  const std::size_t idx = static_cast<std::size_t>(dataset_index);
+  if (!image_mask_ops_by_dataset_[idx].empty()) {
+    return true;
+  }
+  if (idx >= image_mask_pixels_by_dataset_.size()) {
+    return false;
+  }
+  const auto& pixels = image_mask_pixels_by_dataset_[idx];
+  return std::any_of(pixels.begin(), pixels.end(),
+                     [](std::uint8_t v) { return v != 255; });
+}
+
 int AppController::imageMaskRasterWidth() const {
   int w = 0;
   int h = 0;
@@ -3176,7 +3200,6 @@ void AppController::setImageMaskEditorOpen(bool open) {
   if (open) {
     pending_image_mask_polygon_ = {};
     setImageMaskPolygonPending(false);
-    reloadImageMaskForDataset(active_calibration_dataset_index_);
     refreshCameraPreview();
     emit imageMaskChanged();
   }
@@ -3199,6 +3222,15 @@ bool AppController::resolveImageMaskForAlignment(
     return true;
   }
   ensureImageMaskStorage();
+  if (dataset_index >= 0 &&
+      dataset_index < static_cast<int>(image_mask_ops_by_dataset_.size())) {
+    const auto& ops =
+        image_mask_ops_by_dataset_[static_cast<std::size_t>(dataset_index)];
+    if (!ops.empty()) {
+      mask_out = clc::build_mask_from_ops(image_cols, image_rows, ops);
+      return true;
+    }
+  }
   if (dataset_index >= 0 &&
       dataset_index < static_cast<int>(image_mask_pixels_by_dataset_.size())) {
     const auto& mem = image_mask_pixels_by_dataset_[static_cast<std::size_t>(dataset_index)];
