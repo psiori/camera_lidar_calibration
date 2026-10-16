@@ -19,10 +19,15 @@ The project SHALL provide `clc::Mat4f` and `clc::Mat4d` types whose in-memory la
 
 `SessionData` and calibration service result types SHALL represent `T_camera_lidar` (and initial pose) as `clc::Mat4d`, not as Eigen transform types in public headers.
 
-#### Scenario: Load session pose
+#### Scenario: Load session pose (matrix)
+
+- **WHEN** `session.json` contains a 16-element pose array (4×4 matrix, row-major flatten)
+- **THEN** `load_session` populates `SessionData::T_camera_lidar` as that `Mat4d` without requiring Eigen in the including translation unit
+
+#### Scenario: Load session pose (legacy quaternion)
 
 - **WHEN** `session.json` contains a 7-element pose array (translation + quaternion)
-- **THEN** `load_session` populates `SessionData::T_camera_lidar` as a rigid `Mat4d` without requiring Eigen in the including translation unit
+- **THEN** `load_session` populates `SessionData::T_camera_lidar` as a rigid `Mat4d` built from that pose
 
 ### Requirement: Viewer pose API uses Mat4f
 
