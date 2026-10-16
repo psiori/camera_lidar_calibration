@@ -13,7 +13,7 @@
 #        - gtsam 4.3a1
 #        - gtsam_points 1.2.2 (CPU only, no CUDA)
 #        - glim 1.2.3 (no viewer, no CUDA, with cloud fusion)
-#        - direct_visual_lidar_calibration / vlcal_align 0.1.0
+#        - direct_visual_lidar_calibration / vlcal_align 0.1.1
 #   8. Print where packages were cached and how to build the app next.
 #
 # In-tree libraries: bump the Conan version in each repo's conanfile.py when you change
