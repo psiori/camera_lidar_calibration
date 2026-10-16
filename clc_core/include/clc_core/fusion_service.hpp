@@ -18,6 +18,9 @@ glim_cloud_fusion::FusionResult run_fusion(
   FusionProgressCallback on_progress = nullptr,
   FusionCancellationCheck is_cancelled = nullptr);
 
+/// Load a fused dense PCD and histogram-equalize intensities (handles legacy raw saves on disk).
+bool load_fused_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud& cloud, std::string& error);
+
 /// Write XYZ (+ optional intensity) PCD to disk.
 bool save_dense_pcd(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud, std::string& error);
 

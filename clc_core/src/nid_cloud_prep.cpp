@@ -27,6 +27,13 @@ void equalize_intensities_for_nid(std::vector<double>& intensities) {
   intensities = std::move(equalized);
 }
 
+void equalize_dense_cloud_intensities(glim_cloud_fusion::DensePointCloud& cloud) {
+  if (cloud.intensities.size() != cloud.points.size()) {
+    cloud.intensities.resize(cloud.points.size(), 0.0);
+  }
+  equalize_intensities_for_nid(cloud.intensities);
+}
+
 void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Mat4d& T_world_ref) {
   const Mat4d T_ref_world = inverseRigid(T_world_ref);
   for (auto& p : cloud.points) {
@@ -44,7 +51,6 @@ vlcal::FrameCPU::Ptr dense_cloud_to_nid_frame(const glim_cloud_fusion::DensePoin
     points.emplace_back(cloud.points[i].x(), cloud.points[i].y(), cloud.points[i].z(), 1.0);
     intensities.push_back(i < cloud.intensities.size() ? cloud.intensities[i] : 0.0);
   }
-  equalize_intensities_for_nid(intensities);
   auto frame = std::make_shared<vlcal::FrameCPU>(points);
   frame->add_intensities(intensities);
   return frame;

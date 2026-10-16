@@ -2,6 +2,9 @@
 
 #include <clc_core/fusion_service.hpp>
 
+#include <clc_core/nid_cloud_prep.hpp>
+#include <clc_core/pcd_io.hpp>
+
 #include <algorithm>
 #include <cstdint>
 
@@ -41,6 +44,14 @@ glim_cloud_fusion::FusionResult run_fusion(
   FusionProgressCallback on_progress,
   FusionCancellationCheck is_cancelled) {
   return glim_cloud_fusion::fuse_scans(scans, params, on_progress, is_cancelled);
+}
+
+bool load_fused_dense_pcd(const std::string& path, glim_cloud_fusion::DensePointCloud& cloud, std::string& error) {
+  if (!load_dense_pcd(path, cloud, error)) {
+    return false;
+  }
+  equalize_dense_cloud_intensities(cloud);
+  return true;
 }
 
 bool save_dense_pcd(const std::string& path, const glim_cloud_fusion::DensePointCloud& cloud, std::string& error) {

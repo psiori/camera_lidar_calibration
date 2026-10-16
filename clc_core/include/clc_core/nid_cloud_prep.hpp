@@ -11,10 +11,13 @@ namespace clc {
 /// Histogram-equalize intensities to [0, 1), matching vlcal preprocess / NID expectations.
 void equalize_intensities_for_nid(std::vector<double>& intensities);
 
+/// Histogram-equalize fused cloud intensities in place (same mapping as `equalize_intensities_for_nid`).
+void equalize_dense_cloud_intensities(glim_cloud_fusion::DensePointCloud& cloud);
+
 /// Express fused world-frame points in the reference scan sensor frame (`p_ref = T_world_ref^{-1} p_world`).
 void transform_dense_cloud_from_world(glim_cloud_fusion::DensePointCloud& cloud, const Mat4d& T_world_ref);
 
-/// Build a vlcal frame for NID (equalized intensities, homogeneous points).
+/// Build a vlcal frame for NID from a fused cloud (intensities must already be equalized).
 vlcal::FrameCPU::Ptr dense_cloud_to_nid_frame(const glim_cloud_fusion::DensePointCloud& cloud);
 
 }  // namespace clc
