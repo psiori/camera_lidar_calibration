@@ -21,6 +21,12 @@ enum class RangeImageChannel { Range, Intensity };
 
 RangeImage build_range_image(const PointXYZITCloud& cloud);
 
+/// Smallest finite range above no-return epsilon, for colormap slider extent; 0 if none.
+float range_colormap_data_min(const std::vector<float>& range);
+
+/// Largest finite range value, or 1.0 if empty or all non-positive.
+float range_colormap_data_max(const std::vector<float>& range);
+
 struct Polygon2f {
   std::vector<Vec2f> vertices;
 };

@@ -2,8 +2,11 @@
 
 #include <clc_core/range_image.hpp>
 
+#include <clc_core/colormap.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -28,6 +31,26 @@ RangeImage build_range_image(const PointXYZITCloud& cloud) {
     }
   }
   return image;
+}
+
+float range_colormap_data_min(const std::vector<float>& range) {
+  float min_v = std::numeric_limits<float>::infinity();
+  for (float v : range) {
+    if (std::isfinite(v) && v > kRangeNoReturnEpsilon) {
+      min_v = std::min(min_v, v);
+    }
+  }
+  return std::isfinite(min_v) ? min_v : 0.f;
+}
+
+float range_colormap_data_max(const std::vector<float>& range) {
+  float max_v = 0.f;
+  for (float v : range) {
+    if (std::isfinite(v)) {
+      max_v = std::max(max_v, v);
+    }
+  }
+  return max_v > 0.f ? max_v : 1.f;
 }
 
 std::vector<std::uint8_t> rasterize_mask(int width, int height, const std::vector<Polygon2f>& polygons, bool keep_inside) {

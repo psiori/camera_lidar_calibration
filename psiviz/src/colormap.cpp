@@ -9,8 +9,11 @@ namespace psiviz {
 
 std::array<float, 3> Colormap::jet(float t) {
   t = std::clamp(t, 0.f, 1.f);
-  const auto ch = [](float x) { return std::clamp(1.5f - std::fabs(4.f * x - 2.f), 0.f, 1.f); };
-  return {ch(t + 0.5f), ch(t), ch(t - 0.5f)};
+  return {
+    std::clamp(1.5f - std::fabs(4.f * t - 3.f), 0.f, 1.f),
+    std::clamp(1.5f - std::fabs(4.f * t - 2.f), 0.f, 1.f),
+    std::clamp(1.5f - std::fabs(4.f * t - 1.f), 0.f, 1.f),
+  };
 }
 
 Colormap::Colormap() {
