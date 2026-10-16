@@ -18,6 +18,7 @@
 #include <glim/util/config.hpp>
 
 #include <clc_core/fusion_service.hpp>
+#include <clc_core/nid_cloud_prep.hpp>
 #include <clc_core/pcd_io.hpp>
 #include <clc_core/range_image.hpp>
 #include <clc_core/session.hpp>
@@ -452,16 +453,14 @@ int main(int argc, char** argv) {
     if (!opt.params_json_path.empty()) {
       clc::SessionData session;
       std::string session_err;
-      if (clc::load_session(opt.params_json_path, session, session_err) && !session.global_mask.path.empty() &&
-          session.global_mask.width > 0 && session.global_mask.height > 0) {
+      if (clc::load_session(opt.params_json_path, session, session_err) && session.global_mask.width > 0 &&
+          session.global_mask.height > 0 &&
+          (!session.global_mask.ops.empty() || !session.global_mask.path.empty())) {
         std::string mask_err;
-        clc::load_mask_png(
-          session.global_mask.path,
-          session.global_mask.width,
-          session.global_mask.height,
-          mask_pixels,
-          mask_err);
-        if (!mask_err.empty()) {
+        const std::filesystem::path session_dir =
+          std::filesystem::path(opt.params_json_path).parent_path();
+        if (!clc::rasterize_global_mask(
+              session.global_mask, session_dir.string(), mask_pixels, mask_err)) {
           std::cerr << "Warning: could not load global mask: " << mask_err << "\n";
           mask_pixels.clear();
         }
@@ -559,8 +558,10 @@ int main(int argc, char** argv) {
     std::cout << "Total (load+fuse): " << format_duration(load_seconds + fuse_seconds) << "\n";
 
     if (!opt.output_path.empty()) {
+      glim_cloud_fusion::DensePointCloud output = result.cloud;
+      clc::equalize_dense_cloud_intensities(output);
       std::string err;
-      if (!clc::save_dense_pcd(opt.output_path, result.cloud, err)) {
+      if (!clc::save_dense_pcd(opt.output_path, output, err)) {
         std::cerr << "Failed to write output: " << err << "\n";
         return 1;
       }
