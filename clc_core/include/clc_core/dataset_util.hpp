@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <clc_core/session.hpp>
 
@@ -30,11 +31,17 @@ bool session_has_calibration_datasets(const SessionData& session);
 /// Updates `fusion_complete` from fused path / scan count (single scan counts as fused).
 void sync_dataset_fusion_status(DatasetEntry& dataset);
 
+/// True when `fused_cloud_path` is set and the file exists on disk.
+bool dataset_fused_cloud_file_present(const DatasetEntry& dataset);
+
 /// Whether a calibration dataset is ready for initial alignment and NID.
 bool dataset_ready(const DatasetEntry& dataset);
 
-/// Max allowed |image time − first scan time| for multi-scan datasets (seconds).
-constexpr double k_dataset_image_first_scan_max_delta_seconds = 0.1;
+/// Human-readable blockers when `dataset_ready` is false (empty when ready).
+std::vector<std::string> dataset_not_ready_reasons(const DatasetEntry& dataset);
+
+/// Max allowed |image time − first scan time| for multi-scan datasets (seconds). This is more of a sanity check
+constexpr double k_dataset_image_first_scan_max_delta_seconds = 2;
 
 /// For multi-scan datasets, require the image filename UTC time within
 /// `k_dataset_image_first_scan_max_delta_seconds` of the first scan. Single-scan datasets skip this check.
@@ -50,5 +57,11 @@ bool calibration_dataset_is_placeholder(const DatasetEntry& dataset);
 
 /// Drops placeholder rows when at least one real calibration dataset exists.
 void prune_placeholder_calibration_datasets(SessionData& session);
+
+/// Removes all placeholder rows (e.g. after delete or before adding a real dataset).
+void erase_placeholder_calibration_datasets(SessionData& session);
+
+/// Clears `id` on placeholders; assigns id from the first scan when paths are present.
+void sync_calibration_dataset_identity(DatasetEntry& dataset);
 
 }  // namespace clc

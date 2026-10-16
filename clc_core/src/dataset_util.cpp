@@ -60,19 +60,26 @@ bool session_has_calibration_datasets(const SessionData& session) {
                      [](const DatasetEntry& ds) { return !calibration_dataset_is_placeholder(ds); });
 }
 
+bool dataset_fused_cloud_file_present(const DatasetEntry& dataset) {
+  if (dataset.fused_cloud_path.empty()) {
+    return false;
+  }
+  return std::filesystem::exists(dataset.fused_cloud_path);
+}
+
 void sync_dataset_fusion_status(DatasetEntry& dataset) {
   if (dataset.geometry_error) {
     return;
   }
   if (!dataset.fused_cloud_path.empty()) {
-    dataset.fusion_complete = true;
+    dataset.fusion_complete = dataset_fused_cloud_file_present(dataset);
     return;
   }
   if (dataset.pcd_paths.size() == 1) {
     dataset.fusion_complete = true;
-  } else if (dataset.pcd_paths.size() > 1) {
-    dataset.fusion_complete = false;
+    return;
   }
+  // Multi-scan without a fused artifact: keep fusion_complete from session or in-memory fusion.
 }
 
 bool validate_dataset_image_first_scan_time(const DatasetEntry& dataset, std::string& error) {
@@ -114,16 +121,43 @@ bool validate_dataset_image_first_scan_time(const DatasetEntry& dataset, std::st
 }
 
 bool dataset_ready(const DatasetEntry& dataset) {
-  if (dataset.image_path.empty() || dataset.cloud_directory.empty()) {
-    return false;
+  return dataset_not_ready_reasons(dataset).empty();
+}
+
+std::vector<std::string> dataset_not_ready_reasons(const DatasetEntry& dataset) {
+  std::vector<std::string> reasons;
+  if (dataset.image_path.empty()) {
+    reasons.push_back("camera image not set");
+  }
+  if (dataset.cloud_directory.empty()) {
+    reasons.push_back("LiDAR scan path not set");
   }
   if (dataset.geometry_error) {
-    return false;
+    reasons.push_back("scan geometry error (fix paths or structured scan dimensions)");
+  }
+  if (!reasons.empty()) {
+    return reasons;
+  }
+  if (dataset.pcd_paths.empty()) {
+    reasons.push_back("no LiDAR scans loaded");
+    return reasons;
+  }
+  if (dataset.pcd_paths.size() == 1) {
+    if (dataset.fusion_complete) {
+      return {};
+    }
+    reasons.push_back("single-scan catalog not synced (reload scan path)");
+    return reasons;
   }
   if (!dataset.fused_cloud_path.empty()) {
-    return true;
+    if (dataset_fused_cloud_file_present(dataset)) {
+      return {};
+    }
+    reasons.push_back("fused cloud file missing: " + dataset.fused_cloud_path);
+    return reasons;
   }
-  return dataset.fusion_complete;
+  reasons.push_back("multi-scan fusion not complete (run fusion on the Datasets tab)");
+  return reasons;
 }
 
 bool calibration_dataset_is_placeholder(const DatasetEntry& dataset) {
@@ -151,11 +185,32 @@ bool calibration_dataset_id_unique(const SessionData& session, const std::string
     if (i == skip_index) {
       continue;
     }
-    if (session.calibration_datasets[static_cast<std::size_t>(i)].id == id) {
+    const auto& ds = session.calibration_datasets[static_cast<std::size_t>(i)];
+    if (calibration_dataset_is_placeholder(ds)) {
+      continue;
+    }
+    if (ds.id == id) {
       return false;
     }
   }
   return true;
+}
+
+void erase_placeholder_calibration_datasets(SessionData& session) {
+  session.calibration_datasets.erase(
+      std::remove_if(session.calibration_datasets.begin(), session.calibration_datasets.end(),
+                     [](const DatasetEntry& d) { return calibration_dataset_is_placeholder(d); }),
+      session.calibration_datasets.end());
+}
+
+void sync_calibration_dataset_identity(DatasetEntry& dataset) {
+  if (calibration_dataset_is_placeholder(dataset)) {
+    dataset.id.clear();
+    return;
+  }
+  if (dataset.id.empty() && !dataset.pcd_paths.empty()) {
+    dataset.id = dataset_id_from_first_scan(dataset.pcd_paths);
+  }
 }
 
 }  // namespace clc
