@@ -6,9 +6,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <thread>
+
+#include <clc_core/range_image.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -16,28 +19,48 @@ namespace clc {
 
 namespace {
 
+/// Writes `T` as a 16-element array: 4×4 matrix flattened in row-major order (row 0, then row 1, …).
 void save_pose(nlohmann::json& j, const std::string& key, const Mat4d& T) {
-  double qx = 0.;
-  double qy = 0.;
-  double qz = 0.;
-  double qw = 1.;
-  double tx = 0.;
-  double ty = 0.;
-  double tz = 0.;
-  mat4dToQuaternionTranslation(T, qx, qy, qz, qw, tx, ty, tz);
-  j[key] = {tx, ty, tz, qx, qy, qz, qw};
+  nlohmann::json row_major = nlohmann::json::array();
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      row_major.push_back(T(row, col));
+    }
+  }
+  j[key] = std::move(row_major);
 }
 
+/// Loads a pose array: 16 elements (row-major 4×4) or legacy 7 elements (tx, ty, tz, qx, qy, qz, qw).
 bool load_pose(const nlohmann::json& j, const std::string& key, Mat4d& T) {
   if (!j.contains(key)) {
     return false;
   }
   const auto& v = j[key];
-  if (!v.is_array() || v.size() != 7) {
+  if (!v.is_array()) {
     return false;
   }
-  T = mat4dFromQuaternionTranslation(v[3], v[4], v[5], v[6], v[0], v[1], v[2]);
-  return true;
+  if (v.size() == 16) {
+    T = Mat4d::identity();
+    for (int row = 0; row < 4; ++row) {
+      for (int col = 0; col < 4; ++col) {
+        if (!v[row * 4 + col].is_number()) {
+          return false;
+        }
+        T(row, col) = v[row * 4 + col].get<double>();
+      }
+    }
+    return true;
+  }
+  if (v.size() == 7) {
+    for (std::size_t i = 0; i < 7; ++i) {
+      if (!v[i].is_number()) {
+        return false;
+      }
+    }
+    T = mat4dFromQuaternionTranslation(v[3], v[4], v[5], v[6], v[0], v[1], v[2]);
+    return true;
+  }
+  return false;
 }
 
 nlohmann::json scan_time_to_json(const glim_cloud_fusion::ScanTimeParams& scan_time) {
@@ -46,6 +69,67 @@ nlohmann::json scan_time_to_json(const glim_cloud_fusion::ScanTimeParams& scan_t
   j["time_origin"] = static_cast<int>(scan_time.time_origin);
   j["scan_duration"] = *scan_time.scan_duration;
   return j;
+}
+
+nlohmann::json mask_polygon_op_to_json(const MaskPolygonOp& op) {
+  nlohmann::json j;
+  j["keep_inside"] = op.keep_inside;
+  nlohmann::json vertices = nlohmann::json::array();
+  for (const Vec2f& v : op.polygon.vertices) {
+    vertices.push_back(nlohmann::json::array({v.x, v.y}));
+  }
+  j["vertices"] = std::move(vertices);
+  return j;
+}
+
+bool mask_polygon_op_from_json(const nlohmann::json& j, MaskPolygonOp& op, std::string& error) {
+  if (!j.is_object()) {
+    error = "mask op must be an object";
+    return false;
+  }
+  op.keep_inside = j.value("keep_inside", false);
+  if (!j.contains("vertices") || !j["vertices"].is_array()) {
+    error = "mask op missing vertices array";
+    return false;
+  }
+  op.polygon.vertices.clear();
+  for (const auto& pt : j["vertices"]) {
+    if (!pt.is_array() || pt.size() < 2 || !pt[0].is_number() || !pt[1].is_number()) {
+      error = "mask op vertex must be [x, y] numbers";
+      return false;
+    }
+    op.polygon.vertices.emplace_back(pt[0].get<float>(), pt[1].get<float>());
+  }
+  if (op.polygon.vertices.size() < 3) {
+    error = "mask op polygon needs at least 3 vertices";
+    return false;
+  }
+  return true;
+}
+
+std::string resolve_global_mask_png_path(const GlobalMaskMeta& meta, const std::string& session_directory) {
+  if (meta.path.empty()) {
+    if (!session_directory.empty()) {
+      const std::filesystem::path default_path =
+        std::filesystem::path(session_directory) / "global_mask.png";
+      if (std::filesystem::exists(default_path)) {
+        return default_path.string();
+      }
+    }
+    return {};
+  }
+  const std::filesystem::path stored(meta.path);
+  if (std::filesystem::exists(stored)) {
+    return stored.string();
+  }
+  if (!session_directory.empty()) {
+    const std::filesystem::path beside =
+      std::filesystem::path(session_directory) / stored.filename();
+    if (std::filesystem::exists(beside)) {
+      return beside.string();
+    }
+  }
+  return {};
 }
 
 bool scan_time_from_json(const nlohmann::json& j, glim_cloud_fusion::ScanTimeParams& scan_time) {
@@ -437,6 +521,10 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   j["global_mask"]["width"] = session.global_mask.width;
   j["global_mask"]["height"] = session.global_mask.height;
   j["global_mask"]["keep_inside"] = session.global_mask.keep_inside;
+  j["global_mask"]["ops"] = nlohmann::json::array();
+  for (const MaskPolygonOp& op : session.global_mask.ops) {
+    j["global_mask"]["ops"].push_back(mask_polygon_op_to_json(op));
+  }
   j["calibration_datasets"] = nlohmann::json::array();
   for (const auto& d : session.calibration_datasets) {
     j["calibration_datasets"].push_back(dataset_to_json(d));
@@ -496,10 +584,33 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
       parsed.reference_scan_height = 0;
     }
     if (j.contains("global_mask")) {
-      parsed.global_mask.path = j["global_mask"].value("path", "");
-      parsed.global_mask.width = j["global_mask"].value("width", 0);
-      parsed.global_mask.height = j["global_mask"].value("height", 0);
-      parsed.global_mask.keep_inside = j["global_mask"].value("keep_inside", false);
+      const auto& gm = j["global_mask"];
+      if (!gm.is_object()) {
+        error = "global_mask must be an object";
+        return false;
+      }
+      parsed.global_mask.path = gm.value("path", "");
+      parsed.global_mask.width = gm.value("width", 0);
+      parsed.global_mask.height = gm.value("height", 0);
+      parsed.global_mask.keep_inside = gm.value("keep_inside", false);
+      parsed.global_mask.ops.clear();
+      if (gm.contains("ops")) {
+        if (!gm["ops"].is_array()) {
+          error = "global_mask.ops must be an array";
+          return false;
+        }
+        for (std::size_t i = 0; i < gm["ops"].size(); ++i) {
+          MaskPolygonOp op;
+          std::string op_error;
+          if (!mask_polygon_op_from_json(gm["ops"][i], op, op_error)) {
+            std::ostringstream oss;
+            oss << "global_mask.ops[" << i << "]: " << op_error;
+            error = oss.str();
+            return false;
+          }
+          parsed.global_mask.ops.push_back(std::move(op));
+        }
+      }
     } else {
       parsed.global_mask = {};
     }
@@ -582,6 +693,29 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
 
   session = std::move(parsed);
   return true;
+}
+
+bool rasterize_global_mask(
+  const GlobalMaskMeta& meta,
+  const std::string& session_directory,
+  std::vector<std::uint8_t>& mask,
+  std::string& error) {
+  error.clear();
+  mask.clear();
+  if (meta.width <= 0 || meta.height <= 0) {
+    error = "global mask dimensions are not set";
+    return false;
+  }
+  if (!meta.ops.empty()) {
+    mask = build_mask_from_ops(meta.width, meta.height, meta.ops);
+    return true;
+  }
+  const std::string png_path = resolve_global_mask_png_path(meta, session_directory);
+  if (png_path.empty()) {
+    error = "global mask has no polygon ops and no PNG file on disk";
+    return false;
+  }
+  return load_mask_png(png_path, meta.width, meta.height, mask, error);
 }
 
 bool fusion_params_from_json_file(const std::string& path, glim_cloud_fusion::FusionParams& params, std::string& error) {

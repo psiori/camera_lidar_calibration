@@ -1,11 +1,11 @@
 #pragma once
 
 #include <iosfwd>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include <clc/linalg.hpp>
+#include <clc_core/range_image.hpp>
 #include <opencv2/core.hpp>
 
 #include <glim_cloud_fusion/fusion.hpp>
@@ -51,12 +51,14 @@ struct DatasetEntry {
   ImageMaskMeta image_mask;
 };
 
-/// Global range-image mask file and raster dimensions shared across datasets.
+/// Global range-image mask shared across datasets (polygon ops in session JSON; optional PNG export path).
 struct GlobalMaskMeta {
   std::string path;
   int width = 0;
   int height = 0;
   bool keep_inside = false;
+  /// Polygon keep/remove edits in native range-image pixel coordinates.
+  std::vector<MaskPolygonOp> ops;
 };
 
 /// Full on-disk session: intrinsics, fusion/calibration params, poses, masks, and dataset lists.
@@ -90,6 +92,14 @@ inline bool session_extrinsic_available(const SessionData& session) {
 bool save_session(const std::string& path, const SessionData& session);
 /// Loads session state from `session.json`. On failure, `error` describes what went wrong.
 bool load_session(const std::string& path, SessionData& session, std::string& error);
+
+/// Build a WxH mask raster from `meta.ops`, or load `meta.path` when ops are empty.
+/// `session_directory` is the folder containing session.json (used to resolve relative PNG paths).
+bool rasterize_global_mask(
+  const GlobalMaskMeta& meta,
+  const std::string& session_directory,
+  std::vector<std::uint8_t>& mask,
+  std::string& error);
 
 /// Default fusion thread count (hardware concurrency, minimum 1).
 int default_fusion_num_threads();
