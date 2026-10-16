@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <QImage>
@@ -438,6 +439,8 @@ private:
                                        clc::PointXYZITCloud& cloud,
                                        std::string& err);
   void uploadPreviewScanToViewer(bool preserve_view_state = false);
+  /// First readable scan for the active catalog when no fused cloud is available.
+  void uploadActiveDatasetPreviewScanToViewer();
   void uploadDenseCloudToViewer(const glim_cloud_fusion::DensePointCloud& cloud, bool preserve_view_state = false);
   void uploadLidarScanToViewer(const clc::PointXYZITCloud& cloud, bool preserve_view_state = false);
   void refreshPreviewCloudFromMask(bool preserve_view_state = true);  /// Reload scan after mask edits.
@@ -451,6 +454,16 @@ private:
   int maskRasterHeight() const;
   void ensureImageMaskStorage();
   void rebuildImageMaskFromOps(int dataset_index);
+  /// Width and height of the dataset's calibration image on disk.
+  bool imageDimensionsForDataset(int dataset_index, int& width, int& height) const;
+  /// Reload in-memory image mask ops/pixels for one dataset from session metadata and disk.
+  void reloadImageMaskForDataset(int dataset_index);
+  /// Raster size for a dataset's image mask (matches the calibration image).
+  bool imageMaskRasterSizeForDataset(int dataset_index, int& width, int& height) const;
+  /// Write per-dataset image mask PNGs into the session directory before session.json.
+  void persistCalibrationImageMasksToSessionDir(const QString& dir);
+  /// Write fused dense PCDs into the session directory and update dataset fused_cloud_path.
+  void persistFusedCloudsToSessionDir(const QString& dir);
   int imageMaskRasterWidth() const;
   int imageMaskRasterHeight() const;
   bool resolveImageMaskForAlignment(
@@ -468,8 +481,21 @@ private:
   void applySessionToViewer();           /// Sync viewer camera pose from inverse(T_camera_lidar).
   void refreshViewerAnnotationState();        /// Enable/disable coordinate systems and frustum
   void loadActiveDatasetCloudToViewer();
+  /// True when fused_cloud_ in memory belongs to the given calibration dataset index.
+  bool inMemoryFusedCloudForDataset(int dataset_index) const;
+  /// Image/LiDAR paths and geometry valid for calibration.
+  bool calibrationDatasetBaseFieldsOk(const clc::DatasetEntry& dataset) const;
+  /// Fused or single-scan cloud available on disk or in the fusion cache.
+  bool calibrationDatasetHasUsableCloud(int dataset_index) const;
+  void onFusedCloudDiskLoadFailed(clc::DatasetEntry& dataset, const QString& path);
   /// Clear in-memory fusion result (calibration or inspection).
   void clearFusedCloudCache();
+  /// Drop all per-dataset calibration fused clouds kept only in RAM.
+  void clearCalibrationFusedCloudMemoryCache();
+  /// Copy the active calibration fused cloud into the per-dataset RAM cache before evicting it.
+  void stashActiveCalibrationFusedCloudInMemoryCache();
+  /// Load a calibration dataset fused cloud from RAM cache into fused_cloud_.
+  bool restoreCalibrationFusedCloudFromMemoryCache(int dataset_index);
   /// True when fused_cloud_ matches the dataset context of the current main tab.
   bool fusedCloudBelongsToActiveContext() const;
   void syncActiveDatasetFusionToSession();
@@ -478,6 +504,8 @@ private:
   bool ensureProjectionImageForActiveDataset();
   void invalidateProjectionImageCache();
   void clearCalibrationDatasetVisuals(); /// Clear viewer cloud when switching datasets.
+  /// Remove point cloud geometry from the 3D viewer (keeps session / fused cache).
+  void clearViewerPointCloud();
   void resetSessionStructuredScanState();
   void refreshActiveDatasetVisuals();    /// Range image, viewer cloud, correspondences, preview.
   void reprojectViewerCameraRgb();       /// Re-run color_model_ projection for viewer_rgb_.
@@ -497,6 +525,9 @@ private:
   std::string projection_image_path_;                     /// Path of projection_image_ (cache key).
   std::optional<int> fused_cloud_dataset_index_;          /// Dataset index that owns fused_cloud_.
   bool fused_cloud_is_inspection_ = false;                /// fused_cloud_ belongs to inspection_datasets.
+  /// Fused clouds per calibration dataset index (survives active-dataset switches).
+  std::unordered_map<int, glim_cloud_fusion::DensePointCloud>
+      calibration_fused_cloud_memory_cache_;
   QVector<float> viewer_positions_;                       /// Last cloud uploaded to psiviz (xyz).
   QVector<float> viewer_scalars_;                         /// Per-point scalar channel for colormap.
   QVector<float> viewer_rgb_;                             /// Per-point camera RGB for blending.

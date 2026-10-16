@@ -50,7 +50,6 @@ ApplicationWindow {
 
     Connections {
         target: controller
-        function onPcdCatalogChanged() { Qt.callLater(controller.refreshPreviewInViewer) }
         function onScanTimeChanged() {
             timeUnit.currentIndex = controller.timeUnit
             timeOrigin.currentIndex = controller.timeOrigin
@@ -148,7 +147,10 @@ ApplicationWindow {
                 delegate: RowLayout {
                     required property int index
                     required property string modelData
-                    readonly property bool datasetReady: controller.isCalibrationDatasetReady(index)
+                    readonly property bool datasetReady: {
+                        controller.calibrationDatasetIds
+                        return controller.isCalibrationDatasetReady(index)
+                    }
                     spacing: 4
                     Label {
                         text: datasetReady ? "\u2713" : "\u2717"
@@ -157,7 +159,10 @@ ApplicationWindow {
                         font.pixelSize: 13
                         HoverHandler { id: datasetStatusHover }
                         ToolTip.visible: datasetStatusHover.hovered
-                        ToolTip.text: controller.calibrationDatasetTooltip(index)
+                        ToolTip.text: {
+                            controller.calibrationDatasetIds
+                            return controller.calibrationDatasetTooltip(index)
+                        }
                         ToolTip.delay: root.tooltipDelayMs
                     }
                     Button {
@@ -167,7 +172,10 @@ ApplicationWindow {
                         enabled: controller.canChangeActiveCalibrationDataset
                             && (controller.mainWorkTab === 0 || datasetReady)
                         ToolTip.visible: hovered && !enabled
-                        ToolTip.text: controller.calibrationDatasetTooltip(index)
+                        ToolTip.text: {
+                            controller.calibrationDatasetIds
+                            return controller.calibrationDatasetTooltip(index)
+                        }
                         ToolTip.delay: root.tooltipDelayMs
                         onClicked: controller.setActiveCalibrationDatasetIndex(index)
                     }
@@ -725,7 +733,7 @@ ApplicationWindow {
                         Button {
                             text: "Fuse inspection scans"
                             enabled: !controller.activeDatasetIsSingleScan
-                                && !controller.fusionBlocked && !controller.busyWorking
+                                && !controller.busyWorking
                             onClicked: controller.runFusion()
                             ToolTip.visible: hovered
                             ToolTip.text: controller.activeDatasetIsSingleScan

@@ -103,7 +103,11 @@ QImage rangeImageToDisplay(const clc::RangeImage &image,
     return {};
   }
   std::vector<std::uint8_t> rgb;
-  clc::colormap_jet(values, min_v, max_v, rgb);
+  if (channel == clc::RangeImageChannel::Range) {
+    clc::colormap_jet_range(values, min_v, max_v, rgb);
+  } else {
+    clc::colormap_jet(values, min_v, max_v, rgb);
+  }
   QImage out(image.width, image.height, QImage::Format_RGB888);
   if (static_cast<int>(rgb.size()) == image.width * image.height * 3) {
     std::memcpy(out.bits(), rgb.data(), rgb.size());
@@ -591,11 +595,19 @@ void AppController::setImagePath(const QString &path) {
     dataset.geometry_error = false;
     fusion_blocked_ = false;
   }
+  if (main_work_tab_ == 3) {
+    dataset.fused_cloud_path.clear();
+    dataset.fusion_complete = false;
+    clc::sync_dataset_fusion_status(dataset);
+    clearFusedCloudCache();
+  }
   qCInfo(lcClcDataset).noquote()
       << QStringLiteral("active dataset image set: %1").arg(normalized);
   invalidateProjectionImageCache();
   refreshCameraPreview();
-  if (!viewer_positions_.isEmpty()) {
+  if (main_work_tab_ == 3) {
+    loadActiveDatasetCloudToViewer();
+  } else if (!viewer_positions_.isEmpty()) {
     reprojectViewerCameraRgb();
   }
   emit sessionPathsChanged();
@@ -651,6 +663,8 @@ void AppController::setMainWorkTab(int tab) {
   if (main_work_tab_ != 3) {
     refreshActiveDatasetVisuals();
   } else {
+    clearFusedCloudCache();
+    clearViewerPointCloud();
     loadActiveDatasetCloudToViewer();
   }
   refreshViewerAnnotationState();
@@ -673,6 +687,9 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   active_calibration_dataset_index_ = clamped;
   pending_correspondence_3d_.reset();
   selected_correspondence_row_ = -1;
+  pending_image_mask_polygon_ = {};
+  setImageMaskPolygonPending(false);
+  reloadImageMaskForDataset(clamped);
   // Fused vs preview intensities use different scales; recompute colormap limits per dataset.
   viewer_scalar_bounds_valid_ = false;
   syncActiveDatasetFusionToSession();
@@ -685,6 +702,8 @@ void AppController::setActiveCalibrationDatasetIndex(int index) {
   if (!mask_editor_open_) {
     refreshRangeImage();
   }
+  refreshViewerAnnotationState();
+  syncCorrespondenceMarkers();
   emit imageMaskChanged();
   emit correspondencesChanged();
 }
@@ -723,22 +742,90 @@ bool AppController::canPickCorrespondences() const {
 }
 
 /// AppController::isCalibrationDatasetReady implementation.
-bool AppController::isCalibrationDatasetReady(int index) const {
-  if (index < 0 ||
-      index >= static_cast<int>(session_.calibration_datasets.size())) {
+bool AppController::inMemoryFusedCloudForDataset(int dataset_index) const {
+  if (dataset_index < 0) {
     return false;
   }
-  return clc::dataset_ready(
-      session_.calibration_datasets[static_cast<std::size_t>(index)]);
+  const auto cached =
+      calibration_fused_cloud_memory_cache_.find(dataset_index);
+  if (cached != calibration_fused_cloud_memory_cache_.end() &&
+      !cached->second.points.empty()) {
+    return true;
+  }
+  if (!fused_cloud_dataset_index_.has_value() ||
+      *fused_cloud_dataset_index_ != dataset_index || fused_cloud_is_inspection_) {
+    return false;
+  }
+  return !fused_cloud_.points.empty();
+}
+
+bool AppController::calibrationDatasetBaseFieldsOk(
+    const clc::DatasetEntry& dataset) const {
+  return !dataset.image_path.empty() && !dataset.cloud_directory.empty() &&
+         !dataset.geometry_error;
+}
+
+bool AppController::calibrationDatasetHasUsableCloud(int dataset_index) const {
+  if (dataset_index < 0 ||
+      dataset_index >= static_cast<int>(session_.calibration_datasets.size())) {
+    return false;
+  }
+  const auto& ds =
+      session_.calibration_datasets[static_cast<std::size_t>(dataset_index)];
+  if (!calibrationDatasetBaseFieldsOk(ds)) {
+    return false;
+  }
+  if (clc::dataset_is_single_scan(ds)) {
+    return ds.fusion_complete && !ds.pcd_paths.empty();
+  }
+  if (clc::dataset_fused_cloud_file_present(ds)) {
+    return true;
+  }
+  return inMemoryFusedCloudForDataset(dataset_index);
+}
+
+bool AppController::isCalibrationDatasetReady(int index) const {
+  return calibrationDatasetHasUsableCloud(index);
+}
+
+void AppController::onFusedCloudDiskLoadFailed(clc::DatasetEntry& dataset,
+                                               const QString& path) {
+  dataset.fusion_complete = false;
+  clc::sync_dataset_fusion_status(dataset);
+  if (fused_cloud_dataset_index_.has_value()) {
+    clearFusedCloudCache();
+  }
+  emit calibrationDatasetsChanged();
+  setStatus(QStringLiteral("Fused cloud missing or unreadable: %1").arg(path));
+  qCWarning(lcClcDataset).noquote()
+      << QStringLiteral("fused cloud load failed: %1").arg(path);
 }
 
 /// AppController::calibrationDatasetTooltip implementation.
 QString AppController::calibrationDatasetTooltip(int index) const {
+  if (index < 0 ||
+      index >= static_cast<int>(session_.calibration_datasets.size())) {
+    return QStringLiteral("Unknown dataset");
+  }
   if (isCalibrationDatasetReady(index)) {
     return QStringLiteral("Ready for initial alignment and calibration");
   }
-  return QStringLiteral(
-      "Load image and LiDAR; fuse multi-scan datasets before NID");
+  const auto& ds =
+      session_.calibration_datasets[static_cast<std::size_t>(index)];
+  auto reasons = clc::dataset_not_ready_reasons(ds);
+  if (reasons.empty() && calibrationDatasetBaseFieldsOk(ds) &&
+      !calibrationDatasetHasUsableCloud(index)) {
+    reasons.push_back(
+        "usable point cloud not available (fuse multi-scan or restore fused PCD)");
+  }
+  if (reasons.empty()) {
+    return QStringLiteral("Not ready for calibration");
+  }
+  QStringList parts;
+  for (const auto& reason : reasons) {
+    parts.append(QString::fromStdString(reason));
+  }
+  return QStringLiteral("Not ready: %1").arg(parts.join(QStringLiteral("; ")));
 }
 
 /// AppController::manualInitialGuessSupportsMultiDataset implementation.
@@ -895,6 +982,7 @@ bool AppController::addCalibrationDatasetFromPaths(
     setStatus(QString::fromStdString(scan.error));
     return false;
   }
+  clc::erase_placeholder_calibration_datasets(session_);
   const std::string id = clc::dataset_id_from_first_scan(scan.paths);
   if (!clc::calibration_dataset_id_unique(session_, id)) {
     setStatus(
@@ -954,16 +1042,16 @@ bool AppController::addCalibrationDatasetFromPaths(
       session_.calibration_datasets.end());
   session_.calibration_datasets.push_back(entry);
   ensureImageMaskStorage();
-  image_mask_ops_by_dataset_.emplace_back();
-  image_mask_pixels_by_dataset_.emplace_back();
   clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   active_calibration_dataset_index_ =
       static_cast<int>(session_.calibration_datasets.size()) - 1;
+  reloadImageMaskForDataset(active_calibration_dataset_index_);
   fusion_blocked_ = false;
   clearFusedCloudCache();
   emit calibrationDatasetsChanged();
   emit pcdCatalogChanged();
   emit sessionPathsChanged();
+  emit imageMaskChanged();
   refreshRangeImage();
   refreshActiveDatasetVisuals();
   setStatus(QStringLiteral("Added calibration dataset %1")
@@ -993,7 +1081,9 @@ void AppController::removeActiveCalibrationDataset() {
     image_mask_pixels_by_dataset_.erase(image_mask_pixels_by_dataset_.begin() +
                                         active_calibration_dataset_index_);
   }
+  clc::erase_placeholder_calibration_datasets(session_);
   clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
+  clearCalibrationFusedCloudMemoryCache();
   clearFusedCloudCache();
   pending_correspondence_3d_.reset();
   pending_correspondence_2d_.reset();
@@ -1233,9 +1323,7 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
   }
 
   dataset.pcd_paths = scan.paths;
-  if (dataset.id.empty() && !dataset.pcd_paths.empty()) {
-    dataset.id = clc::dataset_id_from_first_scan(dataset.pcd_paths);
-  }
+  clc::sync_calibration_dataset_identity(dataset);
   std::string image_time_err;
   if (!clc::validate_dataset_image_first_scan_time(dataset, image_time_err)) {
     dataset.geometry_error = true;
@@ -1268,6 +1356,7 @@ void AppController::refreshPcdCatalog() {
   auto &dataset = activeDatasetEntry();
   if (dataset.cloud_directory.empty()) {
     dataset.pcd_paths.clear();
+    clc::sync_calibration_dataset_identity(dataset);
     emit pcdCatalogChanged();
     return;
   }
@@ -1277,6 +1366,12 @@ void AppController::refreshPcdCatalog() {
     return;
   }
 
+  dataset.fused_cloud_path.clear();
+  dataset.fusion_complete = false;
+  clc::sync_dataset_fusion_status(dataset);
+  if (main_work_tab_ != 3) {
+    calibration_fused_cloud_memory_cache_.erase(active_calibration_dataset_index_);
+  }
   clearFusedCloudCache();
   setStatus(QStringLiteral("Found %1 PCD files (%2×%3)")
                 .arg(static_cast<int>(dataset.pcd_paths.size()))
@@ -1295,13 +1390,7 @@ void AppController::refreshPcdCatalog() {
 }
 
 /// Recompute and push Preview In Viewer to the UI or viewer.
-void AppController::refreshPreviewInViewer() {
-  if (fusedCloudBelongsToActiveContext()) {
-    uploadFusedCloudToViewer();
-  } else {
-    uploadPreviewScanToViewer();
-  }
-}
+void AppController::refreshPreviewInViewer() { loadActiveDatasetCloudToViewer(); }
 
 /// AppController::maskWidth implementation.
 int AppController::maskWidth() const { return maskRasterWidth(); }
@@ -1818,6 +1907,37 @@ void AppController::clearFusedCloudCache() {
   fused_cloud_is_inspection_ = false;
 }
 
+/// AppController::clearCalibrationFusedCloudMemoryCache implementation.
+void AppController::clearCalibrationFusedCloudMemoryCache() {
+  calibration_fused_cloud_memory_cache_.clear();
+}
+
+/// AppController::stashActiveCalibrationFusedCloudInMemoryCache implementation.
+void AppController::stashActiveCalibrationFusedCloudInMemoryCache() {
+  if (fused_cloud_is_inspection_ || fused_cloud_.points.empty() ||
+      !fused_cloud_dataset_index_.has_value()) {
+    return;
+  }
+  calibration_fused_cloud_memory_cache_[*fused_cloud_dataset_index_] = fused_cloud_;
+}
+
+/// AppController::restoreCalibrationFusedCloudFromMemoryCache implementation.
+bool AppController::restoreCalibrationFusedCloudFromMemoryCache(int dataset_index) {
+  if (dataset_index < 0) {
+    return false;
+  }
+  const auto cached =
+      calibration_fused_cloud_memory_cache_.find(dataset_index);
+  if (cached == calibration_fused_cloud_memory_cache_.end() ||
+      cached->second.points.empty()) {
+    return false;
+  }
+  fused_cloud_ = cached->second;
+  fused_cloud_dataset_index_ = dataset_index;
+  fused_cloud_is_inspection_ = false;
+  return true;
+}
+
 /// AppController::fusedCloudBelongsToActiveContext implementation.
 bool AppController::fusedCloudBelongsToActiveContext() const {
   if (fused_cloud_.points.empty() || !fused_cloud_dataset_index_.has_value()) {
@@ -1852,13 +1972,8 @@ bool AppController::ensureProjectionImageForActiveDataset() {
   return !projection_image_.empty();
 }
 
-/// Reset Calibration Dataset Visuals to empty defaults.
-void AppController::clearCalibrationDatasetVisuals() {
-  invalidateProjectionImageCache();
-  clearFusedCloudCache();
-  range_image_ = {};
-  range_image_display_ = {};
-  emit rangeImageChanged();
+/// Remove loaded point cloud buffers from the shared 3D viewer.
+void AppController::clearViewerPointCloud() {
   viewer_positions_.clear();
   viewer_scalars_.clear();
   viewer_rgb_.clear();
@@ -1866,8 +1981,19 @@ void AppController::clearCalibrationDatasetVisuals() {
   if (auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_)) {
     item->setPointCloudData({}, {}, {});
   }
-  refreshCameraPreview();
   refreshViewerAnnotationState();
+}
+
+/// Reset Calibration Dataset Visuals to empty defaults.
+void AppController::clearCalibrationDatasetVisuals() {
+  invalidateProjectionImageCache();
+  clearCalibrationFusedCloudMemoryCache();
+  clearFusedCloudCache();
+  range_image_ = {};
+  range_image_display_ = {};
+  emit rangeImageChanged();
+  clearViewerPointCloud();
+  refreshCameraPreview();
 }
 
 /// AppController::resetSessionStructuredScanState implementation.
@@ -1902,6 +2028,7 @@ void AppController::refreshActiveDatasetVisuals() {
     invalidateProjectionImageCache();
   }
   if (!fusedCloudBelongsToActiveContext()) {
+    stashActiveCalibrationFusedCloudInMemoryCache();
     clearFusedCloudCache();
   }
   refreshCameraPreview();
@@ -1992,13 +2119,19 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
           glim_cloud_fusion::DensePointCloud &out) -> bool {
     if (!ds.fused_cloud_path.empty()) {
       std::string err;
-      if (clc::load_dense_pcd(ds.fused_cloud_path, out, err)) {
+      if (clc::load_fused_dense_pcd(ds.fused_cloud_path, out, err)) {
         return !out.points.empty();
       }
     }
     if (fused_cloud_dataset_index_.has_value() &&
         *fused_cloud_dataset_index_ == ds_index && !fused_cloud_.points.empty()) {
       out = fused_cloud_;
+      return true;
+    }
+    const auto cached = calibration_fused_cloud_memory_cache_.find(ds_index);
+    if (cached != calibration_fused_cloud_memory_cache_.end() &&
+        !cached->second.points.empty()) {
+      out = cached->second;
       return true;
     }
     if (ds.pcd_paths.size() == 1) {
@@ -2011,6 +2144,9 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
           out.points.emplace_back(p.x(), p.y(), p.z());
         }
         out.intensities = cloud.scan.intensities;
+        if (!out.points.empty()) {
+          clc::equalize_dense_cloud_intensities(out);
+        }
         return !out.points.empty();
       }
     }
@@ -2021,7 +2157,7 @@ bool AppController::buildAlignmentInput(clc::AlignmentInput &input,
   for (int ds_index = 0; ds_index < static_cast<int>(session_.calibration_datasets.size());
        ++ds_index) {
     const auto &ds = session_.calibration_datasets[static_cast<std::size_t>(ds_index)];
-    if (!clc::dataset_ready(ds)) {
+    if (!calibrationDatasetHasUsableCloud(ds_index)) {
       ++skipped_not_ready;
       qCInfo(lcClcOptimization).noquote()
           << QStringLiteral("alignment input: skip dataset[%1] id=%2 (not ready)")
@@ -2224,6 +2360,7 @@ void AppController::rebuildMaskFromOps() {
   }
   if (mask_ops_.empty()) {
     global_mask_pixels_.clear();
+    session_.global_mask.ops.clear();
     emit maskChanged();
     refreshPreviewCloudFromMask(true);
     return;
@@ -2231,6 +2368,7 @@ void AppController::rebuildMaskFromOps() {
   global_mask_pixels_ = clc::build_mask_from_ops(w, h, mask_ops_);
   session_.global_mask.width = w;
   session_.global_mask.height = h;
+  session_.global_mask.ops = mask_ops_;
   emit maskChanged();
   refreshPreviewCloudFromMask(true);
 }
@@ -2355,6 +2493,7 @@ void AppController::clearMask() {
   session_.global_mask.path.clear();
   session_.global_mask.width = 0;
   session_.global_mask.height = 0;
+  session_.global_mask.ops.clear();
   emit maskChanged();
   refreshPreviewCloudFromMask(true);
   setStatus(QStringLiteral("Mask cleared"));
@@ -2468,15 +2607,299 @@ QString sanitizedDatasetIdForFilename(const std::string& id) {
   return safe;
 }
 
+QString defaultImageMaskPathInSession(const QString& session_dir, const std::string& dataset_id) {
+  return session_dir + QStringLiteral("image_mask_") +
+         sanitizedDatasetIdForFilename(dataset_id) + QStringLiteral(".png");
+}
+
+/// Default fused dense PCD path beside session.json (matches post-fusion export naming).
+QString defaultFusedCloudPathInSession(const QString& session_dir, const std::string& dataset_id,
+                                       bool inspection) {
+  const QString prefix =
+      inspection ? QStringLiteral("fused_inspection_") : QStringLiteral("fused_");
+  const QString id =
+      dataset_id.empty() ? QStringLiteral("dataset") : QString::fromStdString(dataset_id);
+  return session_dir + prefix + id + QStringLiteral(".pcd");
+}
+
+/// Resolve an on-disk image mask for a dataset (session folder, then stored path).
+/// Resolve an on-disk global lidar mask PNG (session folder, then stored path).
+QString resolveGlobalMaskFilePath(const QString& session_dir, const clc::GlobalMaskMeta& meta) {
+  const QString by_default = session_dir + QStringLiteral("global_mask.png");
+  if (QFileInfo::exists(by_default)) {
+    return QFileInfo(by_default).absoluteFilePath();
+  }
+  if (meta.path.empty()) {
+    return {};
+  }
+  const QString stored = QFileInfo(QString::fromStdString(meta.path)).absoluteFilePath();
+  if (QFileInfo::exists(stored)) {
+    return stored;
+  }
+  const QString beside = session_dir + QFileInfo(stored).fileName();
+  if (QFileInfo::exists(beside)) {
+    return QFileInfo(beside).absoluteFilePath();
+  }
+  return {};
+}
+
+QString resolveImageMaskFilePath(const QString& session_dir, const clc::DatasetEntry& ds) {
+  const QString by_id = defaultImageMaskPathInSession(session_dir, ds.id);
+  if (QFileInfo::exists(by_id)) {
+    return QFileInfo(by_id).absoluteFilePath();
+  }
+  if (ds.image_mask.path.empty()) {
+    return {};
+  }
+  const QString stored = QFileInfo(QString::fromStdString(ds.image_mask.path)).absoluteFilePath();
+  if (QFileInfo::exists(stored)) {
+    return stored;
+  }
+  const QString beside = session_dir + QFileInfo(stored).fileName();
+  if (QFileInfo::exists(beside)) {
+    return QFileInfo(beside).absoluteFilePath();
+  }
+  return {};
+}
+
 }  // namespace
 
 void AppController::ensureImageMaskStorage() {
   const std::size_t n = session_.calibration_datasets.size();
-  if (image_mask_ops_by_dataset_.size() < n) {
-    image_mask_ops_by_dataset_.resize(n);
+  image_mask_ops_by_dataset_.resize(n);
+  image_mask_pixels_by_dataset_.resize(n);
+}
+
+bool AppController::imageDimensionsForDataset(int dataset_index, int& width,
+                                              int& height) const {
+  width = 0;
+  height = 0;
+  if (dataset_index < 0 ||
+      dataset_index >= static_cast<int>(session_.calibration_datasets.size())) {
+    return false;
   }
-  if (image_mask_pixels_by_dataset_.size() < n) {
-    image_mask_pixels_by_dataset_.resize(n);
+  const auto& ds =
+      session_.calibration_datasets[static_cast<std::size_t>(dataset_index)];
+  if (ds.image_path.empty()) {
+    return false;
+  }
+  const QImage img(QString::fromStdString(ds.image_path));
+  if (img.isNull()) {
+    return false;
+  }
+  width = img.width();
+  height = img.height();
+  return width > 0 && height > 0;
+}
+
+bool AppController::imageMaskRasterSizeForDataset(int dataset_index, int& width,
+                                                  int& height) const {
+  return imageDimensionsForDataset(dataset_index, width, height);
+}
+
+void AppController::reloadImageMaskForDataset(int dataset_index) {
+  ensureImageMaskStorage();
+  if (dataset_index < 0 ||
+      dataset_index >= static_cast<int>(session_.calibration_datasets.size())) {
+    return;
+  }
+  const std::size_t idx = static_cast<std::size_t>(dataset_index);
+  auto& ds = session_.calibration_datasets[idx];
+  image_mask_ops_by_dataset_[idx].clear();
+  image_mask_pixels_by_dataset_[idx].clear();
+
+  int w = 0;
+  int h = 0;
+  if (!imageDimensionsForDataset(dataset_index, w, h)) {
+    ds.image_mask.path.clear();
+    ds.image_mask.width = 0;
+    ds.image_mask.height = 0;
+    return;
+  }
+
+  QString mask_path;
+  if (!session_directory_.isEmpty()) {
+    mask_path = resolveImageMaskFilePath(session_directory_, ds);
+  } else if (!ds.image_mask.path.empty()) {
+    const QString stored =
+        QFileInfo(QString::fromStdString(ds.image_mask.path)).absoluteFilePath();
+    if (QFileInfo::exists(stored)) {
+      mask_path = stored;
+    }
+  }
+
+  if (!mask_path.isEmpty()) {
+    std::string err;
+    if (clc::load_mask_png(mask_path.toStdString(), w, h,
+                           image_mask_pixels_by_dataset_[idx], err)) {
+      ds.image_mask.path = mask_path.toStdString();
+      ds.image_mask.width = w;
+      ds.image_mask.height = h;
+      return;
+    }
+    qCWarning(lcClcDataset).noquote()
+        << QStringLiteral("image mask reload failed dataset[%1] (%2): %3")
+               .arg(dataset_index)
+               .arg(mask_path)
+               .arg(QString::fromStdString(err));
+  }
+
+  ds.image_mask.path.clear();
+  ds.image_mask.width = 0;
+  ds.image_mask.height = 0;
+}
+
+void AppController::persistCalibrationImageMasksToSessionDir(const QString& dir) {
+  ensureImageMaskStorage();
+  for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
+    auto& ds = session_.calibration_datasets[static_cast<std::size_t>(i)];
+    if (clc::calibration_dataset_is_placeholder(ds)) {
+      continue;
+    }
+    int w = 0;
+    int h = 0;
+    if (!imageMaskRasterSizeForDataset(i, w, h)) {
+      continue;
+    }
+    const std::size_t idx = static_cast<std::size_t>(i);
+    auto& ops = image_mask_ops_by_dataset_[idx];
+    auto& pixels = image_mask_pixels_by_dataset_[idx];
+    if (!ops.empty()) {
+      pixels = clc::build_mask_from_ops(w, h, ops);
+    }
+    const std::size_t expected = static_cast<std::size_t>(w * h);
+    if (pixels.size() != expected) {
+      const QString existing = resolveImageMaskFilePath(dir, ds);
+      if (!existing.isEmpty()) {
+        std::string load_err;
+        clc::load_mask_png(existing.toStdString(), w, h, pixels, load_err);
+      }
+    }
+    if (pixels.size() != expected) {
+      continue;
+    }
+    const bool any_excluded =
+        std::any_of(pixels.begin(), pixels.end(),
+                    [](std::uint8_t v) { return v != 255; });
+    if (!any_excluded) {
+      ds.image_mask.path.clear();
+      ds.image_mask.width = 0;
+      ds.image_mask.height = 0;
+      continue;
+    }
+    const QString mask_path = defaultImageMaskPathInSession(dir, ds.id);
+    if (!clc::save_mask_png(mask_path.toStdString(), w, h, pixels)) {
+      qCWarning(lcClcDataset).noquote()
+          << QStringLiteral("failed to write image mask for dataset[%1] id=%2")
+                 .arg(i)
+                 .arg(QString::fromStdString(ds.id));
+      continue;
+    }
+    ds.image_mask.path = QFileInfo(mask_path).absoluteFilePath().toStdString();
+    ds.image_mask.width = w;
+    ds.image_mask.height = h;
+  }
+}
+
+void AppController::persistFusedCloudsToSessionDir(const QString& dir) {
+  stashActiveCalibrationFusedCloudInMemoryCache();
+
+  const auto cloud_for_calibration_dataset =
+      [this](int dataset_index, glim_cloud_fusion::DensePointCloud& out) -> bool {
+        const auto cached = calibration_fused_cloud_memory_cache_.find(dataset_index);
+        if (cached != calibration_fused_cloud_memory_cache_.end() &&
+            !cached->second.points.empty()) {
+          out = cached->second;
+          return true;
+        }
+        if (fused_cloud_dataset_index_.has_value() &&
+            *fused_cloud_dataset_index_ == dataset_index && !fused_cloud_is_inspection_ &&
+            !fused_cloud_.points.empty()) {
+          out = fused_cloud_;
+          return true;
+        }
+        return false;
+      };
+
+  const auto cloud_for_inspection_dataset =
+      [this](int dataset_index, glim_cloud_fusion::DensePointCloud& out) -> bool {
+        if (fused_cloud_dataset_index_.has_value() &&
+            *fused_cloud_dataset_index_ == dataset_index && fused_cloud_is_inspection_ &&
+            !fused_cloud_.points.empty()) {
+          out = fused_cloud_;
+          return true;
+        }
+        return false;
+      };
+
+  const auto persist_dataset = [&](clc::DatasetEntry& ds, int dataset_index, bool inspection) {
+    if (!inspection && clc::calibration_dataset_is_placeholder(ds)) {
+      return;
+    }
+    clc::sync_calibration_dataset_identity(ds);
+    const QString target_path =
+        defaultFusedCloudPathInSession(dir, ds.id, inspection);
+    const QString target_abs = QFileInfo(target_path).absoluteFilePath();
+
+    glim_cloud_fusion::DensePointCloud cloud;
+    const bool has_memory_cloud =
+        inspection ? cloud_for_inspection_dataset(dataset_index, cloud)
+                   : cloud_for_calibration_dataset(dataset_index, cloud);
+
+    if (has_memory_cloud) {
+      std::string save_err;
+      if (!clc::save_dense_pcd(target_abs.toStdString(), cloud, save_err)) {
+        qCWarning(lcClcDataset).noquote()
+            << QStringLiteral("failed to write fused cloud for dataset id=%1: %2")
+                   .arg(QString::fromStdString(ds.id))
+                   .arg(QString::fromStdString(save_err));
+        return;
+      }
+      ds.fused_cloud_path = target_abs.toStdString();
+      ds.fusion_complete = true;
+      clc::sync_dataset_fusion_status(ds);
+      return;
+    }
+
+    if (QFileInfo::exists(target_abs)) {
+      ds.fused_cloud_path = target_abs.toStdString();
+      ds.fusion_complete = true;
+      clc::sync_dataset_fusion_status(ds);
+      return;
+    }
+
+    if (!ds.fused_cloud_path.empty()) {
+      const QString stored = QFileInfo(QString::fromStdString(ds.fused_cloud_path)).absoluteFilePath();
+      if (QFileInfo::exists(stored)) {
+        if (stored != target_abs) {
+          std::string load_err;
+          if (!clc::load_fused_dense_pcd(stored.toStdString(), cloud, load_err)) {
+            qCWarning(lcClcDataset).noquote()
+                << QStringLiteral("fused cloud copy skipped (load failed) id=%1: %2")
+                       .arg(QString::fromStdString(ds.id))
+                       .arg(QString::fromStdString(load_err));
+            return;
+          }
+          std::string save_err;
+          if (!clc::save_dense_pcd(target_abs.toStdString(), cloud, save_err)) {
+            qCWarning(lcClcDataset).noquote()
+                << QStringLiteral("failed to copy fused cloud into session dir id=%1: %2")
+                       .arg(QString::fromStdString(ds.id))
+                       .arg(QString::fromStdString(save_err));
+            return;
+          }
+        }
+        ds.fused_cloud_path = target_abs.toStdString();
+        clc::sync_dataset_fusion_status(ds);
+      }
+    }
+  };
+
+  for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
+    persist_dataset(session_.calibration_datasets[static_cast<std::size_t>(i)], i, false);
+  }
+  for (int i = 0; i < static_cast<int>(session_.inspection_datasets.size()); ++i) {
+    persist_dataset(session_.inspection_datasets[static_cast<std::size_t>(i)], i, true);
   }
 }
 
@@ -2488,19 +2911,21 @@ QString AppController::imageMaskPath() const {
 }
 
 int AppController::imageMaskRasterWidth() const {
-  if (!activeDatasetEntry().image_mask.width) {
-    const QImage img(imagePath());
-    return img.width();
+  int w = 0;
+  int h = 0;
+  if (!imageDimensionsForDataset(active_calibration_dataset_index_, w, h)) {
+    return 0;
   }
-  return activeDatasetEntry().image_mask.width;
+  return w;
 }
 
 int AppController::imageMaskRasterHeight() const {
-  if (!activeDatasetEntry().image_mask.height) {
-    const QImage img(imagePath());
-    return img.height();
+  int w = 0;
+  int h = 0;
+  if (!imageDimensionsForDataset(active_calibration_dataset_index_, w, h)) {
+    return 0;
   }
-  return activeDatasetEntry().image_mask.height;
+  return h;
 }
 
 int AppController::imageMaskWidth() const { return imageMaskRasterWidth(); }
@@ -2547,8 +2972,12 @@ void AppController::rebuildImageMaskFromOps(int dataset_index) {
       dataset_index >= static_cast<int>(session_.calibration_datasets.size())) {
     return;
   }
-  const int w = imageMaskRasterWidth();
-  const int h = imageMaskRasterHeight();
+  int w = 0;
+  int h = 0;
+  if (!imageMaskRasterSizeForDataset(dataset_index, w, h)) {
+    emit imageMaskChanged();
+    return;
+  }
   auto& ds = session_.calibration_datasets[static_cast<std::size_t>(dataset_index)];
   if (w <= 0 || h <= 0) {
     emit imageMaskChanged();
@@ -2745,7 +3174,11 @@ void AppController::setImageMaskEditorOpen(bool open) {
   }
   image_mask_editor_open_ = open;
   if (open) {
+    pending_image_mask_polygon_ = {};
+    setImageMaskPolygonPending(false);
+    reloadImageMaskForDataset(active_calibration_dataset_index_);
     refreshCameraPreview();
+    emit imageMaskChanged();
   }
   emit imageMaskEditorOpenChanged();
   emit activeDatasetSelectionLockChanged();
@@ -2889,10 +3322,17 @@ void AppController::refreshRangeImageForDataset(int calibration_dataset_index) {
                                          ? range_image_.range
                                          : range_image_.intensity;
   if (!values.empty()) {
-    const auto [min_it, max_it] =
-        std::minmax_element(values.begin(), values.end());
-    range_data_min_ = static_cast<double>(*min_it);
-    range_data_max_ = static_cast<double>(autoMaxValue(values));
+    if (channel == clc::RangeImageChannel::Range) {
+      range_data_min_ =
+          static_cast<double>(clc::range_colormap_data_min(range_image_.range));
+      range_data_max_ =
+          static_cast<double>(clc::range_colormap_data_max(range_image_.range));
+    } else {
+      const auto [min_it, max_it] =
+          std::minmax_element(values.begin(), values.end());
+      range_data_min_ = static_cast<double>(*min_it);
+      range_data_max_ = static_cast<double>(autoMaxValue(values));
+    }
   }
   if (range_colormap_max_ <= range_colormap_min_) {
     range_colormap_min_ = range_data_min_;
@@ -2968,71 +3408,97 @@ void AppController::refreshViewerAnnotationState() {
   item->setCameraFrustumIntrinsics(frustum_valid, fx, fy, cx, cy, img_w, img_h, 2.0);
 }
 
+/// Show the first readable scan when the active dataset has no fused cloud yet.
+void AppController::uploadActiveDatasetPreviewScanToViewer() {
+  if (fusion_blocked_) {
+    setPointCount(0);
+    clearViewerPointCloud();
+    refreshViewerAnnotationState();
+    return;
+  }
+  auto &ds = activeDatasetEntry();
+  if (ds.pcd_paths.empty()) {
+    repopulateActiveDatasetPcdCatalogIfEmpty();
+  }
+  if (ds.pcd_paths.empty()) {
+    setPointCount(0);
+    clearViewerPointCloud();
+    refreshViewerAnnotationState();
+    return;
+  }
+  uploadPreviewScanToViewer();
+  refreshViewerAnnotationState();
+  syncCorrespondenceMarkers();
+}
+
 /// Load Active Dataset Cloud To Viewer from disk or session.
 void AppController::loadActiveDatasetCloudToViewer() {
   if (main_work_tab_ != 3 && session_.calibration_datasets.empty()) {
-    refreshPreviewInViewer();
+    setPointCount(0);
+    clearViewerPointCloud();
+    refreshViewerAnnotationState();
     return;
   }
   if (main_work_tab_ == 3) {
     session_.ensurePrimaryInspection();
     auto &ds = activeDatasetEntry();
-    if (fusedCloudBelongsToActiveContext() && ds.fusion_complete) {
+    if (fusedCloudBelongsToActiveContext() && !fused_cloud_.points.empty()) {
       uploadFusedCloudToViewer();
+      refreshViewerAnnotationState();
       return;
     }
     if (!ds.fused_cloud_path.empty()) {
       glim_cloud_fusion::DensePointCloud dense;
       std::string err;
-      if (clc::load_dense_pcd(ds.fused_cloud_path, dense, err)) {
+      if (clc::load_fused_dense_pcd(ds.fused_cloud_path, dense, err)) {
         fused_cloud_ = dense;
         fused_cloud_dataset_index_ = 0;
         fused_cloud_is_inspection_ = true;
         setPointCount(static_cast<int>(dense.points.size()));
         uploadFusedCloudToViewer();
+        refreshViewerAnnotationState();
         return;
       }
+      onFusedCloudDiskLoadFailed(
+          ds, QString::fromStdString(ds.fused_cloud_path));
     }
-    if (!ds.pcd_paths.empty() && !fusion_blocked_) {
-      refreshPreviewInViewer();
-    } else {
-      setPointCount(0);
-      if (auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_)) {
-        item->setPointCloudData({}, {}, {});
-      }
-    }
-    refreshViewerAnnotationState();
+    uploadActiveDatasetPreviewScanToViewer();
     return;
   }
   auto &ds = activeDatasetEntry();
-  const bool fused_cache_for_active =
-      fusedCloudBelongsToActiveContext() && !fused_cloud_.points.empty();
-  if (fused_cache_for_active && ds.fusion_complete) {
+  if (fusedCloudBelongsToActiveContext() && !fused_cloud_.points.empty()) {
     uploadFusedCloudToViewer();
     reprojectViewerCameraRgb();
+    refreshViewerAnnotationState();
     return;
   }
   if (!ds.fused_cloud_path.empty()) {
     glim_cloud_fusion::DensePointCloud dense;
     std::string err;
-    if (clc::load_dense_pcd(ds.fused_cloud_path, dense, err)) {
+    if (clc::load_fused_dense_pcd(ds.fused_cloud_path, dense, err)) {
       fused_cloud_ = dense;
       fused_cloud_dataset_index_ = active_calibration_dataset_index_;
       fused_cloud_is_inspection_ = false;
+      calibration_fused_cloud_memory_cache_[active_calibration_dataset_index_] =
+          dense;
       setPointCount(static_cast<int>(dense.points.size()));
       uploadFusedCloudToViewer();
+      reprojectViewerCameraRgb();
+      refreshViewerAnnotationState();
       return;
     }
+    onFusedCloudDiskLoadFailed(
+        ds, QString::fromStdString(ds.fused_cloud_path));
   }
-  if (!ds.pcd_paths.empty() && !fusion_blocked_) {
-    refreshPreviewInViewer();
-  } else {
-    setPointCount(0);
-    if (auto *item = qobject_cast<psiviz::PointCloudItem *>(viewer_)) {
-      item->setPointCloudData({}, {}, {});
-    }
+  if (restoreCalibrationFusedCloudFromMemoryCache(
+          active_calibration_dataset_index_)) {
+    setPointCount(static_cast<int>(fused_cloud_.points.size()));
+    uploadFusedCloudToViewer();
+    reprojectViewerCameraRgb();
+    refreshViewerAnnotationState();
+    return;
   }
-  refreshViewerAnnotationState();
+  uploadActiveDatasetPreviewScanToViewer();
 }
 
 /// AppController::emitSessionUiState implementation.
@@ -3044,11 +3510,9 @@ void AppController::emitSessionUiState() {
   emit pcdCatalogChanged();
   emit sessionLoaded();
   applySessionToViewer();
-  if (!activeDatasetEntry().pcd_paths.empty() && !fusion_blocked_) {
+  if (!session_.calibration_datasets.empty() && !fusion_blocked_) {
     refreshRangeImage();
-    if (fused_cloud_.points.empty()) {
-      uploadPreviewScanToViewer();
-    }
+    loadActiveDatasetCloudToViewer();
   }
 }
 
@@ -3076,6 +3540,7 @@ bool AppController::loadSession(const QString &directory) {
   session_ = std::move(loaded);
   clc::prune_placeholder_calibration_datasets(session_);
   invalidateProjectionImageCache();
+  clearCalibrationFusedCloudMemoryCache();
   clearFusedCloudCache();
   if (session_.calibration_datasets.empty()) {
     active_calibration_dataset_index_ = 0;
@@ -3112,15 +3577,24 @@ bool AppController::loadSession(const QString &directory) {
   pending_mask_polygon_ = {};
   setMaskPolygonPending(false);
   global_mask_pixels_.clear();
-  if (!session_.global_mask.path.empty() && session_.global_mask.width > 0 &&
-      session_.global_mask.height > 0) {
-    std::string error;
-    if (!clc::load_mask_png(session_.global_mask.path, session_.global_mask.width,
-                            session_.global_mask.height, global_mask_pixels_, error)) {
-      qCWarning(lcClcDataset).noquote()
-          << QStringLiteral("session global mask load failed (%1): %2")
-                 .arg(QString::fromStdString(session_.global_mask.path))
-                 .arg(QString::fromStdString(error));
+  if (session_.global_mask.width > 0 && session_.global_mask.height > 0) {
+    if (!session_.global_mask.ops.empty()) {
+      mask_ops_ = session_.global_mask.ops;
+      global_mask_pixels_ = clc::build_mask_from_ops(
+          session_.global_mask.width, session_.global_mask.height, mask_ops_);
+    } else {
+      clc::GlobalMaskMeta meta = session_.global_mask;
+      const QString resolved = resolveGlobalMaskFilePath(dir, meta);
+      if (!resolved.isEmpty()) {
+        meta.path = resolved.toStdString();
+        session_.global_mask.path = meta.path;
+      }
+      std::string error;
+      if (!clc::rasterize_global_mask(meta, dir.toStdString(), global_mask_pixels_, error)) {
+        qCWarning(lcClcDataset).noquote()
+            << QStringLiteral("session global mask restore failed: %1")
+                   .arg(QString::fromStdString(error));
+      }
     }
   }
   refreshCameraPreview();
@@ -3139,17 +3613,7 @@ bool AppController::loadSession(const QString &directory) {
   image_mask_pixels_by_dataset_.clear();
   ensureImageMaskStorage();
   for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
-    const auto& ds = session_.calibration_datasets[static_cast<std::size_t>(i)];
-    if (ds.image_mask.path.empty() || ds.image_mask.width <= 0 || ds.image_mask.height <= 0) {
-      continue;
-    }
-    std::string err;
-    clc::load_mask_png(
-      ds.image_mask.path,
-      ds.image_mask.width,
-      ds.image_mask.height,
-      image_mask_pixels_by_dataset_[static_cast<std::size_t>(i)],
-      err);
+    reloadImageMaskForDataset(i);
   }
   emit imageMaskChanged();
   active_calibration_dataset_index_ = 0;
@@ -3173,18 +3637,16 @@ bool AppController::saveSession(const QString &directory) {
   setSessionDirectory(dir);
   clc::prune_placeholder_calibration_datasets(session_);
   session_.fusion_params.scan_time = session_.scan_time;
-  if (!global_mask_pixels_.empty() && session_.reference_scan_width > 0 &&
-      session_.reference_scan_height > 0 &&
-      global_mask_pixels_.size() ==
-          static_cast<std::size_t>(session_.reference_scan_width *
-                                   session_.reference_scan_height)) {
-    const QString mask_path = dir + QStringLiteral("/global_mask.png");
-    clc::save_mask_png(mask_path.toStdString(), session_.reference_scan_width,
-                       session_.reference_scan_height, global_mask_pixels_);
-    session_.global_mask.path = mask_path.toStdString();
+  if (session_.reference_scan_width > 0 && session_.reference_scan_height > 0) {
     session_.global_mask.width = session_.reference_scan_width;
     session_.global_mask.height = session_.reference_scan_height;
+    session_.global_mask.ops = mask_ops_;
+    if (mask_ops_.empty()) {
+      session_.global_mask.ops.clear();
+    }
   }
+  persistCalibrationImageMasksToSessionDir(dir);
+  persistFusedCloudsToSessionDir(dir);
   const QString path = dir + QStringLiteral("/session.json");
   if (!clc::save_session(path.toStdString(), session_)) {
     setStatus(QStringLiteral("Failed to save session to %1").arg(path));
@@ -3937,8 +4399,13 @@ void AppController::runFusion() {
                 fused_cloud_,
                 clc::mat4dFromColumnMajor(result.scan_poses.front().matrix().data()));
           }
+          clc::equalize_dense_cloud_intensities(fused_cloud_);
           fused_cloud_dataset_index_ = fusion_dataset_index;
           fused_cloud_is_inspection_ = fusion_is_inspection;
+          if (!fusion_is_inspection) {
+            calibration_fused_cloud_memory_cache_[fusion_dataset_index] =
+                fused_cloud_;
+          }
           auto &ds = *target_ds;
           ds.fusion_complete = true;
           qCInfo(lcClcDataset).noquote()
@@ -3949,17 +4416,12 @@ void AppController::runFusion() {
                      .arg(static_cast<qulonglong>(result.cloud.points.size()))
                      .arg(fusion_is_inspection);
           if (!session_directory_.isEmpty() && !fusion_dataset_id.empty()) {
-            const QString prefix =
-                fusion_is_inspection ? QStringLiteral("fused_inspection_")
-                                     : QStringLiteral("fused_");
-            const QString fused_path =
-                session_directory_ + prefix +
-                QString::fromStdString(fusion_dataset_id) +
-                QStringLiteral(".pcd");
+            const QString fused_path = defaultFusedCloudPathInSession(
+                session_directory_, fusion_dataset_id, fusion_is_inspection);
+            const QString fused_abs = QFileInfo(fused_path).absoluteFilePath();
             std::string save_err;
-            if (clc::save_dense_pcd(fused_path.toStdString(), fused_cloud_,
-                                    save_err)) {
-              ds.fused_cloud_path = fused_path.toStdString();
+            if (clc::save_dense_pcd(fused_abs.toStdString(), fused_cloud_, save_err)) {
+              ds.fused_cloud_path = fused_abs.toStdString();
             }
           }
           setPointCount(static_cast<int>(result.cloud.points.size()));
@@ -3985,8 +4447,8 @@ void AppController::runAlignment() {
     return;
   }
   bool any_ready = false;
-  for (const auto &ds : session_.calibration_datasets) {
-    if (clc::dataset_ready(ds)) {
+  for (int i = 0; i < static_cast<int>(session_.calibration_datasets.size()); ++i) {
+    if (calibrationDatasetHasUsableCloud(i)) {
       any_ready = true;
       break;
     }
