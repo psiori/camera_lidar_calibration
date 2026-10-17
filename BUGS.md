@@ -6,6 +6,9 @@
 automatically. Then the fusion process finishes and the 3d scene updates to the
 fused cloud, even though the corresponding datset is no longer active
 
+## Data handling
+
+- When last dataset is removed, the state is not reset. Cloud is still there, and readding the same dataset id with possibly different files (i.e. single file vs fusion) is rejected.
 # Improvements, to be openspecced
 
 ## UI

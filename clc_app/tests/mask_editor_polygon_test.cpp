@@ -41,6 +41,7 @@ class MaskEditorPolygonTest : public QObject {
  private slots:
   void closedPolygonStaysVisibleAfterCloseWithMarginVertices();
   void closedPolygonVisibleWhenMaskReferenceLargerThanRangeImage();
+  void openPolygonVerticesPersistAcrossColormapSliderPreview();
 };
 
 void MaskEditorPolygonTest::closedPolygonStaysVisibleAfterCloseWithMarginVertices() {
@@ -159,6 +160,50 @@ void MaskEditorPolygonTest::closedPolygonVisibleWhenMaskReferenceLargerThanRange
   QVERIFY(controller.maskPolygonPending());
   QVERIFY2(range_view->containsPolygonOutlinePixels(),
            "Outline must stay on-screen when mask reference raster is larger than the preview range image");
+
+  window->close();
+  delete root;
+}
+
+void MaskEditorPolygonTest::openPolygonVerticesPersistAcrossColormapSliderPreview() {
+  AppController controller;
+  controller.installSyntheticMaskEditorScan(kNativeWidth, kNativeHeight, kYStretch);
+  QVERIFY(!controller.rangeImage().isNull());
+
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("controller"), &controller);
+
+  QQmlComponent component(&engine);
+  component.loadFromModule(QStringLiteral("CameraLidarCalibrationTest"), QStringLiteral("MaskEditorWindow"));
+  QVERIFY2(!component.isError(), "MaskEditorWindow must load for this test");
+  QObject* root = component.create();
+  QVERIFY(root);
+
+  auto* window = qobject_cast<QQuickWindow*>(root);
+  polishAndWait(window);
+
+  RangeImageItem* range_view = findMaskRangeView(window);
+  QVERIFY(range_view);
+  range_view->setWidth(640);
+  range_view->setHeight(360);
+  polishAndWait(window);
+
+  const QRectF dest = range_view->imageDestinationRectForTest();
+  const QPointF a(dest.left() + dest.width() * 0.3, dest.center().y());
+  const QPointF b(dest.center().x(), dest.top() + dest.height() * 0.25);
+  range_view->clickAtDisplayPosition(a.x(), a.y());
+  range_view->clickAtDisplayPosition(b.x(), b.y());
+  QVERIFY(range_view->drawing());
+  QCOMPARE(range_view->closedPolygonVertexCount(), 0);
+
+  controller.previewRangeColormapRange(0.0, 40.0);
+  controller.commitRangeColormapRange(0.0, 40.0);
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+
+  QVERIFY2(range_view->drawing(),
+           "In-progress polygon must survive colormap slider preview (regression: setImage reset)");
+  QVERIFY2(range_view->containsPolygonOutlinePixels(),
+           "Open polygon edges must remain visible after colormap refresh");
 
   window->close();
   delete root;

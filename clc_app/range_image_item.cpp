@@ -118,13 +118,19 @@ RangeImageItem::RangeImageItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
 
 /// RangeImageItem::setImage — set Image.
 void RangeImageItem::setImage(const QImage& image) {
-  // Drop cached mask when the underlying image changes (e.g. another calibration dataset).
   if (image_ == image) {
     return;
   }
+  // Colormap live preview replaces pixels only; size stays the same. Do not reset polygon
+  // drawing or the mask raster here — maskData is a separate binding and is not re-applied
+  // when only rangeImage pixels change.
+  const bool raster_size_changed =
+      image_.isNull() != image.isNull() || image_.width() != image.width() ||
+      image_.height() != image.height();
   image_ = image;
-  mask_data_.clear();
-  cancelPolygon();
+  if (raster_size_changed) {
+    cancelPolygon();
+  }
   updateImplicitHeight();
   update();
   emit imageChanged();
