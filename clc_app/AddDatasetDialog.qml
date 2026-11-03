@@ -23,6 +23,7 @@ Dialog {
     footer: DialogButtonBox {
         standardButtons: DialogButtonBox.Ok | DialogButtonBox.Cancel
         onAccepted: {
+            inputFields.commitEdits()
             if (controller.addCalibrationDatasetFromPaths(addDialog.imagePath, addDialog.lidarPath,
                                                         addDialog.intrinsicsPath)) {
                 addDialog.close()
@@ -42,6 +43,7 @@ Dialog {
         }
 
         DatasetInputFields {
+            id: inputFields
             Layout.fillWidth: true
             showIntrinsics: true
             imagePath: addDialog.imagePath

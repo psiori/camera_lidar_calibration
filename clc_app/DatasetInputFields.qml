@@ -21,6 +21,20 @@ ColumnLayout {
     signal lidarPathEdited(string path)
     signal intrinsicsPathEdited(string path)
 
+    // Pull the live editor contents at submit time as well as forwarding
+    // textEdited. This covers the final edit still held by the active field
+    // (for example, while an input method is composing text) when OK is clicked.
+    function commitEdits() {
+        imagePath = imagePathField.text
+        imagePathEdited(imagePathField.text)
+        lidarPath = lidarPathField.text
+        lidarPathEdited(lidarPathField.text)
+        if (showIntrinsics && !intrinsicsReadOnly) {
+            intrinsicsPath = intrinsicsPathField.text
+            intrinsicsPathEdited(intrinsicsPathField.text)
+        }
+    }
+
     Label {
         text: qsTr("Camera image")
         font.bold: true
@@ -34,6 +48,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         TextField {
+            id: imagePathField
             Layout.fillWidth: true
             text: root.imagePath
             placeholderText: qsTr("Image file (.png, .jpg, …)")
@@ -71,6 +86,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         TextField {
+            id: lidarPathField
             Layout.fillWidth: true
             text: root.lidarPath
             placeholderText: qsTr("PCD directory or file")
@@ -125,6 +141,7 @@ ColumnLayout {
         visible: root.showIntrinsics
         Layout.fillWidth: true
         TextField {
+            id: intrinsicsPathField
             Layout.fillWidth: true
             readOnly: root.intrinsicsReadOnly
             text: root.intrinsicsPath
