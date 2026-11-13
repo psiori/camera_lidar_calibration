@@ -110,7 +110,10 @@ QImage rangeImageToDisplay(const clc::RangeImage &image,
   }
   QImage out(image.width, image.height, QImage::Format_RGB888);
   if (static_cast<int>(rgb.size()) == image.width * image.height * 3) {
-    std::memcpy(out.bits(), rgb.data(), rgb.size());
+    const std::size_t row_bytes = static_cast<std::size_t>(image.width) * 3;
+    for (int y = 0; y < image.height; ++y) {
+      std::memcpy(out.scanLine(y), rgb.data() + static_cast<std::size_t>(y) * row_bytes, row_bytes);
+    }
   }
   if (y_stretch > 0.0 && !qFuzzyCompare(y_stretch, 1.0)) {
     const int out_h =
