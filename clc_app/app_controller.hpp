@@ -459,11 +459,11 @@ private:
   void rebuildImageMaskFromOps(int dataset_index);
   /// Width and height of the dataset's calibration image on disk.
   bool imageDimensionsForDataset(int dataset_index, int& width, int& height) const;
-  /// Reload in-memory image mask ops/pixels for one dataset from session metadata and disk.
+  /// Restore the shared image mask from session metadata and disk.
   void reloadImageMaskForDataset(int dataset_index);
   /// Raster size for a dataset's image mask (matches the calibration image).
   bool imageMaskRasterSizeForDataset(int dataset_index, int& width, int& height) const;
-  /// Write per-dataset image mask PNGs into the session directory before session.json.
+  /// Write the shared image mask into the session directory before session.json.
   void persistCalibrationImageMasksToSessionDir(const QString& dir);
   /// Write fused dense PCDs into the session directory and update dataset fused_cloud_path.
   void persistFusedCloudsToSessionDir(const QString& dir);

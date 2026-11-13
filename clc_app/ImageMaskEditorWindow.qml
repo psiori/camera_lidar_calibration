@@ -1,4 +1,4 @@
-// Per-dataset camera image mask for NID optimization (polygon keep/remove).
+// Shared camera image mask for NID optimization (polygon keep/remove).
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -16,17 +16,7 @@ Window {
 
     readonly property int tooltipDelayMs: 1000
 
-    function resetPendingPolygonIfNeeded() {
-        if (controller.imageMaskPolygonPending)
-            controller.discardPendingImageMaskPolygon()
-        imageView.clearPendingPolygon()
-    }
-
-    onVisibleChanged: {
-        controller.setImageMaskEditorOpen(visible)
-        if (!visible)
-            resetPendingPolygonIfNeeded()
-    }
+    onVisibleChanged: controller.setImageMaskEditorOpen(visible)
 
     ColumnLayout {
         anchors.fill: parent

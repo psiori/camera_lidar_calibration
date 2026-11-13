@@ -75,6 +75,7 @@ struct SessionData {
   int reference_scan_width = 0;
   int reference_scan_height = 0;
   GlobalMaskMeta global_mask;
+  ImageMaskMeta image_mask;
   std::vector<DatasetEntry> calibration_datasets;
   std::vector<DatasetEntry> inspection_datasets;
 

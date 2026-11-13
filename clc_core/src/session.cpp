@@ -525,6 +525,8 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   for (const MaskPolygonOp& op : session.global_mask.ops) {
     j["global_mask"]["ops"].push_back(mask_polygon_op_to_json(op));
   }
+  j["image_mask"] = {{"path", session.image_mask.path}, {"width", session.image_mask.width},
+                     {"height", session.image_mask.height}};
   j["calibration_datasets"] = nlohmann::json::array();
   for (const auto& d : session.calibration_datasets) {
     j["calibration_datasets"].push_back(dataset_to_json(d));
@@ -613,6 +615,12 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
       }
     } else {
       parsed.global_mask = {};
+    }
+    if (j.contains("image_mask") && j["image_mask"].is_object()) {
+      const auto& mask = j["image_mask"];
+      parsed.image_mask.path = mask.value("path", "");
+      parsed.image_mask.width = mask.value("width", 0);
+      parsed.image_mask.height = mask.value("height", 0);
     }
     parsed.calibration_datasets.clear();
     if (j.contains("calibration_datasets") && j["calibration_datasets"].is_array()) {

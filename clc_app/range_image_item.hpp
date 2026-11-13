@@ -31,7 +31,7 @@ class RangeImageItem : public QQuickPaintedItem {
                  NOTIFY closedPolygonOverlayChanged)
   /// AppController (or test stub); receives polygonCommitted.
   Q_PROPERTY(QObject* maskController READ maskController WRITE setMaskController NOTIFY maskControllerChanged)
-  /// When true, polygon commits apply to the per-dataset camera image optimization mask.
+  /// When true, polygon commits apply to the shared camera image optimization mask.
   Q_PROPERTY(bool imageOptimizationMaskMode READ imageOptimizationMaskMode WRITE setImageOptimizationMaskMode
                  NOTIFY imageOptimizationMaskModeChanged)
 
