@@ -319,7 +319,11 @@ void test_session_round_trip() {
   ds.cloud_directory = "/tmp/pcds";
   ds.correspondences.push_back(
     clc::PointCorrespondence{1.0, 2.0, 3.0, 4.0, 5.0});
-  session.T_camera_lidar(0, 3) = 1.;
+  session.T_camera_lidar(0, 0) = 0.;
+  session.T_camera_lidar(0, 1) = -1.;
+  session.T_camera_lidar(1, 0) = 1.;
+  session.T_camera_lidar(1, 1) = 0.;
+  session.T_camera_lidar(0, 3) = 1.123456789;
   session.T_camera_lidar(1, 3) = 2.;
   session.T_camera_lidar(2, 3) = 3.;
   session.extrinsic_available = true;
@@ -332,9 +336,13 @@ void test_session_round_trip() {
   {
     std::ifstream in(path.string());
     const nlohmann::json saved = nlohmann::json::parse(in);
-    assert(saved["T_camera_lidar"].is_array());
-    assert(saved["T_camera_lidar"].size() == 16);
-    assert(std::abs(saved["T_camera_lidar"][3].get<double>() - 1.) < 1e-12);
+    assert(saved["T_camera_lidar"].is_object());
+    assert(saved["T_camera_lidar"]["rotation"]["r01"] == -1.);
+    assert(saved["T_camera_lidar"]["translation"]["x"] == 1.1234568);
+    assert(saved["T_lidar_camera"]["rotation"]["r01"] == 1.);
+    assert(saved["T_lidar_camera"]["translation"]["x"] == -2.);
+    assert(saved["T_lidar_camera"]["translation"]["y"] == 1.1234568);
+    assert(!saved.contains("transform"));
   }
   clc::SessionData loaded;
   std::string error;
@@ -345,7 +353,9 @@ void test_session_round_trip() {
   assert(!loaded.calibration_datasets.empty());
   assert(loaded.calibration_datasets.front().correspondences.size() == 1);
   assert(loaded.extrinsic_available);
-  assert(std::abs(loaded.T_camera_lidar(0, 3) - 1.) < 1e-12);
+  assert(std::abs(loaded.T_camera_lidar(0, 1) + 1.) < 1e-12);
+  assert(std::abs(loaded.T_camera_lidar(1, 0) - 1.) < 1e-12);
+  assert(std::abs(loaded.T_camera_lidar(0, 3) - 1.1234568) < 1e-12);
   assert(std::abs(loaded.T_camera_lidar(1, 3) - 2.) < 1e-12);
   assert(std::abs(loaded.T_camera_lidar(2, 3) - 3.) < 1e-12);
   std::filesystem::remove(path);

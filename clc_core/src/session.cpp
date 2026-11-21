@@ -30,12 +30,46 @@ void save_pose(nlohmann::json& j, const std::string& key, const Mat4d& T) {
   j[key] = std::move(row_major);
 }
 
-/// Loads a pose array: 16 elements (row-major 4×4) or legacy 7 elements (tx, ty, tz, qx, qy, qz, qw).
+/// Format a transform using the rotation and translation keys used by worldmodel YAML.
+nlohmann::json worldmodel_transform(const Mat4d& T) {
+  const auto rounded = [](double value) { return std::round(value * 1e7) / 1e7; };
+  nlohmann::json rotation;
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) {
+      rotation["r" + std::to_string(row) + std::to_string(col)] = rounded(T(row, col));
+    }
+  }
+  return {{"rotation", std::move(rotation)},
+          {"translation", {{"x", rounded(T(0, 3))}, {"y", rounded(T(1, 3))}, {"z", rounded(T(2, 3))}}}};
+}
+
+/// Loads a rotation/translation object or a legacy 16- or 7-element pose array.
 bool load_pose(const nlohmann::json& j, const std::string& key, Mat4d& T) {
   if (!j.contains(key)) {
     return false;
   }
   const auto& v = j[key];
+  if (v.is_object()) {
+    if (!v.contains("rotation") || !v["rotation"].is_object() ||
+        !v.contains("translation") || !v["translation"].is_object()) return false;
+    const auto& rotation = v["rotation"];
+    const auto& translation = v["translation"];
+    Mat4d parsed = Mat4d::identity();
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        const auto name = "r" + std::to_string(row) + std::to_string(col);
+        if (!rotation.contains(name) || !rotation[name].is_number()) return false;
+        parsed(row, col) = rotation[name].get<double>();
+      }
+    }
+    const char* axes[] = {"x", "y", "z"};
+    for (int row = 0; row < 3; ++row) {
+      if (!translation.contains(axes[row]) || !translation[axes[row]].is_number()) return false;
+      parsed(row, 3) = translation[axes[row]].get<double>();
+    }
+    T = parsed;
+    return true;
+  }
   if (!v.is_array()) {
     return false;
   }
@@ -541,7 +575,8 @@ bool save_session(const std::string& path, const SessionData& session_in) {
     j["inspection_datasets"].push_back(std::move(entry));
   }
   j["scan_time"] = scan_time_to_json(session.scan_time);
-  save_pose(j, "T_camera_lidar", session.T_camera_lidar);
+  j["T_camera_lidar"] = worldmodel_transform(session.T_camera_lidar);
+  j["T_lidar_camera"] = worldmodel_transform(inverseRigid(session.T_camera_lidar));
   save_pose(j, "T_camera_lidar_initial", session.T_camera_lidar_initial);
   j["extrinsic_available"] = session.extrinsic_available;
   j["calibration_params"] = calibration_params_to_json(session.calibration_params);
