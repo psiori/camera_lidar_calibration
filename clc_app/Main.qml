@@ -31,6 +31,11 @@ ApplicationWindow {
     property string sessionIoStatus: ""
     property bool sessionIoError: false
 
+    function shortPath(path) {
+        const parts = path.split(/[\\/]+/).filter(part => part.length > 0)
+        return parts.length > 5 ? "…/" + parts.slice(-5).join("/") : path
+    }
+
     function clearSessionIoStatus() {
         sessionIoStatus = ""
         sessionIoError = false
@@ -226,28 +231,47 @@ ApplicationWindow {
             Button { text: "Remove"; visible: controller.inspectionMode; onClicked: controller.removeActiveInspectionDataset() }
         }
 
-        RowLayout {
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 4
+            orientation: Qt.Horizontal
 
             StackLayout {
                 id: workPanels
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                SplitView.minimumWidth: controller.mainWorkTab === 1 ? 460 : 360
+                SplitView.preferredWidth: controller.mainWorkTab === 1 ? 680 : 400
                 currentIndex: controller.inspectionMode ? 0 : controller.mainWorkTab
 
                 // Datasets — controls only (3D view is shared on the right)
                 ScrollView {
                     id: datasetsScroll
                     clip: true
+                    rightPadding: Math.max(16, ScrollBar.vertical.implicitWidth) + 8
                     ColumnLayout {
                         width: datasetsScroll.availableWidth
                         spacing: 6
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            text: "Image: " + controller.imagePath + "\nPCD: " + controller.pcdDirectory
+                        Repeater {
+                            model: [
+                                { label: "Image", path: controller.imagePath },
+                                { label: "PCD", path: controller.pcdDirectory },
+                                { label: "Intrinsics", path: controller.intrinsicsPath }
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Label { text: modelData.label + ":" }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 0
+                                    elide: Text.ElideLeft
+                                    text: root.shortPath(modelData.path)
+                                    HoverHandler { id: pathHover }
+                                    ToolTip.visible: pathHover.hovered && modelData.path.length > 0
+                                    ToolTip.text: modelData.path
+                                    ToolTip.delay: root.tooltipDelayMs
+                                }
+                            }
                         }
                         Label {
                             text: "PCD files: " + controller.pcdFileCount
@@ -259,14 +283,6 @@ ApplicationWindow {
                             visible: controller.fusionBlocked && controller.fusionBlockReason.length > 0
                             color: "#b3261e"
                             text: controller.fusionBlockReason
-                        }
-                        RowLayout {
-                            Label { text: "Intrinsics" }
-                            TextField {
-                                Layout.fillWidth: true
-                                text: controller.intrinsicsPath
-                                readOnly: true
-                            }
                         }
                         Label {
                             Layout.fillWidth: true
@@ -647,6 +663,7 @@ ApplicationWindow {
                 ScrollView {
                     id: calibrateScroll
                     clip: true
+                    rightPadding: Math.max(16, ScrollBar.vertical.implicitWidth) + 8
                     ColumnLayout {
                         width: calibrateScroll.availableWidth
                         spacing: 6
@@ -688,6 +705,7 @@ ApplicationWindow {
                                     SpinBox {
                                         editable: true
                                         from: 1; to: 1000
+                                        Layout.preferredWidth: 100
                                         value: controller.calibrationMaxOuterIterations
                                         onValueModified: controller.calibrationMaxOuterIterations = value
                                     }
@@ -695,6 +713,7 @@ ApplicationWindow {
                                     SpinBox {
                                         editable: true
                                         from: 1; to: 10000
+                                        Layout.preferredWidth: 100
                                         value: controller.calibrationMaxInnerIterations
                                         onValueModified: controller.calibrationMaxInnerIterations = value
                                     }
@@ -703,11 +722,13 @@ ApplicationWindow {
                                     tip: "Stop outer loop when pose change between iterations is below these thresholds."
                                     Label { text: "Δtrans (m)" }
                                     TextField {
+                                        Layout.preferredWidth: 80
                                         text: String(controller.calibrationDeltaTransThresh)
                                         onEditingFinished: controller.calibrationDeltaTransThresh = parseFloat(text)
                                     }
                                     Label { text: "Δrot (°)" }
                                     TextField {
+                                        Layout.preferredWidth: 80
                                         text: String(controller.calibrationDeltaRotDeg)
                                         onEditingFinished: controller.calibrationDeltaRotDeg = parseFloat(text)
                                     }
@@ -778,10 +799,8 @@ ApplicationWindow {
 
             PointCloudViewerPane {
                 id: sharedCloudViewer
-                Layout.fillHeight: true
-                Layout.fillWidth: true
-                Layout.minimumWidth: 280
-                Layout.preferredWidth: root.width * (controller.mainWorkTab === 1 ? 0.32 : 0.42)
+                SplitView.minimumWidth: 280
+                SplitView.fillWidth: true
             }
         }
 
