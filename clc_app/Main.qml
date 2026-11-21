@@ -109,11 +109,11 @@ ApplicationWindow {
             Layout.fillWidth: true
             spacing: 4
             Repeater {
-                model: ["Datasets", "Initial alignment", "Calibrate", "Inspection"]
+                model: ["Datasets", "Initial alignment", "Calibrate"]
                 delegate: Button {
                     required property int index
                     required property string modelData
-                    property bool selected: controller.mainWorkTab === index
+                    property bool selected: controller.mainWorkTab === index || (index === 0 && controller.inspectionMode)
                     text: modelData
                     checkable: true
                     checked: selected
@@ -139,7 +139,6 @@ ApplicationWindow {
 
         RowLayout {
             Layout.fillWidth: true
-            visible: controller.mainWorkTab !== 3
             spacing: 6
             Label { text: "Calibration datasets:" }
             Repeater {
@@ -168,29 +167,63 @@ ApplicationWindow {
                     Button {
                         text: modelData
                         checkable: true
-                        checked: controller.activeCalibrationDatasetIndex === index
+                        checked: !controller.inspectionMode && controller.activeCalibrationDatasetIndex === index
                         enabled: controller.canChangeActiveCalibrationDataset
-                            && (controller.mainWorkTab === 0 || datasetReady)
+                            && (controller.mainWorkTab === 0 || controller.inspectionMode || datasetReady)
                         ToolTip.visible: hovered && !enabled
                         ToolTip.text: {
                             controller.calibrationDatasetIds
                             return controller.calibrationDatasetTooltip(index)
                         }
                         ToolTip.delay: root.tooltipDelayMs
-                        onClicked: controller.setActiveCalibrationDatasetIndex(index)
+                        onClicked: { if (controller.inspectionMode) controller.setMainWorkTab(0); controller.setActiveCalibrationDatasetIndex(index) }
                     }
                 }
             }
             Button {
                 text: "Add…"
-                visible: controller.mainWorkTab === 0
-                onClicked: addDatasetDialog.open()
+                visible: controller.mainWorkTab === 0 || controller.inspectionMode
+                onClicked: { addDatasetDialog.inspection = false; addDatasetDialog.open() }
             }
             Button {
                 text: "Remove"
-                visible: controller.mainWorkTab === 0
+                visible: controller.mainWorkTab === 0 && !controller.inspectionMode
                 onClicked: controller.removeActiveCalibrationDataset()
             }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: controller.mainWorkTab === 0 || controller.inspectionMode
+            spacing: 6
+            Label { text: "Inspection datasets:" }
+            Repeater {
+                model: controller.inspectionDatasetIds
+                delegate: RowLayout {
+                    required property int index
+                    required property string modelData
+                    readonly property bool ready: { controller.inspectionDatasetIds; return controller.isInspectionDatasetReady(index) }
+                    spacing: 4
+                    Label {
+                        text: parent.ready ? "✓" : "✗"
+                        color: parent.ready ? "#3dba5c" : "#d94444"
+                        font.bold: true
+                        HoverHandler { id: inspectionStatusHover }
+                        ToolTip.visible: inspectionStatusHover.hovered
+                        ToolTip.text: controller.inspectionDatasetTooltip(index)
+                        ToolTip.delay: root.tooltipDelayMs
+                    }
+                    Button {
+                        text: modelData
+                        checkable: true
+                        checked: controller.inspectionMode && controller.activeInspectionDatasetIndex === index
+                        enabled: controller.canChangeActiveCalibrationDataset
+                        onClicked: controller.setActiveInspectionDatasetIndex(index)
+                    }
+                }
+            }
+            Button { text: "Add…"; onClicked: { addDatasetDialog.inspection = true; addDatasetDialog.open() } }
+            Button { text: "Remove"; visible: controller.inspectionMode; onClicked: controller.removeActiveInspectionDataset() }
         }
 
         RowLayout {
@@ -202,7 +235,7 @@ ApplicationWindow {
                 id: workPanels
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: controller.mainWorkTab
+                currentIndex: controller.inspectionMode ? 0 : controller.mainWorkTab
 
                 // Datasets — controls only (3D view is shared on the right)
                 ScrollView {
@@ -218,7 +251,14 @@ ApplicationWindow {
                         }
                         Label {
                             text: "PCD files: " + controller.pcdFileCount
-                                 + (controller.fusionBlocked ? " (geometry error)" : "")
+                                 + (controller.fusionBlocked ? " (fusion blocked)" : "")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            visible: controller.fusionBlocked && controller.fusionBlockReason.length > 0
+                            color: "#b3261e"
+                            text: controller.fusionBlockReason
                         }
                         RowLayout {
                             Label { text: "Intrinsics" }
@@ -234,6 +274,12 @@ ApplicationWindow {
                             visible: controller.activeDatasetIsSingleScan
                             text: "Single scan loaded: mask editing, fusion, and scan-time options are not used."
                             font.italic: true
+                        }
+                        Button {
+                            visible: controller.inspectionMode
+                            text: "Export colored PCD"
+                            enabled: controller.pointCount > 0
+                            onClicked: controller.exportInspectionColoredPcd()
                         }
                         GroupBox {
                             title: "Fusion"
@@ -393,7 +439,7 @@ ApplicationWindow {
                                     ToolTip.visible: hovered
                                     ToolTip.text: controller.activeDatasetIsSingleScan
                                         ? "Not used for a single scan (the loaded cloud is used as-is)."
-                                        : "Merge scans for the active dataset using the global mask and scan-time settings."
+                                        : "Merge scans for the active dataset using the scan-shape mask and dataset scan-time settings."
                                     ToolTip.delay: root.tooltipDelayMs
                                 }
                             }
@@ -439,9 +485,10 @@ ApplicationWindow {
                             }
                         }
                         GroupBox {
-                            title: "Global mask"
+                            title: "Scan mask — shared by matching scan shape"
                             Layout.fillWidth: true
-                            RowLayout {
+                            ColumnLayout {
+                              RowLayout {
                                 Button {
                                     text: "Edit mask…"
                                     enabled: !controller.activeDatasetIsSingleScan
@@ -449,17 +496,26 @@ ApplicationWindow {
                                     ToolTip.visible: hovered
                                     ToolTip.text: controller.activeDatasetIsSingleScan
                                         ? "Mask editing is only for multi-scan fusion."
-                                        : "Paint the global range-image mask used during fusion."
+                                        : "Edit the mask shared by datasets with this scan shape."
                                     ToolTip.delay: root.tooltipDelayMs
                                 }
                                 Button { text: "Load"; onClicked: controller.loadMask() }
                                 Button { text: "Browse…"; onClicked: controller.browseMaskFile() }
                                 Button { text: "Save"; onClicked: controller.saveMask() }
                                 Button { text: "Clear"; onClicked: controller.clearMask() }
+                              }
+                              Label {
+                                  Layout.fillWidth: true
+                                  wrapMode: Text.WordWrap
+                                  text: controller.maskWidth > 0 && controller.maskHeight > 0
+                                      ? (controller.maskWidth + " × " + controller.maskHeight + ": "
+                                         + (controller.scanMaskActive ? "Scan mask excludes points." : "No scan points excluded."))
+                                      : "Load scans to set a scan mask."
+                              }
                             }
                         }
                         GroupBox {
-                            title: "Image optimization mask"
+                            title: "Image optimization mask — shared by all datasets"
                             Layout.fillWidth: true
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -471,7 +527,7 @@ ApplicationWindow {
                                         enabled: controller.imagePath.length > 0
                                         onClicked: imageMaskEditor.show()
                                         ToolTip.visible: hovered
-                                        ToolTip.text: "Exclude camera image regions from NID optimization (per dataset)."
+                                        ToolTip.text: "Exclude camera image regions from NID optimization for all datasets."
                                         ToolTip.delay: root.tooltipDelayMs
                                     }
                                     Button { text: "Load"; onClicked: controller.loadImageMask() }
@@ -711,45 +767,13 @@ ApplicationWindow {
                             enabled: !controller.busyWorking
                             onClicked: controller.runAlignment()
                             ToolTip.visible: hovered
-                            ToolTip.text: "Optimize camera–lidar extrinsic (NID) using ready calibration datasets, global mask, and settings above."
+                            ToolTip.text: "Optimize camera–lidar extrinsic (NID) using ready calibration datasets, the shared image mask, and settings above."
                             ToolTip.delay: root.tooltipDelayMs
                         }
                     }
                 }
 
-                // Inspection
-                ScrollView {
-                    id: inspectionScroll
-                    clip: true
-                    ColumnLayout {
-                        width: inspectionScroll.availableWidth
-                        Label { wrapMode: Text.WordWrap; Layout.fillWidth: true; text: "Inspection datasets (separate from calibration)." }
-                        DatasetInputFields {
-                            Layout.fillWidth: true
-                            useActiveDatasetBrowse: true
-                            imagePath: controller.imagePath
-                            lidarPath: controller.pcdDirectory
-                            onImagePathEdited: path => { controller.imagePath = path }
-                            onLidarPathEdited: path => { controller.pcdDirectory = path }
-                        }
-                        Button {
-                            text: "Fuse inspection scans"
-                            enabled: !controller.activeDatasetIsSingleScan
-                                && !controller.busyWorking
-                            onClicked: controller.runFusion()
-                            ToolTip.visible: hovered
-                            ToolTip.text: controller.activeDatasetIsSingleScan
-                                ? "Not used for a single scan."
-                                : "Fuse inspection LiDAR scans using session fusion settings."
-                            ToolTip.delay: root.tooltipDelayMs
-                        }
-                        Button {
-                            text: "Export colored PCD"
-                            enabled: controller.pointCount > 0
-                            onClicked: controller.exportInspectionColoredPcd()
-                        }
-                    }
-                }
+
             }
 
             PointCloudViewerPane {

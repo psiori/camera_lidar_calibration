@@ -5,7 +5,8 @@ import QtQuick.Layouts
 
 Dialog {
     id: addDialog
-    title: qsTr("Add calibration dataset")
+    title: inspection ? qsTr("Add inspection dataset") : qsTr("Add calibration dataset")
+    property bool inspection: false
     modal: true
     anchors.centerIn: parent
     width: Math.min(560, parent ? parent.width - 40 : 560)
@@ -24,8 +25,9 @@ Dialog {
         standardButtons: DialogButtonBox.Ok | DialogButtonBox.Cancel
         onAccepted: {
             inputFields.commitEdits()
-            if (controller.addCalibrationDatasetFromPaths(addDialog.imagePath, addDialog.lidarPath,
-                                                        addDialog.intrinsicsPath)) {
+            if (addDialog.inspection
+                    ? controller.addInspectionDatasetFromPaths(addDialog.imagePath, addDialog.lidarPath, addDialog.intrinsicsPath)
+                    : controller.addCalibrationDatasetFromPaths(addDialog.imagePath, addDialog.lidarPath, addDialog.intrinsicsPath)) {
                 addDialog.close()
             }
         }

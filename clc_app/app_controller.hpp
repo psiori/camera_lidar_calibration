@@ -67,6 +67,7 @@ class AppController : public QObject {
   Q_PROPERTY(int rangeImageNativeHeight READ rangeImageNativeHeight NOTIFY rangeImageChanged)
   /// Grayscale mask bytes for overlay (255 = keep, 0 = drop).
   Q_PROPERTY(QByteArray maskPreview READ maskPreview NOTIFY maskChanged)
+  Q_PROPERTY(bool scanMaskActive READ scanMaskActive NOTIFY maskChanged)
   Q_PROPERTY(int maskWidth READ maskWidth NOTIFY maskChanged)
   Q_PROPERTY(int maskHeight READ maskHeight NOTIFY maskChanged)
   /// Colormap slider low end for the range image display.
@@ -142,6 +143,9 @@ class AppController : public QObject {
                  NOTIFY calibrationDatasetsChanged)
   /// Short ids shown in the dataset combo box.
   Q_PROPERTY(QStringList calibrationDatasetIds READ calibrationDatasetIds NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(QStringList inspectionDatasetIds READ inspectionDatasetIds NOTIFY calibrationDatasetsChanged)
+  Q_PROPERTY(QString fusionBlockReason READ fusionBlockReason NOTIFY pcdCatalogChanged)
+  Q_PROPERTY(int activeInspectionDatasetIndex READ activeInspectionDatasetIndex NOTIFY calibrationDatasetsChanged)
   /// True when the active dataset has image, intrinsics, and lidar ready for alignment.
   Q_PROPERTY(bool activeDatasetReady READ activeDatasetReady NOTIFY calibrationDatasetsChanged)
   /// True when the user may add 2D/3D correspondence pairs.
@@ -210,6 +214,7 @@ public:
   int rangeImageNativeWidth() const { return range_image_.width; }
   int rangeImageNativeHeight() const { return range_image_.height; }
   QByteArray maskPreview() const;
+  bool scanMaskActive() const;
   int maskWidth() const;
   int maskHeight() const;
   double rangeColormapMin() const { return range_colormap_min_; }
@@ -254,6 +259,9 @@ public:
   int mainWorkTab() const { return main_work_tab_; }
   int activeCalibrationDatasetIndex() const { return active_calibration_dataset_index_; }
   QStringList calibrationDatasetIds() const;
+  QStringList inspectionDatasetIds() const;
+  QString fusionBlockReason() const { return fusion_block_reason_; }
+  int activeInspectionDatasetIndex() const { return active_inspection_dataset_index_; }
   bool activeDatasetReady() const;
   bool canPickCorrespondences() const;
   bool canChangeActiveCalibrationDataset() const;
@@ -358,6 +366,9 @@ public:
   Q_INVOKABLE void setInspectionMode(bool inspection);
   Q_INVOKABLE void setMainWorkTab(int tab);
   Q_INVOKABLE void setActiveCalibrationDatasetIndex(int index);
+  Q_INVOKABLE void setActiveInspectionDatasetIndex(int index);
+  Q_INVOKABLE bool addInspectionDatasetFromPaths(const QString& image_path, const QString& lidar_path, const QString& intrinsics_path);
+  Q_INVOKABLE void removeActiveInspectionDataset();
   Q_INVOKABLE bool addCalibrationDatasetFromPaths(const QString& image_path, const QString& lidar_path,
                                                 const QString& intrinsics_path);
   Q_INVOKABLE QString pickAddDatasetImage(const QString& initial_dir);
@@ -365,6 +376,8 @@ public:
   Q_INVOKABLE QString pickAddDatasetLidarFolder(const QString& initial_dir);
   Q_INVOKABLE QString pickAddDatasetIntrinsics(const QString& initial_dir);
   Q_INVOKABLE void removeActiveCalibrationDataset();
+  Q_INVOKABLE bool isInspectionDatasetReady(int index) const;
+  Q_INVOKABLE QString inspectionDatasetTooltip(int index) const;
   Q_INVOKABLE bool isCalibrationDatasetReady(int index) const;
   Q_INVOKABLE QString calibrationDatasetTooltip(int index) const;
   Q_INVOKABLE void setSelectedCorrespondenceRow(int global_row);
@@ -433,6 +446,9 @@ private:
   // --- Internal helpers (session sync, viewer uploads, worker thread) ---
   void setStatus(const QString& message);  /// Update status bar text and notify QML.
   void setPointCount(int count);           /// Update displayed point count in the viewer pane.
+  void rememberActiveScanMask();
+  void activateScanMaskForActiveDataset();
+  bool validateImageDimensions(const QString& image_path, bool ignore_active = false);
   void refreshPcdCatalog();                /// Rescan PCD paths for the active dataset.
   /// Re-scan cloud_directory when the in-memory catalog was cleared (e.g. after fusion).
   bool repopulateActiveDatasetPcdCatalogIfEmpty();
@@ -531,6 +547,7 @@ private:
   /// Fused clouds per calibration dataset index (survives active-dataset switches).
   std::unordered_map<int, glim_cloud_fusion::DensePointCloud>
       calibration_fused_cloud_memory_cache_;
+  std::unordered_map<int, glim_cloud_fusion::DensePointCloud> inspection_fused_cloud_memory_cache_;
   QVector<float> viewer_positions_;                       /// Last cloud uploaded to psiviz (xyz).
   QVector<float> viewer_scalars_;                         /// Per-point scalar channel for colormap.
   QVector<float> viewer_rgb_;                             /// Per-point camera RGB for blending.
@@ -560,8 +577,10 @@ private:
   QString session_directory_;                             /// Folder containing session.json.
   int point_count_ = 0;                                   /// Points shown in viewer (status bar).
   bool fusion_blocked_ = false;                           /// True when catalog is invalid for fusion.
+  QString fusion_block_reason_;                           /// Why fusion is blocked.
   int main_work_tab_ = 0;                                 /// 0=calibration tabs, 3=inspection.
   int active_calibration_dataset_index_ = 0;
+  int active_inspection_dataset_index_ = 0;
   int mask_preview_dataset_index_ = 0;                    /// Range-image source while mask editor is open.
   bool mask_editor_open_ = false;
   bool image_mask_editor_open_ = false;

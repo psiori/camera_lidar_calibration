@@ -291,25 +291,7 @@ nlohmann::json dataset_to_json(const DatasetEntry& d) {
 
 /// JSON for inspection data (image + scans only; no per-dataset fusion settings).
 nlohmann::json inspection_dataset_to_json(const DatasetEntry& d) {
-  nlohmann::json j;
-  j["id"] = d.id;
-  j["image_path"] = d.image_path;
-  j["cloud_directory"] = d.cloud_directory;
-  j["fused_cloud_path"] = d.fused_cloud_path;
-  j["pcd_paths"] = d.pcd_paths;
-  if (d.fusion_complete) {
-    j["fusion_complete"] = true;
-  }
-  if (d.geometry_error) {
-    j["geometry_error"] = true;
-  }
-  if (!d.correspondences.empty()) {
-    j["correspondences"] = nlohmann::json::array();
-    for (const auto& c : d.correspondences) {
-      j["correspondences"].push_back({{"uv", {c.u, c.v}}, {"xyz", {c.x, c.y, c.z}}});
-    }
-  }
-  return j;
+  return dataset_to_json(d);
 }
 
 void read_dataset_correspondences(const nlohmann::json& j, DatasetEntry& d) {
@@ -370,7 +352,15 @@ bool calibration_dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std
 }
 
 /// Inspection rows only need image + scan paths; ignore legacy fusion_params in JSON.
-bool inspection_dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& error) {
+bool inspection_dataset_from_json(const nlohmann::json& j, DatasetEntry& d, std::string& error, bool has_dataset_settings) {
+  if (has_dataset_settings) {
+    if (!dataset_from_json(j, d, error)) return false;
+    if (j.value("scan_duration_unset", false)) {
+      d.scan_time.scan_duration.reset();
+      d.fusion_params.scan_time.scan_duration.reset();
+    }
+    return true;
+  }
   error.clear();
   d = DatasetEntry{};
   d.id = j.value("id", "");
@@ -492,6 +482,9 @@ void SessionData::ensurePrimaryCalibration() {
 void SessionData::ensurePrimaryInspection() {
   if (inspection_datasets.empty()) {
     inspection_datasets.emplace_back();
+    inspection_datasets.back().fusion_params = fusion_params;
+    inspection_datasets.back().scan_time = scan_time;
+    inspection_datasets.back().fusion_params.scan_time = scan_time;
   }
 }
 
@@ -509,6 +502,7 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   }
 
   nlohmann::json j;
+  j["inspection_dataset_settings"] = true;
   j["camera"]["model"] = session.camera.model;
   j["camera"]["intrinsics"] = session.camera.intrinsics;
   j["camera"]["distortion_coeffs"] = session.camera.distortion_coeffs;
@@ -525,6 +519,13 @@ bool save_session(const std::string& path, const SessionData& session_in) {
   for (const MaskPolygonOp& op : session.global_mask.ops) {
     j["global_mask"]["ops"].push_back(mask_polygon_op_to_json(op));
   }
+  j["scan_masks"] = nlohmann::json::array();
+  for (const auto& mask : session.scan_masks) {
+    nlohmann::json item = {{"path", mask.path}, {"width", mask.width}, {"height", mask.height},
+                           {"keep_inside", mask.keep_inside}, {"ops", nlohmann::json::array()}};
+    for (const auto& op : mask.ops) item["ops"].push_back(mask_polygon_op_to_json(op));
+    j["scan_masks"].push_back(std::move(item));
+  }
   j["image_mask"] = {{"path", session.image_mask.path}, {"width", session.image_mask.width},
                      {"height", session.image_mask.height}};
   j["calibration_datasets"] = nlohmann::json::array();
@@ -532,8 +533,12 @@ bool save_session(const std::string& path, const SessionData& session_in) {
     j["calibration_datasets"].push_back(dataset_to_json(d));
   }
   j["inspection_datasets"] = nlohmann::json::array();
-  for (const auto& d : session.inspection_datasets) {
-    j["inspection_datasets"].push_back(inspection_dataset_to_json(d));
+  for (auto d : session.inspection_datasets) {
+    const bool duration_unset = !scan_time_duration_valid(d.fusion_params.scan_time);
+    if (duration_unset) d.fusion_params.scan_time.scan_duration = session.scan_time.scan_duration;
+    auto entry = inspection_dataset_to_json(d);
+    if (duration_unset) entry["scan_duration_unset"] = true;
+    j["inspection_datasets"].push_back(std::move(entry));
   }
   j["scan_time"] = scan_time_to_json(session.scan_time);
   save_pose(j, "T_camera_lidar", session.T_camera_lidar);
@@ -616,6 +621,31 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
     } else {
       parsed.global_mask = {};
     }
+    if (j.contains("scan_masks")) {
+      if (!j["scan_masks"].is_array()) { error = "scan_masks must be an array"; return false; }
+      for (const auto& item : j["scan_masks"]) {
+        GlobalMaskMeta mask;
+        mask.path = item.value("path", "");
+        mask.width = item.value("width", 0);
+        mask.height = item.value("height", 0);
+        mask.keep_inside = item.value("keep_inside", false);
+        if (item.contains("ops")) {
+          if (!item["ops"].is_array()) { error = "scan mask ops must be an array"; return false; }
+          for (const auto& value : item["ops"]) {
+            MaskPolygonOp op;
+            if (!mask_polygon_op_from_json(value, op, error)) return false;
+            mask.ops.push_back(std::move(op));
+          }
+        }
+        parsed.scan_masks.push_back(std::move(mask));
+      }
+    }
+    if (parsed.global_mask.width > 0 && parsed.global_mask.height > 0 &&
+        std::none_of(parsed.scan_masks.begin(), parsed.scan_masks.end(), [&](const GlobalMaskMeta& mask) {
+          return mask.width == parsed.global_mask.width && mask.height == parsed.global_mask.height;
+        })) {
+      parsed.scan_masks.push_back(parsed.global_mask);
+    }
     if (j.contains("image_mask") && j["image_mask"].is_object()) {
       const auto& mask = j["image_mask"];
       parsed.image_mask.path = mask.value("path", "");
@@ -643,7 +673,7 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
       for (std::size_t i = 0; i < arr.size(); ++i) {
         DatasetEntry entry;
         std::string ds_error;
-        if (!inspection_dataset_from_json(arr[i], entry, ds_error)) {
+        if (!inspection_dataset_from_json(arr[i], entry, ds_error, j.value("inspection_dataset_settings", false))) {
           std::ostringstream oss;
           oss << "inspection_datasets[" << i << "]: " << ds_error;
           error = oss.str();
@@ -654,6 +684,10 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
     }
     prune_placeholder_calibration_datasets(parsed);
     apply_default_fusion_params(parsed.fusion_params);
+    if (j.contains("fusion_params") && !fusion_params_from_json(j["fusion_params"], parsed.fusion_params)) {
+      error = "invalid top-level fusion_params";
+      return false;
+    }
     if (!j.contains("scan_time")) {
       error = "missing top-level scan_time";
       return false;
@@ -687,8 +721,10 @@ bool load_session(const std::string& path, SessionData& session, std::string& er
       sync_dataset_fusion_status(d);
     }
     for (auto& d : parsed.inspection_datasets) {
-      d.fusion_params.scan_time = parsed.scan_time;
-      d.scan_time = parsed.scan_time;
+      if (!j.value("inspection_dataset_settings", false)) {
+        d.fusion_params = parsed.fusion_params;
+        d.scan_time = parsed.scan_time;
+      }
       if (d.id.empty() && !d.pcd_paths.empty()) {
         d.id = dataset_id_from_first_scan(d.pcd_paths);
       }
@@ -714,16 +750,24 @@ bool rasterize_global_mask(
     error = "global mask dimensions are not set";
     return false;
   }
-  if (!meta.ops.empty()) {
-    mask = build_mask_from_ops(meta.width, meta.height, meta.ops);
-    return true;
-  }
   const std::string png_path = resolve_global_mask_png_path(meta, session_directory);
-  if (png_path.empty()) {
+  if (!meta.path.empty()) {
+    if (png_path.empty()) { error = "scan mask file not found: " + meta.path; return false; }
+    if (!load_mask_png(png_path, meta.width, meta.height, mask, error)) return false;
+  } else if (!meta.ops.empty()) {
+    mask.assign(static_cast<std::size_t>(meta.width * meta.height), 255);
+  } else if (!png_path.empty()) {
+    return load_mask_png(png_path, meta.width, meta.height, mask, error);
+  } else {
     error = "global mask has no polygon ops and no PNG file on disk";
     return false;
   }
-  return load_mask_png(png_path, meta.width, meta.height, mask, error);
+  for (const auto& op : meta.ops) {
+    const auto inside = rasterize_mask(meta.width, meta.height, {op.polygon}, true);
+    for (std::size_t i = 0; i < mask.size(); ++i)
+      if (inside[i] != 0) mask[i] = op.keep_inside ? 255 : 0;
+  }
+  return true;
 }
 
 bool fusion_params_from_json_file(const std::string& path, glim_cloud_fusion::FusionParams& params, std::string& error) {

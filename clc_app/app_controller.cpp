@@ -301,83 +301,51 @@ void AppController::cancelWorker() {
 
 /// AppController::scanDuration implementation.
 double AppController::scanDuration() const {
-  if (main_work_tab_ == 3) {
-    return session_.scan_time.scan_duration.value_or(0.0);
-  }
   return activeDatasetEntry().scan_time.scan_duration.value_or(0.0);
 }
 
-/// AppController::timeOrigin implementation.
 int AppController::timeOrigin() const {
-  if (main_work_tab_ == 3) {
-    return static_cast<int>(session_.scan_time.time_origin);
-  }
   return static_cast<int>(activeDatasetEntry().scan_time.time_origin);
 }
 
-/// AppController::timeUnit implementation.
 int AppController::timeUnit() const {
-  if (main_work_tab_ == 3) {
-    return static_cast<int>(session_.scan_time.time_unit);
-  }
   return static_cast<int>(activeDatasetEntry().scan_time.time_unit);
 }
 
-/// Update Scan Duration (QML property backing).
 void AppController::setScanDuration(double seconds) {
-  if (main_work_tab_ == 3) {
-    session_.scan_time.scan_duration = seconds;
-    session_.fusion_params.scan_time = session_.scan_time;
-  } else if (session_.calibration_datasets.empty()) {
+  if (main_work_tab_ != 3 && session_.calibration_datasets.empty()) {
     session_.scan_time.scan_duration = seconds;
     session_.fusion_params.scan_time = session_.scan_time;
   } else {
     auto &ds = activeDatasetEntry();
     ds.scan_time.scan_duration = seconds;
     ds.fusion_params.scan_time = ds.scan_time;
-    session_.scan_time = ds.scan_time;
-    session_.fusion_params.scan_time = ds.scan_time;
   }
   emit scanTimeChanged();
 }
 
-/// Update Time Origin (QML property backing).
 void AppController::setTimeOrigin(int origin) {
-  if (main_work_tab_ == 3) {
-    session_.scan_time.time_origin =
-        static_cast<glim_cloud_fusion::TimeOrigin>(origin);
-    session_.fusion_params.scan_time = session_.scan_time;
-  } else if (session_.calibration_datasets.empty()) {
-    session_.scan_time.time_origin =
-        static_cast<glim_cloud_fusion::TimeOrigin>(origin);
+  auto value = static_cast<glim_cloud_fusion::TimeOrigin>(origin);
+  if (main_work_tab_ != 3 && session_.calibration_datasets.empty()) {
+    session_.scan_time.time_origin = value;
     session_.fusion_params.scan_time = session_.scan_time;
   } else {
     auto &ds = activeDatasetEntry();
-    ds.scan_time.time_origin =
-        static_cast<glim_cloud_fusion::TimeOrigin>(origin);
+    ds.scan_time.time_origin = value;
     ds.fusion_params.scan_time = ds.scan_time;
-    session_.scan_time = ds.scan_time;
-    session_.fusion_params.scan_time = ds.scan_time;
   }
   emit scanTimeChanged();
 }
 
-/// Update Time Unit (QML property backing).
 void AppController::setTimeUnit(int unit) {
-  if (main_work_tab_ == 3) {
-    session_.scan_time.time_unit =
-        static_cast<glim_cloud_fusion::TimeUnit>(unit);
-    session_.fusion_params.scan_time = session_.scan_time;
-  } else if (session_.calibration_datasets.empty()) {
-    session_.scan_time.time_unit =
-        static_cast<glim_cloud_fusion::TimeUnit>(unit);
+  auto value = static_cast<glim_cloud_fusion::TimeUnit>(unit);
+  if (main_work_tab_ != 3 && session_.calibration_datasets.empty()) {
+    session_.scan_time.time_unit = value;
     session_.fusion_params.scan_time = session_.scan_time;
   } else {
     auto &ds = activeDatasetEntry();
-    ds.scan_time.time_unit = static_cast<glim_cloud_fusion::TimeUnit>(unit);
+    ds.scan_time.time_unit = value;
     ds.fusion_params.scan_time = ds.scan_time;
-    session_.scan_time = ds.scan_time;
-    session_.fusion_params.scan_time = ds.scan_time;
   }
   emit scanTimeChanged();
 }
@@ -406,7 +374,7 @@ void AppController::ensureActiveCalibrationDataset() {
 clc::DatasetEntry &AppController::activeDatasetEntry() {
   if (main_work_tab_ == 3) {
     session_.ensurePrimaryInspection();
-    return session_.inspection_datasets.front();
+    return session_.inspection_datasets[static_cast<std::size_t>(std::clamp(active_inspection_dataset_index_, 0, static_cast<int>(session_.inspection_datasets.size()) - 1))];
   }
   if (session_.calibration_datasets.empty()) {
     return empty_calibration_dataset_scratch_;
@@ -426,7 +394,7 @@ const clc::DatasetEntry &AppController::activeDatasetEntry() const {
       static const clc::DatasetEntry kEmpty;
       return kEmpty;
     }
-    return session_.inspection_datasets.front();
+    return session_.inspection_datasets[static_cast<std::size_t>(std::clamp(active_inspection_dataset_index_, 0, static_cast<int>(session_.inspection_datasets.size()) - 1))];
   }
   if (session_.calibration_datasets.empty()) {
     static const clc::DatasetEntry kEmpty;
@@ -445,7 +413,7 @@ int AppController::pcdFileCount() const {
 
 /// AppController::fusionVoxelResolution implementation.
 double AppController::fusionVoxelResolution() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.voxel_resolution;
   }
   return session_.fusion_params.voxel_resolution;
@@ -453,7 +421,7 @@ double AppController::fusionVoxelResolution() const {
 
 /// AppController::fusionNumThreads implementation.
 int AppController::fusionNumThreads() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.num_threads;
   }
   return session_.fusion_params.num_threads;
@@ -461,7 +429,7 @@ int AppController::fusionNumThreads() const {
 
 /// AppController::fusionMaxCorrespondence implementation.
 double AppController::fusionMaxCorrespondence() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.max_correspondence_distance;
   }
   return session_.fusion_params.max_correspondence_distance;
@@ -469,7 +437,7 @@ double AppController::fusionMaxCorrespondence() const {
 
 /// AppController::fusionKNeighbors implementation.
 int AppController::fusionKNeighbors() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.k_neighbors;
   }
   return session_.fusion_params.k_neighbors;
@@ -478,7 +446,7 @@ int AppController::fusionKNeighbors() const {
 /// AppController::fusionBackend implementation.
 int AppController::fusionBackend() const {
   const auto backend =
-      (main_work_tab_ != 3 && !session_.calibration_datasets.empty())
+      ((main_work_tab_ == 3 || !session_.calibration_datasets.empty()))
           ? activeDatasetEntry().fusion_params.backend
           : session_.fusion_params.backend;
   return backend == glim_cloud_fusion::FusionBackend::GlimSlam ? 1 : 0;
@@ -491,7 +459,7 @@ bool AppController::fusionBackendIsIntegrator() const {
 
 /// AppController::fusionTargetNumPoints implementation.
 int AppController::fusionTargetNumPoints() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.target_num_points;
   }
   return session_.fusion_params.target_num_points;
@@ -499,7 +467,7 @@ int AppController::fusionTargetNumPoints() const {
 
 /// AppController::fusionMinDistance implementation.
 double AppController::fusionMinDistance() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.min_distance;
   }
   return session_.fusion_params.min_distance;
@@ -507,7 +475,7 @@ double AppController::fusionMinDistance() const {
 
 /// AppController::fusionIntegratorIvoxResolution implementation.
 double AppController::fusionIntegratorIvoxResolution() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.integrator_ivox_resolution;
   }
   return session_.fusion_params.integrator_ivox_resolution;
@@ -515,7 +483,7 @@ double AppController::fusionIntegratorIvoxResolution() const {
 
 /// AppController::fusionIntegratorIvoxMinPointsDist implementation.
 double AppController::fusionIntegratorIvoxMinPointsDist() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.integrator_ivox_min_points_dist;
   }
   return session_.fusion_params.integrator_ivox_min_points_dist;
@@ -523,7 +491,7 @@ double AppController::fusionIntegratorIvoxMinPointsDist() const {
 
 /// AppController::fusionIvoxResolution implementation.
 double AppController::fusionIvoxResolution() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.ivox_resolution;
   }
   return session_.fusion_params.ivox_resolution;
@@ -531,7 +499,7 @@ double AppController::fusionIvoxResolution() const {
 
 /// AppController::fusionLmMaxIterations implementation.
 int AppController::fusionLmMaxIterations() const {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     return activeDatasetEntry().fusion_params.lm_max_iterations;
   }
   return session_.fusion_params.lm_max_iterations;
@@ -580,6 +548,7 @@ void AppController::setImagePath(const QString &path) {
   if (imagePath() == normalized) {
     return;
   }
+  if (!validateImageDimensions(normalized, true)) return;
   if (main_work_tab_ == 3) {
     session_.ensurePrimaryInspection();
   } else {
@@ -650,6 +619,8 @@ void AppController::setMainWorkTab(int tab) {
     return;
   }
   const int previous_tab = main_work_tab_;
+  if (previous_tab == 3 && fused_cloud_is_inspection_ && fused_cloud_dataset_index_ && !fused_cloud_.points.empty())
+    inspection_fused_cloud_memory_cache_[*fused_cloud_dataset_index_] = fused_cloud_;
   main_work_tab_ = clamped;
   if (previous_tab == 1 && clamped != 1) {
     pending_correspondence_3d_.reset();
@@ -668,7 +639,8 @@ void AppController::setMainWorkTab(int tab) {
   } else {
     clearFusedCloudCache();
     clearViewerPointCloud();
-    loadActiveDatasetCloudToViewer();
+    refreshActiveDatasetVisuals();
+    refreshRangeImage();
   }
   refreshViewerAnnotationState();
   syncCorrespondenceMarkers();
@@ -721,6 +693,95 @@ QStringList AppController::calibrationDatasetIds() const {
         ds.id.empty() ? QStringLiteral("(unnamed)").toStdString() : ds.id));
   }
   return ids;
+}
+
+QStringList AppController::inspectionDatasetIds() const {
+  QStringList ids;
+  for (const auto &ds : session_.inspection_datasets)
+    ids.append(ds.id.empty() ? QStringLiteral("(unnamed)") : QString::fromStdString(ds.id));
+  return ids;
+}
+
+bool AppController::isInspectionDatasetReady(int index) const {
+  if (index < 0 || index >= static_cast<int>(session_.inspection_datasets.size())) return false;
+  const auto &ds = session_.inspection_datasets[static_cast<std::size_t>(index)];
+  if (clc::dataset_ready(ds)) return true;
+  const auto it = inspection_fused_cloud_memory_cache_.find(index);
+  return !ds.image_path.empty() && !ds.cloud_directory.empty() && !ds.geometry_error &&
+         it != inspection_fused_cloud_memory_cache_.end() && !it->second.points.empty();
+}
+
+QString AppController::inspectionDatasetTooltip(int index) const {
+  if (index < 0 || index >= static_cast<int>(session_.inspection_datasets.size())) return QStringLiteral("Unknown dataset");
+  if (isInspectionDatasetReady(index)) return QStringLiteral("Ready for inspection");
+  QStringList reasons;
+  for (const auto &reason : clc::dataset_not_ready_reasons(session_.inspection_datasets[static_cast<std::size_t>(index)]))
+    reasons.append(QString::fromStdString(reason));
+  return reasons.isEmpty() ? QStringLiteral("Not ready for inspection") : reasons.join(QStringLiteral("; "));
+}
+
+void AppController::setActiveInspectionDatasetIndex(int index) {
+  if (!canChangeActiveCalibrationDataset() || index < 0 || index >= static_cast<int>(session_.inspection_datasets.size())) return;
+  if (main_work_tab_ == 3 && fused_cloud_is_inspection_ && fused_cloud_dataset_index_ && !fused_cloud_.points.empty())
+    inspection_fused_cloud_memory_cache_[*fused_cloud_dataset_index_] = fused_cloud_;
+  active_inspection_dataset_index_ = index;
+  if (main_work_tab_ != 3) {
+    setMainWorkTab(3);
+  } else {
+    clearFusedCloudCache();
+    refreshActiveDatasetVisuals();
+    refreshRangeImage();
+    emit sessionPathsChanged();
+    emit scanTimeChanged();
+    emit fusionParamsChanged();
+    emit pcdCatalogChanged();
+  }
+  emit calibrationDatasetsChanged();
+}
+
+bool AppController::addInspectionDatasetFromPaths(const QString &image, const QString &lidar, const QString &intrinsics) {
+  if (image.isEmpty() || lidar.isEmpty()) { setStatus(QStringLiteral("Image and LiDAR paths are required")); return false; }
+  if (!validateImageDimensions(image)) return false;
+  const auto scan = clc::scan_pcd_source(normalizedPcdPath(lidar).toStdString(), 0, 0);
+  if (!scan.error.empty()) { setStatus(QString::fromStdString(scan.error)); return false; }
+  clc::DatasetEntry entry;
+  entry.id = clc::dataset_id_from_first_scan(scan.paths);
+  if (std::any_of(session_.inspection_datasets.begin(), session_.inspection_datasets.end(),
+                  [&](const clc::DatasetEntry &ds) { return !entry.id.empty() && ds.id == entry.id; })) {
+    setStatus(QStringLiteral("Inspection dataset '%1' already exists").arg(QString::fromStdString(entry.id)));
+    return false;
+  }
+  entry.image_path = QFileInfo(image).absoluteFilePath().toStdString();
+  entry.cloud_directory = normalizedPcdPath(lidar).toStdString();
+  entry.pcd_paths = scan.paths;
+  entry.fusion_params = session_.fusion_params;
+  entry.scan_time = session_.scan_time;
+  entry.fusion_params.scan_time = entry.scan_time;
+  std::string err;
+  if (!clc::validate_dataset_image_first_scan_time(entry, err)) { setStatus(QString::fromStdString(err)); return false; }
+  if (!intrinsics.isEmpty() && !loadIntrinsicsFile(intrinsics)) return false;
+  clc::sync_dataset_fusion_status(entry);
+  session_.inspection_datasets.push_back(std::move(entry));
+  setActiveInspectionDatasetIndex(static_cast<int>(session_.inspection_datasets.size()) - 1);
+  emit calibrationDatasetsChanged();
+  setStatus(QStringLiteral("Inspection dataset added"));
+  return true;
+}
+
+void AppController::removeActiveInspectionDataset() {
+  if (!canChangeActiveCalibrationDataset() || session_.inspection_datasets.empty()) return;
+  const int removed = active_inspection_dataset_index_;
+  session_.inspection_datasets.erase(session_.inspection_datasets.begin() + removed);
+  std::unordered_map<int, glim_cloud_fusion::DensePointCloud> shifted;
+  for (auto &entry : inspection_fused_cloud_memory_cache_) {
+    if (entry.first != removed) shifted.emplace(entry.first > removed ? entry.first - 1 : entry.first, std::move(entry.second));
+  }
+  inspection_fused_cloud_memory_cache_ = std::move(shifted);
+  clearFusedCloudCache();
+  active_inspection_dataset_index_ = std::max(0, std::min(active_inspection_dataset_index_, static_cast<int>(session_.inspection_datasets.size()) - 1));
+  if (session_.inspection_datasets.empty()) setMainWorkTab(0);
+  else setActiveInspectionDatasetIndex(active_inspection_dataset_index_);
+  emit calibrationDatasetsChanged();
 }
 
 /// AppController::activeDatasetReady implementation.
@@ -866,7 +927,9 @@ void AppController::setMaskEditorOpen(bool open) {
     return;
   }
   mask_editor_open_ = open;
-  if (open && !session_.calibration_datasets.empty()) {
+  if (open && main_work_tab_ == 3) {
+    refreshRangeImage();
+  } else if (open && !session_.calibration_datasets.empty()) {
     mask_preview_dataset_index_ = std::clamp(
         active_calibration_dataset_index_, 0,
         static_cast<int>(session_.calibration_datasets.size()) - 1);
@@ -959,6 +1022,7 @@ QString AppController::pickAddDatasetIntrinsics(const QString &initial_dir) {
 bool AppController::addCalibrationDatasetFromPaths(
     const QString &image_path, const QString &lidar_path,
     const QString &intrinsics_path) {
+  if (!image_path.isEmpty() && !validateImageDimensions(image_path)) return false;
   if (image_path.isEmpty()) {
     setStatus(QStringLiteral("Camera image path is required"));
     return false;
@@ -969,15 +1033,9 @@ bool AppController::addCalibrationDatasetFromPaths(
     return false;
   }
 
-  if (!clc::session_has_calibration_datasets(session_)) {
-    resetSessionStructuredScanState();
-  }
-
   int ref_w = 0;
   int ref_h = 0;
-  clc::session_structured_scan_reference(session_, ref_w, ref_h);
-  const auto scan =
-      clc::scan_pcd_source(lidar_path.toStdString(), ref_w, ref_h);
+  const auto scan = clc::scan_pcd_source(lidar_path.toStdString(), 0, 0);
   if (!scan.error.empty()) {
     setStatus(QString::fromStdString(scan.error));
     return false;
@@ -1013,18 +1071,7 @@ bool AppController::addCalibrationDatasetFromPaths(
     entry.scan_time = session_.scan_time;
     entry.fusion_params.scan_time = entry.scan_time;
   }
-  if (scan.paths.size() > 1) {
-    if (ref_w <= 0) {
-      session_.reference_scan_width = scan.reference_width;
-      session_.reference_scan_height = scan.reference_height;
-    } else if (scan.reference_width != ref_w || scan.reference_height != ref_h) {
-      setStatus(
-          QStringLiteral("Scan geometry does not match session reference (%1×%2)")
-              .arg(ref_w)
-              .arg(ref_h));
-      return false;
-    }
-  }
+
 
   clc::DatasetEntry time_probe;
   time_probe.image_path = QFileInfo(image_path).absoluteFilePath().toStdString();
@@ -1042,9 +1089,9 @@ bool AppController::addCalibrationDatasetFromPaths(
       session_.calibration_datasets.end());
   session_.calibration_datasets.push_back(entry);
   ensureImageMaskStorage();
-  clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   active_calibration_dataset_index_ =
       static_cast<int>(session_.calibration_datasets.size()) - 1;
+  if (main_work_tab_ == 3) setMainWorkTab(0);
   fusion_blocked_ = false;
   clearFusedCloudCache();
   emit calibrationDatasetsChanged();
@@ -1066,12 +1113,12 @@ void AppController::removeActiveCalibrationDataset() {
   if (session_.calibration_datasets.empty()) {
     return;
   }
+  rememberActiveScanMask();
   logDatasetCatalogEntry(active_calibration_dataset_index_,
                          activeDatasetEntry(), QStringLiteral("removing"));
   session_.calibration_datasets.erase(session_.calibration_datasets.begin() +
                                       active_calibration_dataset_index_);
   clc::erase_placeholder_calibration_datasets(session_);
-  clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
   clearCalibrationFusedCloudMemoryCache();
   clearFusedCloudCache();
   pending_correspondence_3d_.reset();
@@ -1299,13 +1346,13 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
 
   int ref_w = 0;
   int ref_h = 0;
-  clc::session_structured_scan_reference(session_, ref_w, ref_h);
-  const auto scan = clc::scan_pcd_source(dataset.cloud_directory, ref_w, ref_h);
+  const auto scan = clc::scan_pcd_source(dataset.cloud_directory, 0, 0);
   if (!scan.error.empty()) {
     dataset.pcd_paths.clear();
     dataset.geometry_error = true;
     fusion_blocked_ = true;
-    setStatus(QString::fromStdString(scan.error));
+    fusion_block_reason_ = QString::fromStdString(scan.error);
+    setStatus(fusion_block_reason_);
     emit pcdCatalogChanged();
     emit calibrationDatasetsChanged();
     return false;
@@ -1317,17 +1364,13 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
   if (!clc::validate_dataset_image_first_scan_time(dataset, image_time_err)) {
     dataset.geometry_error = true;
     fusion_blocked_ = true;
-    setStatus(QString::fromStdString(image_time_err));
+    fusion_block_reason_ = QString::fromStdString(image_time_err);
+    setStatus(fusion_block_reason_);
   } else {
     dataset.geometry_error = false;
   }
   clc::sync_dataset_fusion_status(dataset);
-  if (dataset.pcd_paths.size() > 1) {
-    session_.reference_scan_width = scan.reference_width;
-    session_.reference_scan_height = scan.reference_height;
-  } else {
-    clc::clear_session_structured_scan_reference_if_no_multi_scan(session_);
-  }
+
   emit pcdCatalogChanged();
   emit calibrationDatasetsChanged();
   return !dataset.pcd_paths.empty();
@@ -1336,6 +1379,7 @@ bool AppController::repopulateActiveDatasetPcdCatalogIfEmpty() {
 /// Recompute and push Pcd Catalog to the UI or viewer.
 void AppController::refreshPcdCatalog() {
   fusion_blocked_ = false;
+  fusion_block_reason_.clear();
   if (main_work_tab_ == 3) {
     session_.ensurePrimaryInspection();
   } else if (session_.calibration_datasets.empty()) {
@@ -1358,6 +1402,7 @@ void AppController::refreshPcdCatalog() {
   dataset.fused_cloud_path.clear();
   dataset.fusion_complete = false;
   clc::sync_dataset_fusion_status(dataset);
+  activateScanMaskForActiveDataset();
   if (main_work_tab_ != 3) {
     calibration_fused_cloud_memory_cache_.erase(active_calibration_dataset_index_);
   }
@@ -1386,6 +1431,11 @@ int AppController::maskWidth() const { return maskRasterWidth(); }
 
 /// AppController::maskHeight implementation.
 int AppController::maskHeight() const { return maskRasterHeight(); }
+
+bool AppController::scanMaskActive() const {
+  return std::any_of(global_mask_pixels_.begin(), global_mask_pixels_.end(),
+                     [](std::uint8_t value) { return value != 255; });
+}
 
 /// AppController::maskPreview implementation.
 QByteArray AppController::maskPreview() const {
@@ -1534,7 +1584,7 @@ void AppController::setViewerScalarChannel(int channel) {
 
 /// Update Fusion Voxel Resolution (QML property backing).
 void AppController::setFusionVoxelResolution(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.voxel_resolution, v)) {
       return;
@@ -1552,7 +1602,7 @@ void AppController::setFusionVoxelResolution(double v) {
 /// Update Fusion Num Threads (QML property backing).
 void AppController::setFusionNumThreads(int n) {
   const int clamped = std::max(1, n);
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (ds.fusion_params.num_threads == clamped) {
       return;
@@ -1569,7 +1619,7 @@ void AppController::setFusionNumThreads(int n) {
 
 /// Update Fusion Max Correspondence (QML property backing).
 void AppController::setFusionMaxCorrespondence(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.max_correspondence_distance, v)) {
       return;
@@ -1588,7 +1638,7 @@ void AppController::setFusionMaxCorrespondence(double v) {
 /// Update Fusion KNeighbors (QML property backing).
 void AppController::setFusionKNeighbors(int n) {
   const int clamped = std::max(2, n);
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (ds.fusion_params.k_neighbors == clamped) {
       return;
@@ -1608,7 +1658,7 @@ void AppController::setFusionBackend(int backend) {
   const auto value = backend == 1
                          ? glim_cloud_fusion::FusionBackend::GlimSlam
                          : glim_cloud_fusion::FusionBackend::CtIntegrator;
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (ds.fusion_params.backend == value) {
       return;
@@ -1626,7 +1676,7 @@ void AppController::setFusionBackend(int backend) {
 /// Update Fusion Target Num Points (QML property backing).
 void AppController::setFusionTargetNumPoints(int n) {
   const int clamped = std::max(100, n);
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (ds.fusion_params.target_num_points == clamped) {
       return;
@@ -1643,7 +1693,7 @@ void AppController::setFusionTargetNumPoints(int n) {
 
 /// Update Fusion Min Distance (QML property backing).
 void AppController::setFusionMinDistance(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.min_distance, v)) {
       return;
@@ -1660,7 +1710,7 @@ void AppController::setFusionMinDistance(double v) {
 
 /// Update Fusion Integrator Ivox Resolution (QML property backing).
 void AppController::setFusionIntegratorIvoxResolution(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.integrator_ivox_resolution, v)) {
       return;
@@ -1678,7 +1728,7 @@ void AppController::setFusionIntegratorIvoxResolution(double v) {
 
 /// Update Fusion Integrator Ivox Min Points Dist (QML property backing).
 void AppController::setFusionIntegratorIvoxMinPointsDist(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.integrator_ivox_min_points_dist, v)) {
       return;
@@ -1696,7 +1746,7 @@ void AppController::setFusionIntegratorIvoxMinPointsDist(double v) {
 
 /// Update Fusion Ivox Resolution (QML property backing).
 void AppController::setFusionIvoxResolution(double v) {
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (qFuzzyCompare(ds.fusion_params.ivox_resolution, v)) {
       return;
@@ -1714,7 +1764,7 @@ void AppController::setFusionIvoxResolution(double v) {
 /// Update Fusion Lm Max Iterations (QML property backing).
 void AppController::setFusionLmMaxIterations(int n) {
   const int clamped = std::max(1, n);
-  if (main_work_tab_ != 3 && !session_.calibration_datasets.empty()) {
+  if ((main_work_tab_ == 3 || !session_.calibration_datasets.empty())) {
     auto &ds = activeDatasetEntry();
     if (ds.fusion_params.lm_max_iterations == clamped) {
       return;
@@ -1933,7 +1983,7 @@ bool AppController::fusedCloudBelongsToActiveContext() const {
     return false;
   }
   if (main_work_tab_ == 3) {
-    return fused_cloud_is_inspection_ && *fused_cloud_dataset_index_ == 0;
+    return fused_cloud_is_inspection_ && *fused_cloud_dataset_index_ == active_inspection_dataset_index_;
   }
   return !fused_cloud_is_inspection_ &&
          *fused_cloud_dataset_index_ == active_calibration_dataset_index_;
@@ -1996,8 +2046,108 @@ void AppController::resetSessionStructuredScanState() {
   emit maskChanged();
 }
 
+void AppController::rememberActiveScanMask() {
+  auto &mask = session_.global_mask;
+  if (mask.width <= 0 || mask.height <= 0) return;
+  mask.ops = mask_ops_;
+  auto it = std::find_if(session_.scan_masks.begin(), session_.scan_masks.end(),
+                         [&](const clc::GlobalMaskMeta &m) { return m.width == mask.width && m.height == mask.height; });
+  if (it == session_.scan_masks.end()) session_.scan_masks.push_back(mask);
+  else *it = mask;
+}
+
+void AppController::activateScanMaskForActiveDataset() {
+  rememberActiveScanMask();
+  int width = 0, height = 0;
+  std::string error;
+  auto &ds = activeDatasetEntry();
+  fusion_blocked_ = false;
+  fusion_block_reason_.clear();
+  if (!ds.cloud_directory.empty()) {
+    const auto scan = clc::scan_pcd_source(ds.cloud_directory, 0, 0);
+    if (!scan.error.empty()) {
+      fusion_blocked_ = true;
+      ds.geometry_error = true;
+      fusion_block_reason_ = QString::fromStdString(scan.error);
+      setStatus(fusion_block_reason_);
+    } else {
+      width = scan.reference_width;
+      height = scan.reference_height;
+      ds.geometry_error = false;
+      std::string time_error;
+      if (!clc::validate_dataset_image_first_scan_time(ds, time_error)) {
+        ds.geometry_error = true;
+        fusion_blocked_ = true;
+        fusion_block_reason_ = QString::fromStdString(time_error);
+        setStatus(fusion_block_reason_);
+      }
+    }
+  }
+  if (!ds.image_path.empty() && !validateImageDimensions(QString::fromStdString(ds.image_path), true)) {
+    fusion_blocked_ = true;
+    fusion_block_reason_ = status_message_;
+  }
+  emit pcdCatalogChanged();
+  if (width == session_.global_mask.width && height == session_.global_mask.height && width > 0 &&
+      (global_mask_pixels_.size() == static_cast<std::size_t>(width * height) ||
+       (session_.global_mask.path.empty() && mask_ops_.empty()))) {
+    session_.reference_scan_width = width;
+    session_.reference_scan_height = height;
+    return;
+  }
+  session_.global_mask = {};
+  mask_ops_.clear();
+  global_mask_pixels_.clear();
+  session_.reference_scan_width = width;
+  session_.reference_scan_height = height;
+  if (width > 0 && height > 0) {
+    auto it = std::find_if(session_.scan_masks.begin(), session_.scan_masks.end(),
+                           [&](const clc::GlobalMaskMeta &m) { return m.width == width && m.height == height; });
+    if (it != session_.scan_masks.end()) {
+      session_.global_mask = *it;
+      mask_ops_ = it->ops;
+      if (!mask_ops_.empty() || !it->path.empty()) {
+        std::string err;
+        if (!clc::rasterize_global_mask(*it, session_directory_.toStdString(), global_mask_pixels_, err)) {
+          fusion_blocked_ = true;
+          fusion_block_reason_ = QString::fromStdString(err);
+          setStatus(fusion_block_reason_);
+          emit pcdCatalogChanged();
+        }
+      }
+    } else {
+      session_.global_mask.width = width;
+      session_.global_mask.height = height;
+    }
+  }
+  discardPendingMaskPolygon();
+  emit maskChanged();
+}
+
+bool AppController::validateImageDimensions(const QString &path, bool ignore_active) {
+  QImage image(path);
+  if (image.isNull()) { setStatus(QStringLiteral("Cannot read image: %1").arg(path)); return false; }
+  const auto *active = &activeDatasetEntry();
+  const auto check = [&](const std::vector<clc::DatasetEntry> &datasets) {
+    for (const auto &ds : datasets) {
+      if (ignore_active && &ds == active && QFileInfo(path).absoluteFilePath() != QString::fromStdString(ds.image_path)) continue;
+      if (ds.image_path.empty() || QFileInfo(QString::fromStdString(ds.image_path)).absoluteFilePath() == QFileInfo(path).absoluteFilePath()) continue;
+      const QImage other(QString::fromStdString(ds.image_path));
+      if (!other.isNull() && other.size() != image.size()) {
+        setStatus(QStringLiteral("Image %1 is %2×%3; expected %4×%5 to match %6")
+                      .arg(path).arg(image.width()).arg(image.height()).arg(other.width()).arg(other.height())
+                      .arg(QString::fromStdString(ds.image_path)));
+        return false;
+      }
+    }
+    return true;
+  };
+  return check(session_.calibration_datasets) && check(session_.inspection_datasets);
+}
+
 /// Recompute and push Active Dataset Visuals to the UI or viewer.
 void AppController::refreshActiveDatasetVisuals() {
+  activateScanMaskForActiveDataset();
   if (main_work_tab_ == 3) {
     session_.ensurePrimaryInspection();
     const std::string image_path = activeDatasetEntry().image_path;
@@ -2354,7 +2504,17 @@ void AppController::rebuildMaskFromOps() {
     refreshPreviewCloudFromMask(true);
     return;
   }
-  global_mask_pixels_ = clc::build_mask_from_ops(w, h, mask_ops_);
+  session_.global_mask.ops = mask_ops_;
+  session_.global_mask.width = w;
+  session_.global_mask.height = h;
+  std::string error;
+  if (!clc::rasterize_global_mask(session_.global_mask, session_directory_.toStdString(), global_mask_pixels_, error)) {
+    fusion_blocked_ = true;
+    fusion_block_reason_ = QString::fromStdString(error);
+    emit pcdCatalogChanged();
+    setStatus(fusion_block_reason_);
+    return;
+  }
   session_.global_mask.width = w;
   session_.global_mask.height = h;
   session_.global_mask.ops = mask_ops_;
@@ -2480,9 +2640,10 @@ void AppController::clearMask() {
   setMaskPolygonPending(false);
   global_mask_pixels_.clear();
   session_.global_mask.path.clear();
-  session_.global_mask.width = 0;
-  session_.global_mask.height = 0;
+  session_.global_mask.width = session_.reference_scan_width;
+  session_.global_mask.height = session_.reference_scan_height;
   session_.global_mask.ops.clear();
+  activateScanMaskForActiveDataset();
   emit maskChanged();
   refreshPreviewCloudFromMask(true);
   setStatus(QStringLiteral("Mask cleared"));
@@ -2507,7 +2668,7 @@ bool AppController::saveMask() {
     }
     setSessionDirectory(dir);
   }
-  const QString path = dir + QStringLiteral("/global_mask.png");
+  const QString path = dir + QStringLiteral("/scan_mask_%1x%2.png").arg(w).arg(h);
   if (!clc::save_mask_png(path.toStdString(), w, h, global_mask_pixels_)) {
     setStatus(QStringLiteral("Failed to write mask"));
     return false;
@@ -2614,12 +2775,9 @@ QString defaultFusedCloudPathInSession(const QString& session_dir, const std::st
 /// Resolve an on-disk image mask for a dataset (session folder, then stored path).
 /// Resolve an on-disk global lidar mask PNG (session folder, then stored path).
 QString resolveGlobalMaskFilePath(const QString& session_dir, const clc::GlobalMaskMeta& meta) {
-  const QString by_default = session_dir + QStringLiteral("global_mask.png");
-  if (QFileInfo::exists(by_default)) {
-    return QFileInfo(by_default).absoluteFilePath();
-  }
   if (meta.path.empty()) {
-    return {};
+    const QString by_default = QDir(session_dir).filePath(QStringLiteral("global_mask.png"));
+    return QFileInfo::exists(by_default) ? QFileInfo(by_default).absoluteFilePath() : QString();
   }
   const QString stored = QFileInfo(QString::fromStdString(meta.path)).absoluteFilePath();
   if (QFileInfo::exists(stored)) {
@@ -2682,6 +2840,11 @@ bool AppController::imageDimensionsForDataset(int dataset_index, int& width,
 
 bool AppController::imageMaskRasterSizeForDataset(int dataset_index, int& width,
                                                   int& height) const {
+  if (main_work_tab_ == 3) {
+    const QImage image(imagePath());
+    width = image.width(); height = image.height();
+    return !image.isNull();
+  }
   return imageDimensionsForDataset(dataset_index, width, height);
 }
 
@@ -2758,6 +2921,11 @@ void AppController::persistFusedCloudsToSessionDir(const QString& dir) {
             *fused_cloud_dataset_index_ == dataset_index && fused_cloud_is_inspection_ &&
             !fused_cloud_.points.empty()) {
           out = fused_cloud_;
+          return true;
+        }
+        const auto cached = inspection_fused_cloud_memory_cache_.find(dataset_index);
+        if (cached != inspection_fused_cloud_memory_cache_.end() && !cached->second.points.empty()) {
+          out = cached->second;
           return true;
         }
         return false;
@@ -2847,7 +3015,7 @@ bool AppController::imageMaskActive() const {
 int AppController::imageMaskRasterWidth() const {
   int w = 0;
   int h = 0;
-  if (!imageDimensionsForDataset(active_calibration_dataset_index_, w, h)) {
+  if (!imageMaskRasterSizeForDataset(active_calibration_dataset_index_, w, h)) {
     return 0;
   }
   return w;
@@ -2856,7 +3024,7 @@ int AppController::imageMaskRasterWidth() const {
 int AppController::imageMaskRasterHeight() const {
   int w = 0;
   int h = 0;
-  if (!imageDimensionsForDataset(active_calibration_dataset_index_, w, h)) {
+  if (!imageMaskRasterSizeForDataset(active_calibration_dataset_index_, w, h)) {
     return 0;
   }
   return h;
@@ -2869,7 +3037,7 @@ int AppController::imageMaskHeight() const { return imageMaskRasterHeight(); }
 QByteArray AppController::imageMaskPreview() const {
   const int w = imageMaskRasterWidth();
   const int h = imageMaskRasterHeight();
-  if (w <= 0 || h <= 0 || session_.calibration_datasets.empty()) {
+  if (w <= 0 || h <= 0) {
     return {};
   }
   const std::size_t n = static_cast<std::size_t>(w * h);
@@ -3192,6 +3360,19 @@ bool AppController::loadFirstReadableScanForDataset(
 
 /// Recompute and push Range Image to the UI or viewer.
 void AppController::refreshRangeImage() {
+  if (main_work_tab_ == 3) {
+    clc::PointXYZITCloud cloud;
+    std::string error;
+    if (!fusion_blocked_ && loadFirstReadableScan(cloud, error)) {
+      range_image_ = clc::build_range_image(cloud);
+      refreshRangeImageDisplay();
+    } else {
+      range_image_ = {};
+      range_image_display_ = {};
+    }
+    emit rangeImageChanged();
+    return;
+  }
   if (session_.calibration_datasets.empty()) {
     refreshRangeImageForDataset(-1);
     return;
@@ -3372,7 +3553,7 @@ void AppController::loadActiveDatasetCloudToViewer() {
       std::string err;
       if (clc::load_fused_dense_pcd(ds.fused_cloud_path, dense, err)) {
         fused_cloud_ = dense;
-        fused_cloud_dataset_index_ = 0;
+        fused_cloud_dataset_index_ = active_inspection_dataset_index_;
         fused_cloud_is_inspection_ = true;
         setPointCount(static_cast<int>(dense.points.size()));
         uploadFusedCloudToViewer();
@@ -3381,6 +3562,16 @@ void AppController::loadActiveDatasetCloudToViewer() {
       }
       onFusedCloudDiskLoadFailed(
           ds, QString::fromStdString(ds.fused_cloud_path));
+    }
+    const auto cached = inspection_fused_cloud_memory_cache_.find(active_inspection_dataset_index_);
+    if (cached != inspection_fused_cloud_memory_cache_.end() && !cached->second.points.empty()) {
+      fused_cloud_ = cached->second;
+      fused_cloud_dataset_index_ = active_inspection_dataset_index_;
+      fused_cloud_is_inspection_ = true;
+      setPointCount(static_cast<int>(fused_cloud_.points.size()));
+      uploadFusedCloudToViewer();
+      reprojectViewerCameraRgb();
+      return;
     }
     uploadActiveDatasetPreviewScanToViewer();
     return;
@@ -3458,6 +3649,8 @@ bool AppController::loadSession(const QString &directory) {
     return false;
   }
   session_ = std::move(loaded);
+  inspection_fused_cloud_memory_cache_.clear();
+  active_inspection_dataset_index_ = std::max(0, std::min(active_inspection_dataset_index_, static_cast<int>(session_.inspection_datasets.size()) - 1));
   clc::prune_placeholder_calibration_datasets(session_);
   invalidateProjectionImageCache();
   clearCalibrationFusedCloudMemoryCache();
@@ -3498,19 +3691,20 @@ bool AppController::loadSession(const QString &directory) {
   setMaskPolygonPending(false);
   global_mask_pixels_.clear();
   if (session_.global_mask.width > 0 && session_.global_mask.height > 0) {
-    if (!session_.global_mask.ops.empty()) {
+    {
       mask_ops_ = session_.global_mask.ops;
-      global_mask_pixels_ = clc::build_mask_from_ops(
-          session_.global_mask.width, session_.global_mask.height, mask_ops_);
-    } else {
       clc::GlobalMaskMeta meta = session_.global_mask;
-      const QString resolved = resolveGlobalMaskFilePath(dir, meta);
+      const QString resolved = meta.path.empty() && !session_.scan_masks.empty()
+                                   ? QString() : resolveGlobalMaskFilePath(dir, meta);
       if (!resolved.isEmpty()) {
         meta.path = resolved.toStdString();
         session_.global_mask.path = meta.path;
       }
       std::string error;
-      if (!clc::rasterize_global_mask(meta, dir.toStdString(), global_mask_pixels_, error)) {
+      if ((!meta.path.empty() || !meta.ops.empty()) &&
+          !clc::rasterize_global_mask(meta, dir.toStdString(), global_mask_pixels_, error)) {
+        fusion_blocked_ = true;
+        fusion_block_reason_ = QString::fromStdString(error);
         qCWarning(lcClcDataset).noquote()
             << QStringLiteral("session global mask restore failed: %1")
                    .arg(QString::fromStdString(error));
@@ -3556,6 +3750,10 @@ bool AppController::saveSession(const QString &directory) {
   }
   setSessionDirectory(dir);
   clc::prune_placeholder_calibration_datasets(session_);
+  if (!clc::scan_time_duration_valid(session_.scan_time)) {
+    const auto &active = activeDatasetEntry();
+    if (clc::scan_time_duration_valid(active.scan_time)) session_.scan_time = active.scan_time;
+  }
   session_.fusion_params.scan_time = session_.scan_time;
   if (session_.reference_scan_width > 0 && session_.reference_scan_height > 0) {
     session_.global_mask.width = session_.reference_scan_width;
@@ -3565,8 +3763,8 @@ bool AppController::saveSession(const QString &directory) {
       session_.global_mask.ops.clear();
     }
   }
+  rememberActiveScanMask();
   persistCalibrationImageMasksToSessionDir(dir);
-  for (auto& ds : session_.calibration_datasets) ds.image_mask = {};
   persistFusedCloudsToSessionDir(dir);
   const QString path = dir + QStringLiteral("/session.json");
   if (!clc::save_session(path.toStdString(), session_)) {
@@ -4168,19 +4366,19 @@ void AppController::runFusion() {
     return;
   }
   if (fusion_blocked_) {
-    setStatus(QStringLiteral("Fusion blocked: fix PCD scan geometry"));
+    setStatus(fusion_block_reason_.isEmpty()
+                  ? QStringLiteral("Fusion blocked: fix PCD scan geometry")
+                  : QStringLiteral("Fusion blocked: %1").arg(fusion_block_reason_));
     return;
   }
   if (!repopulateActiveDatasetPcdCatalogIfEmpty()) {
-    if (activeDatasetEntry().pcd_paths.empty()) {
+    if (activeDatasetEntry().pcd_paths.empty() && fusion_block_reason_.isEmpty()) {
       setStatus(QStringLiteral("No PCD files loaded"));
     }
     return;
   }
   const auto &catalog = activeDatasetEntry().pcd_paths;
-  const auto &fusion_scan_time =
-      main_work_tab_ == 3 ? session_.fusion_params.scan_time
-                          : activeDatasetEntry().fusion_params.scan_time;
+  const auto &fusion_scan_time = activeDatasetEntry().fusion_params.scan_time;
   if (!clc::dataset_is_single_scan(activeDatasetEntry()) &&
       !clc::scan_time_duration_valid(fusion_scan_time)) {
     setStatus(QStringLiteral(
@@ -4193,17 +4391,17 @@ void AppController::runFusion() {
   joinWorker();
   int ref_w = 0;
   int ref_h = 0;
-  clc::session_structured_scan_reference(session_, ref_w, ref_h);
+  ref_w = session_.reference_scan_width;
+  ref_h = session_.reference_scan_height;
   syncActiveDatasetFusionToSession();
   const bool fusion_is_inspection = main_work_tab_ == 3;
   if (fusion_is_inspection) {
     session_.ensurePrimaryInspection();
   }
   const int fusion_dataset_index =
-      fusion_is_inspection ? 0 : active_calibration_dataset_index_;
+      fusion_is_inspection ? active_inspection_dataset_index_ : active_calibration_dataset_index_;
   const std::string fusion_dataset_id = activeDatasetEntry().id;
-  const auto fusion_params = fusion_is_inspection ? session_.fusion_params
-                                                  : activeDatasetEntry().fusion_params;
+  const auto fusion_params = activeDatasetEntry().fusion_params;
   const std::vector<std::uint8_t> mask_pixels = global_mask_pixels_;
   worker_ = std::make_unique<std::thread>([this, catalog, ref_w, ref_h,
                                            fusion_params, mask_pixels,
@@ -4295,13 +4493,13 @@ void AppController::runFusion() {
           }
           clc::DatasetEntry *target_ds = nullptr;
           if (fusion_is_inspection) {
-            if (session_.inspection_datasets.empty()) {
+            if (fusion_dataset_index < 0 || fusion_dataset_index >= static_cast<int>(session_.inspection_datasets.size())) {
               setStatus(QStringLiteral("Fusion finished but inspection dataset is gone"));
               emit fusionFinished(false,
                                   QStringLiteral("Target dataset no longer exists"));
               return;
             }
-            target_ds = &session_.inspection_datasets.front();
+            target_ds = &session_.inspection_datasets[static_cast<std::size_t>(fusion_dataset_index)];
           } else {
             if (fusion_dataset_index < 0 ||
                 fusion_dataset_index >=
@@ -4324,8 +4522,9 @@ void AppController::runFusion() {
           fused_cloud_dataset_index_ = fusion_dataset_index;
           fused_cloud_is_inspection_ = fusion_is_inspection;
           if (!fusion_is_inspection) {
-            calibration_fused_cloud_memory_cache_[fusion_dataset_index] =
-                fused_cloud_;
+            calibration_fused_cloud_memory_cache_[fusion_dataset_index] = fused_cloud_;
+          } else {
+            inspection_fused_cloud_memory_cache_[fusion_dataset_index] = fused_cloud_;
           }
           auto &ds = *target_ds;
           ds.fusion_complete = true;
@@ -4346,9 +4545,7 @@ void AppController::runFusion() {
             }
           }
           setPointCount(static_cast<int>(result.cloud.points.size()));
-          if (!fusion_is_inspection) {
-            emit calibrationDatasetsChanged();
-          }
+          emit calibrationDatasetsChanged();
           setStatus(QStringLiteral("Fusion complete"));
           uploadFusedCloudToViewer();
           refreshViewerAnnotationState();

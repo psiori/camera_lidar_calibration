@@ -21,6 +21,7 @@
 #include <clc_core/nid_cloud_prep.hpp>
 #include <clc_core/pcd_io.hpp>
 #include <clc_core/range_image.hpp>
+#include <clc_core/scan_geometry.hpp>
 #include <clc_core/session.hpp>
 
 namespace {
@@ -453,16 +454,25 @@ int main(int argc, char** argv) {
     if (!opt.params_json_path.empty()) {
       clc::SessionData session;
       std::string session_err;
-      if (clc::load_session(opt.params_json_path, session, session_err) && session.global_mask.width > 0 &&
-          session.global_mask.height > 0 &&
-          (!session.global_mask.ops.empty() || !session.global_mask.path.empty())) {
-        std::string mask_err;
-        const std::filesystem::path session_dir =
-          std::filesystem::path(opt.params_json_path).parent_path();
-        if (!clc::rasterize_global_mask(
-              session.global_mask, session_dir.string(), mask_pixels, mask_err)) {
-          std::cerr << "Warning: could not load global mask: " << mask_err << "\n";
-          mask_pixels.clear();
+      if (clc::load_session(opt.params_json_path, session, session_err)) {
+        const auto scan = clc::scan_pcd_source(opt.directory, 0, 0);
+        if (!opt.print_params_only && !scan.error.empty()) {
+          std::cerr << "Unable to read scan geometry: " << scan.error << "\n";
+          return 1;
+        }
+        const auto it = std::find_if(session.scan_masks.begin(), session.scan_masks.end(), [&](const clc::GlobalMaskMeta& mask) {
+          return mask.width == scan.reference_width && mask.height == scan.reference_height;
+        });
+        const clc::GlobalMaskMeta* mask = it != session.scan_masks.end() ? &*it : nullptr;
+        if (!mask && session.scan_masks.empty() && session.global_mask.width == scan.reference_width &&
+            session.global_mask.height == scan.reference_height) mask = &session.global_mask;
+        if (mask && (!mask->ops.empty() || !mask->path.empty())) {
+          std::string mask_err;
+          const auto session_dir = std::filesystem::path(opt.params_json_path).parent_path();
+          if (!clc::rasterize_global_mask(*mask, session_dir.string(), mask_pixels, mask_err)) {
+            std::cerr << "Unable to load scan mask: " << mask_err << "\n";
+            return 1;
+          }
         }
       }
     }

@@ -6,7 +6,7 @@ import QtQuick.Window
 
 Window {
     id: maskWindow
-    title: qsTr("Global mask editor")
+    title: qsTr("Scan mask editor — shared by scan shape")
     width: 960
     height: 720
     minimumWidth: 480
@@ -35,7 +35,7 @@ Window {
 
         RowLayout {
             Layout.fillWidth: true
-            visible: controller.calibrationDatasetIds.length > 0
+            visible: false
             Label { text: qsTr("Preview dataset") }
             ComboBox {
                 Layout.fillWidth: true
@@ -147,8 +147,10 @@ Window {
             wrapMode: Text.WordWrap
             text: controller.maskPolygonPending
                 ? qsTr("Polygon ready — click Keep or Remove to update the mask, then draw another if needed.")
-                : (controller.maskPath.length > 0 ? (qsTr("Mask file: ") + controller.maskPath)
-                    : qsTr("Click to add vertices (edges snap to the border). Finish with the green first vertex, double-click, or Close polygon."))
+                : (controller.scanMaskActive
+                    ? (controller.maskPath.length > 0 ? (qsTr("Scan mask excludes points. File: ") + controller.maskPath)
+                                                      : qsTr("Scan mask excludes points (unsaved edits)."))
+                    : qsTr("No scan points excluded. Click to add vertices; finish with the green first vertex, double-click, or Close polygon."))
         }
     }
 }
